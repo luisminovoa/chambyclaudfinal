@@ -7,6 +7,7 @@ import { CheckCircle2, Star } from "lucide-react";
 import { RatingStars } from "@/components/RatingStars";
 import { submitRating } from "@/lib/actions/ratings";
 import { useToast } from "@/components/ui/Toaster";
+import { AntIllustration } from "@/components/brand/AntIllustration";
 
 export function RatingForm({
   jobId,
@@ -39,12 +40,15 @@ export function RatingForm({
   if (result?.success) {
     return (
       <motion.div
-        initial={{ opacity: 0, scale: 0.97 }}
+        initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="card flex items-center gap-3 p-5 text-sm font-medium text-success-700"
+        className="card flex flex-col items-center gap-2 p-6 text-center"
       >
-        <CheckCircle2 className="h-5 w-5 shrink-0 text-success-500" />
-        ¡Gracias por calificar a {ratedName}!
+        <AntIllustration pose="celebrate" className="w-28 text-primary-600" />
+        <p className="flex items-center gap-2 text-sm font-semibold text-success-700">
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-success-500" />
+          ¡Gracias por calificar a {ratedName}!
+        </p>
       </motion.div>
     );
   }

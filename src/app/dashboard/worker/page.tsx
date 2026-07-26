@@ -116,8 +116,8 @@ export default async function WorkerDashboardPage() {
               {activeApps.length === 0 ? (
                 <div className="mt-4">
                   <EmptyState
-                    icon={ClipboardList}
-                    title="Sin postulaciones activas"
+                    pose="search"
+                    title="La hormiguita no encontró postulaciones activas"
                     description="Explora los trabajos disponibles y postula a tu próxima chamba."
                     actionLabel="Explorar trabajos"
                     actionHref="/jobs"
@@ -156,9 +156,9 @@ export default async function WorkerDashboardPage() {
               {history.length === 0 ? (
                 <div className="mt-4">
                   <EmptyState
-                    icon={Briefcase}
-                    title="Historial vacío"
-                    description="Cuando completes trabajos, aparecerán aquí para construir tu reputación."
+                    pose="briefcase"
+                    title="Tu historial está vacío"
+                    description="Cuando completes trabajos, la hormiguita los guardará aquí para construir tu reputación."
                   />
                 </div>
               ) : (

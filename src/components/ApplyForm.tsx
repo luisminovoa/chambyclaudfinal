@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { CheckCircle2, Send, AlertCircle } from "lucide-react";
 import { applyToJob } from "@/lib/actions/jobs";
 import { useToast } from "@/components/ui/Toaster";
+import { AntIllustration } from "@/components/brand/AntIllustration";
 
 export function ApplyForm({ jobId }: { jobId: string }) {
   const [message, setMessage] = useState("");
@@ -25,12 +26,15 @@ export function ApplyForm({ jobId }: { jobId: string }) {
   if (result?.success) {
     return (
       <motion.div
-        initial={{ opacity: 0, scale: 0.97 }}
+        initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="flex items-center gap-3 rounded-2xl bg-success-50 px-4 py-4 text-sm font-medium text-success-700"
+        className="flex flex-col items-center gap-2 rounded-2xl bg-success-50 px-4 py-6 text-center"
       >
-        <CheckCircle2 className="h-5 w-5 shrink-0" />
-        ¡Postulación enviada! El empleador revisará tu solicitud.
+        <AntIllustration pose="celebrate" className="w-28 text-success-600" />
+        <p className="flex items-center gap-2 text-sm font-semibold text-success-700">
+          <CheckCircle2 className="h-5 w-5 shrink-0" />
+          ¡Postulación enviada! El empleador revisará tu solicitud.
+        </p>
       </motion.div>
     );
   }

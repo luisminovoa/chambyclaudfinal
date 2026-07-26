@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { MessageCircle } from "lucide-react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Reveal } from "@/components/ui/Reveal";
 
@@ -17,8 +16,8 @@ export default function MessagesPage() {
       <div className="mt-8">
         <Reveal delay={0.05}>
           <EmptyState
-            icon={MessageCircle}
-            title="Muy pronto"
+            pose="mail"
+            title="La hormiguita aún no trae mensajes"
             description="La mensajería directa entre trabajadores y empleadores llegará en la próxima versión. Mientras tanto, coordina desde los detalles de cada trabajo."
             actionLabel="Explorar trabajos"
             actionHref="/jobs"

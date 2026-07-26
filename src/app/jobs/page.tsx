@@ -70,8 +70,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         )}
         {!error && typedJobs.length === 0 && (
           <EmptyState
-            icon={SearchX}
-            title="Sin resultados"
+            pose="search"
+            title="La hormiguita buscó por todos lados..."
             description="No encontramos trabajos con esos filtros. Prueba con otra ciudad o categoría."
             actionLabel="Ver todos los trabajos"
             actionHref="/jobs"

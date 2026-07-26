@@ -41,6 +41,28 @@ Gradiente de marca: `bg-brand-gradient` (135°, `#5B3DF5 → #7C5CFF → #9678ff
 - Sombras: `shadow-soft` (reposo) · `shadow-card` (tarjetas) · `shadow-lifted` (hover/overlay) ·
   `shadow-glow` (CTA de marca).
 
+## Marca: la hormiguita de Chamby
+
+La hormiguita es la mascota oficial y vive en `src/components/brand/`:
+
+| Componente | Uso |
+| --- | --- |
+| `AntIcon` | Marca vectorial en silueta (`currentColor`): blanca sobre morado, morada sobre claro |
+| `LogoHorizontal` / `LogoCompacto` / `LogoLink` | Logo oficial: hormiguita + "Chamby" + eslogan "CONECTA, CHAMBEA Y COBRA" |
+| `AntLoader` | Loader exclusivo: la hormiguita camina sobre una línea punteada (sin spinners genéricos) |
+| `AntIllustration` | Poses para estados: `wave`, `search`, `briefcase`, `lost`, `celebrate`, `mail` |
+| `HeroAnt` | Hormiguita del hero: saluda y flota con Framer Motion sobre un camino punteado |
+
+Presencia estratégica (nunca decoración excesiva): navbar/footer (logo), hero (bienvenida),
+empty states (una pose distinta por contexto), loaders, éxitos (postulación/calificación),
+404 ("Ups... esta chamba no existe"), favicon/app icons y watermark del CTA.
+
+Amarillo de marca `sun` (`#FFC107`): accesorios de la hormiguita, estrellas de calificación
+y acentos sobre fondos morados — nunca texto amarillo sobre blanco (contraste AA).
+
+PWA: `src/app/icon.svg` (favicon), `src/app/apple-icon.png`, `public/icon-192.png`,
+`public/icon-512.png` y `src/app/manifest.ts`.
+
 ## Organización de componentes
 
 ```

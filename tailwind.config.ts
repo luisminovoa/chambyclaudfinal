@@ -42,6 +42,7 @@ const config: Config = {
           600: "#dc2626",
           700: "#b91c1c",
         },
+        sun: "#FFC107",
         surface: "#F8FAFC",
         ink: {
           DEFAULT: "#111827",
