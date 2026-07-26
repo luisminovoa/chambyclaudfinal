@@ -33,11 +33,12 @@ export default async function WorkerDashboardPage() {
     (a) => a.status === "aceptado" && a.job && (a.job.status === "completado" || a.job.status === "en_progreso")
   );
 
-  const { data: ratingSummary } = await supabase
+ const { data: ratingSummaryRaw } = await supabase
     .from("rating_summary")
     .select("*")
     .eq("profile_id", user.id)
     .maybeSingle();
+  const ratingSummary = ratingSummaryRaw as unknown as RatingSummary | null;
 
   const { data: recentRatings } = await supabase
     .from("ratings")
