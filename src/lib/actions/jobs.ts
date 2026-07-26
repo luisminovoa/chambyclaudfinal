@@ -52,13 +52,15 @@ export async function createJob(_prev: ActionResult, formData: FormData): Promis
     .select("id")
     .single();
 
-  if (error) {
+if (error) {
     return { error: "No se pudo publicar el trabajo. Intenta nuevamente." };
   }
 
+  const newJob = data as unknown as { id: string };
+
   revalidatePath("/jobs");
   revalidatePath("/dashboard/employer");
-  redirect(`/jobs/${data.id}`);
+  redirect(`/jobs/${newJob.id}`);
 }
 
 export async function updateJobStatus(jobId: string, status: string) {
@@ -108,15 +110,17 @@ export async function applyToJob(jobId: string, message: string) {
 
 export async function updateApplicationStatus(applicationId: string, status: string) {
   const supabase = createClient();
-  const { error, data } = await supabase
+const { error, data } = await supabase
     .from("job_applications")
     .update({ status })
     .eq("id", applicationId)
     .select("job_id")
     .single();
 
-  if (!error && data) {
-    revalidatePath(`/jobs/${data.job_id}`);
+  const updated = data as unknown as { job_id: string } | null;
+
+  if (!error && updated) {
+    revalidatePath(`/jobs/${updated.job_id}`);
     revalidatePath("/dashboard/employer");
     revalidatePath("/dashboard/worker");
   }
