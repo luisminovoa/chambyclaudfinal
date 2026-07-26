@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { RatingStars } from "@/components/RatingStars";
 import { EmployerJobRow } from "@/components/EmployerJobRow";
-import type { Job } from "@/lib/types";
+import type { Job, RatingSummary } from "@/lib/types";
 
 export default async function EmployerDashboardPage() {
   const supabase = createClient();
@@ -32,11 +32,12 @@ export default async function EmployerDashboardPage() {
     countByJob[a.job_id] = (countByJob[a.job_id] ?? 0) + 1;
   });
 
-  const { data: ratingSummary } = await supabase
+ const { data: ratingSummaryRaw } = await supabase
     .from("rating_summary")
     .select("*")
     .eq("profile_id", user.id)
     .maybeSingle();
+  const ratingSummary = ratingSummaryRaw as unknown as RatingSummary | null;
 
   const openCount = typedJobs.filter((j) => j.status === "abierto").length;
   const inProgressCount = typedJobs.filter((j) => j.status === "en_progreso").length;
