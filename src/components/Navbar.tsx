@@ -3,6 +3,7 @@ import { LogOut, Plus, Search, ShieldCheck } from "lucide-react";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { logout } from "@/lib/actions/auth";
 import { Avatar } from "@/components/ui/Avatar";
+import { LogoLink } from "@/components/brand/Logo";
 
 export async function Navbar() {
   const { user, profile } = await getCurrentUserAndProfile();
@@ -10,12 +11,8 @@ export async function Navbar() {
   return (
     <header className="glass sticky top-0 z-40">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-        <Link href="/" className="group flex items-center gap-2.5" aria-label="Chamby, inicio">
-          <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-gradient text-lg font-extrabold text-white shadow-glow-sm transition-transform duration-200 group-hover:scale-105">
-            C
-          </span>
-          <span className="text-lg font-extrabold tracking-tight text-ink">Chamby</span>
-        </Link>
+        <LogoLink tone="color" withSlogan />
+
 
         {/* En escritorio se muestran los enlaces principales; en móvil viven en el BottomNav */}
         <nav className="hidden items-center gap-1 text-sm font-semibold text-ink-muted sm:flex">

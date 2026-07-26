@@ -6,9 +6,10 @@ import { HeroSearch } from "@/components/HeroSearch";
 import { Reveal } from "@/components/ui/Reveal";
 import { Avatar } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { HeroAnt } from "@/components/brand/HeroAnt";
+import { AntIcon } from "@/components/brand/AntIcon";
 import { CATEGORIES } from "@/lib/categories";
 import type { JobWithEmployer, Profile } from "@/lib/types";
-import { Briefcase } from "lucide-react";
 
 export default async function HomePage() {
   const supabase = createClient();
@@ -41,44 +42,51 @@ export default async function HomePage() {
           className="absolute -top-32 left-1/2 h-72 w-[600px] -translate-x-1/2 rounded-full bg-primary-200/40 blur-3xl"
           aria-hidden
         />
-        <div className="relative mx-auto max-w-6xl px-4 pb-16 pt-14 text-center sm:px-6 sm:pb-24 sm:pt-24">
-          <Reveal y={12}>
-            <span className="badge mx-auto border border-primary-100 bg-white/80 text-primary-700 shadow-soft backdrop-blur">
-              <Sparkles className="h-3.5 w-3.5" />
-              La plataforma de chambas del Perú
-            </span>
-          </Reveal>
-          <Reveal delay={0.05}>
-            <h1 className="text-balance mx-auto mt-5 max-w-3xl text-4xl font-extrabold leading-[1.1] tracking-tight text-ink sm:text-6xl">
-              Encuentra tu próxima{" "}
-              <span className="bg-brand-gradient bg-clip-text text-transparent">chamba</span>, o al
-              talento que necesitas
-            </h1>
-          </Reveal>
-          <Reveal delay={0.1}>
-            <p className="text-balance mx-auto mt-5 max-w-xl text-base text-ink-muted sm:text-lg">
-              Conectamos trabajadores y empleadores por ciudad y oficio, con historial laboral y
-              calificaciones reales.
-            </p>
-          </Reveal>
+        <div className="relative mx-auto max-w-6xl px-4 pb-16 pt-14 sm:px-6 sm:pb-24 sm:pt-24 lg:grid lg:grid-cols-[1fr_auto] lg:items-center lg:gap-12">
+          <div className="text-center lg:text-left">
+            <Reveal y={12}>
+              <span className="badge border border-primary-100 bg-white/80 text-primary-700 shadow-soft backdrop-blur">
+                <Sparkles className="h-3.5 w-3.5" />
+                La app peruana de empleos temporales
+              </span>
+            </Reveal>
+            <Reveal delay={0.05}>
+              <h1 className="text-balance mx-auto mt-5 max-w-3xl text-4xl font-extrabold leading-[1.1] tracking-tight text-ink sm:text-6xl lg:mx-0">
+                Conecta,{" "}
+                <span className="bg-brand-gradient bg-clip-text text-transparent">chambea</span> y
+                cobra
+              </h1>
+            </Reveal>
+            <Reveal delay={0.1}>
+              <p className="text-balance mx-auto mt-5 max-w-xl text-base text-ink-muted sm:text-lg lg:mx-0">
+                Encuentra trabajos cerca de ti o publica gratis y contrata rápido y seguro, con
+                historial laboral y calificaciones reales.
+              </p>
+            </Reveal>
 
-          <HeroSearch />
+            <HeroSearch />
 
-          <Reveal delay={0.2}>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-ink-muted">
-              <span className="inline-flex items-center gap-1.5">
-                <BadgeCheck className="h-4 w-4 text-success-500" />
-                Perfiles verificados
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <Star className="h-4 w-4 text-warning-500" />
-                Calificaciones reales
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-primary-500" />
-                100% gratis
-              </span>
-            </div>
+            <Reveal delay={0.2}>
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-ink-muted lg:justify-start">
+                <span className="inline-flex items-center gap-1.5">
+                  <BadgeCheck className="h-4 w-4 text-success-500" />
+                  Perfiles verificados
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Star className="h-4 w-4 text-sun" />
+                  Calificaciones reales
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-primary-500" />
+                  100% gratis
+                </span>
+              </div>
+            </Reveal>
+          </div>
+
+          {/* La hormiguita da la bienvenida (solo escritorio para no saturar el móvil) */}
+          <Reveal delay={0.15} className="hidden lg:block">
+            <HeroAnt />
           </Reveal>
         </div>
       </section>
@@ -137,9 +145,9 @@ export default async function HomePage() {
           </div>
         ) : (
           <EmptyState
-            icon={Briefcase}
-            title="Aún no hay trabajos publicados"
-            description="Sé el primero en publicar una chamba y encuentra al talento ideal en minutos."
+            pose="briefcase"
+            title="La hormiguita todavía no encontró ninguna chamba"
+            description="Sé el primero en publicar una y encuentra al talento ideal en minutos."
             actionLabel="Publicar un trabajo"
             actionHref="/register"
           />
@@ -223,8 +231,9 @@ export default async function HomePage() {
               className="absolute -bottom-20 -right-10 h-64 w-64 rounded-full bg-white/10 blur-2xl"
               aria-hidden
             />
+            <AntIcon className="absolute -bottom-4 right-6 h-24 w-24 rotate-[-8deg] text-white/15 sm:right-10 sm:h-32 sm:w-32" />
             <h2 className="text-balance relative text-2xl font-extrabold tracking-tight text-white sm:text-4xl">
-              Tu próxima oportunidad está a un clic
+              Tu próxima oportunidad está a <span className="text-sun">un clic</span>
             </h2>
             <p className="relative mx-auto mt-3 max-w-md text-sm text-white/85 sm:text-base">
               Únete gratis a Chamby y empieza a trabajar o contratar hoy mismo.

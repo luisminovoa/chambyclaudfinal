@@ -101,10 +101,10 @@ export default async function EmployerDashboardPage() {
             {typedJobs.length === 0 ? (
               <div className="mt-4">
                 <EmptyState
-                  icon={Briefcase}
-                  title="Aún no has publicado trabajos"
+                  pose="briefcase"
+                  title="La hormiguita todavía no encontró ninguna chamba"
                   description="Publica tu primera vacante y empieza a recibir postulaciones hoy mismo."
-                  actionLabel="Publicar el primero"
+                  actionLabel="Publicar la primera"
                   actionHref="/jobs/new"
                 />
               </div>

@@ -1,8 +1,10 @@
 import { Skeleton, JobCardSkeleton } from "@/components/ui/Skeleton";
+import { AntLoader } from "@/components/brand/AntLoader";
 
 export default function HomeLoading() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
+      <AntLoader className="mb-10" />
       <div className="flex flex-col items-center">
         <Skeleton className="h-6 w-56 rounded-full" />
         <Skeleton className="mt-5 h-12 w-full max-w-2xl" />

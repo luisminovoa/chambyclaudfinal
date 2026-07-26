@@ -201,9 +201,9 @@ export default async function JobDetailPage({ params }: { params: { id: string }
             {applications.length === 0 ? (
               <div className="mt-4">
                 <EmptyState
-                  icon={Users}
-                  title="Aún no hay postulaciones"
-                  description="Comparte el enlace del trabajo para llegar a más candidatos."
+                  pose="search"
+                  title="La hormiguita sigue buscando candidatos"
+                  description="Comparte el enlace del trabajo para llegar a más postulantes."
                 />
               </div>
             ) : (
