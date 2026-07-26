@@ -10,7 +10,8 @@ async function assertAdmin() {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("No autenticado");
 
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  const profile = profileRaw as unknown as { role: string } | null;
   if (profile?.role !== "admin") throw new Error("No autorizado");
 
   return supabase;
