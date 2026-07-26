@@ -1,18 +1,18 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { MapPin, Wallet, CalendarDays, Users, FileText, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
-import {
-  formatCurrency,
-  payTypeLabel,
-  jobStatusColor,
-  jobStatusLabel,
-  formatDate,
-  initials,
-} from "@/lib/utils";
+import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
 import { ApplyForm } from "@/components/ApplyForm";
 import { ApplicantRow } from "@/components/ApplicantRow";
 import { RatingForm } from "@/components/RatingForm";
 import { RatingStars } from "@/components/RatingStars";
+import { Avatar } from "@/components/ui/Avatar";
+import { Badge, jobStatusTone } from "@/components/ui/Badge";
+import { Reveal } from "@/components/ui/Reveal";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { JobCardActions } from "@/components/JobCardActions";
 import type { JobWithEmployer, ApplicationWithProfiles, RatingSummary } from "@/lib/types";
 
 export default async function JobDetailPage({ params }: { params: { id: string } }) {
@@ -30,7 +30,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   const typedJob = job as unknown as JobWithEmployer;
   const isOwner = user?.id === typedJob.employer_id;
 
-const { data: employerRatingRaw } = await supabase
+  const { data: employerRatingRaw } = await supabase
     .from("rating_summary")
     .select("*")
     .eq("profile_id", typedJob.employer_id)
@@ -61,128 +61,188 @@ const { data: employerRatingRaw } = await supabase
   const isAssignedWorker = user?.id === typedJob.assigned_worker_id;
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
-      <div className="card p-6 sm:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">{typedJob.title}</h1>
-            <p className="mt-1 text-slate-500">
-              {typedJob.category} · {typedJob.city}
-            </p>
-          </div>
-          <span className={`badge ${jobStatusColor(typedJob.status)}`}>
-            {jobStatusLabel(typedJob.status)}
-          </span>
-        </div>
+    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+      {/* Breadcrumb */}
+      <Reveal y={8}>
+        <nav aria-label="Miga de pan" className="mb-4 flex items-center gap-1 text-xs font-medium text-ink-muted">
+          <Link href="/" className="transition-colors hover:text-primary-600">
+            Inicio
+          </Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <Link href="/jobs" className="transition-colors hover:text-primary-600">
+            Trabajos
+          </Link>
+          <ChevronRight className="h-3.5 w-3.5" />
+          <span className="line-clamp-1 text-ink">{typedJob.title}</span>
+        </nav>
+      </Reveal>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div>
-            <p className="text-xs font-medium uppercase text-slate-400">Pago</p>
-            <p className="mt-1 font-semibold text-primary-700">
-              {formatCurrency(typedJob.pay_amount)}{" "}
-              <span className="font-normal text-slate-500">{payTypeLabel(typedJob.pay_type)}</span>
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-medium uppercase text-slate-400">Publicado</p>
-            <p className="mt-1 text-slate-700">{formatDate(typedJob.created_at)}</p>
-          </div>
-        </div>
+      <Reveal>
+        <div className="card overflow-hidden">
+          <div className="h-2 bg-brand-gradient" aria-hidden />
+          <div className="p-6 sm:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <Badge tone={jobStatusTone(typedJob.status)}>{jobStatusLabel(typedJob.status)}</Badge>
+                <h1 className="mt-3 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+                  {typedJob.title}
+                </h1>
+                <p className="mt-1.5 flex items-center gap-1.5 text-sm font-medium text-ink-muted">
+                  <MapPin className="h-4 w-4 text-primary-500" />
+                  {typedJob.category} · {typedJob.city}
+                  {typedJob.address ? ` · ${typedJob.address}` : ""}
+                </p>
+              </div>
+              <JobCardActions jobId={typedJob.id} jobTitle={typedJob.title} />
+            </div>
 
-        <div className="mt-6">
-          <p className="text-xs font-medium uppercase text-slate-400">Descripción</p>
-          <p className="mt-2 whitespace-pre-line text-slate-700">{typedJob.description}</p>
-        </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-primary-50/60 p-4">
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary-600">
+                  <Wallet className="h-3.5 w-3.5" />
+                  Pago
+                </p>
+                <p className="mt-1.5 text-lg font-extrabold tracking-tight text-primary-700">
+                  {formatCurrency(typedJob.pay_amount)}
+                </p>
+                <p className="text-xs font-medium text-ink-muted">{payTypeLabel(typedJob.pay_type)}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  Publicado
+                </p>
+                <p className="mt-1.5 text-sm font-bold text-ink">{formatDate(typedJob.created_at)}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  <Users className="h-3.5 w-3.5" />
+                  Vacantes
+                </p>
+                <p className="mt-1.5 text-sm font-bold text-ink">
+                  {typedJob.positions_needed} {typedJob.positions_needed === 1 ? "puesto" : "puestos"}
+                </p>
+              </div>
+            </div>
 
-        <div className="mt-6 flex items-center gap-3 border-t border-slate-100 pt-5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
-            {initials(typedJob.employer?.full_name ?? "?")}
-          </span>
-          <div>
-            <p className="text-sm font-medium text-slate-900">{typedJob.employer?.full_name}</p>
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-              {employerRating ? (
-                <>
-                  <RatingStars value={Math.round(employerRating.average_score)} readOnly size="sm" />
-                  <span>
-                    {employerRating.average_score} ({employerRating.total_ratings} reseñas)
-                  </span>
-                </>
-              ) : (
-                <span>Sin calificaciones aún</span>
-              )}
+            <div className="mt-6">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                <FileText className="h-3.5 w-3.5" />
+                Descripción
+              </p>
+              <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">
+                {typedJob.description}
+              </p>
+            </div>
+
+            {/* Perfil del empleador */}
+            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+              <Avatar name={typedJob.employer?.full_name ?? "?"} src={typedJob.employer?.avatar_url} size="lg" />
+              <div>
+                <p className="text-sm font-bold text-ink">{typedJob.employer?.full_name}</p>
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted">
+                  {employerRating ? (
+                    <>
+                      <RatingStars value={Math.round(employerRating.average_score)} readOnly size="sm" />
+                      <span className="font-medium">
+                        {employerRating.average_score} · {employerRating.total_ratings} reseñas
+                      </span>
+                    </>
+                  ) : (
+                    <span>Sin calificaciones aún</span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </Reveal>
 
       {/* Postular (trabajador, trabajo abierto) */}
       {profile?.role === "worker" && typedJob.status === "abierto" && !isOwner && (
-        <div className="mt-6 card p-6">
-          <h2 className="mb-4 font-semibold text-slate-900">Postular a este trabajo</h2>
-          {myApplication ? (
-            <p className="text-sm text-slate-500">
-              Ya enviaste tu postulación. Estado: <strong>{myApplication.status}</strong>
-            </p>
-          ) : (
-            <ApplyForm jobId={typedJob.id} />
-          )}
-        </div>
+        <Reveal delay={0.05}>
+          <div className="card mt-6 p-6">
+            <h2 className="text-base font-bold text-ink">Postular a este trabajo</h2>
+            {myApplication ? (
+              <div className="mt-4 flex items-center gap-3 rounded-2xl bg-primary-50/60 p-4">
+                <Badge tone={jobStatusTone(myApplication.status)}>{myApplication.status}</Badge>
+                <p className="text-sm text-ink-muted">Ya enviaste tu postulación a este trabajo.</p>
+              </div>
+            ) : (
+              <div className="mt-4">
+                <ApplyForm jobId={typedJob.id} />
+              </div>
+            )}
+          </div>
+        </Reveal>
       )}
 
       {!user && typedJob.status === "abierto" && (
-        <div className="mt-6 card p-6 text-center">
-          <p className="text-slate-600">
-            <a href="/login" className="font-medium text-primary-700 hover:underline">
-              Inicia sesión
-            </a>{" "}
-            como trabajador para postular a este trabajo.
-          </p>
-        </div>
+        <Reveal delay={0.05}>
+          <div className="card mt-6 p-8 text-center">
+            <p className="text-ink-muted">
+              <Link href="/login" className="font-bold text-primary-600 transition-colors hover:text-primary-700">
+                Inicia sesión
+              </Link>{" "}
+              como trabajador para postular a este trabajo.
+            </p>
+          </div>
+        </Reveal>
       )}
 
       {/* Lista de postulantes (empleador dueño) */}
       {isOwner && (
-        <div className="mt-6 card p-6">
-          <h2 className="mb-2 font-semibold text-slate-900">
-            Postulantes ({applications.length})
-          </h2>
-          {applications.length === 0 ? (
-            <p className="text-sm text-slate-500">Aún no hay postulaciones.</p>
-          ) : (
-            <div>
-              {applications.map((app) => (
-                <ApplicantRow
-                  key={app.id}
-                  applicationId={app.id}
-                  status={app.status}
-                  worker={app.worker!}
-                  canManage={typedJob.status === "abierto"}
+        <Reveal delay={0.05}>
+          <div className="card mt-6 p-6">
+            <h2 className="flex items-center gap-2 text-base font-bold text-ink">
+              Postulantes
+              <Badge tone="primary">{applications.length}</Badge>
+            </h2>
+            {applications.length === 0 ? (
+              <div className="mt-4">
+                <EmptyState
+                  icon={Users}
+                  title="Aún no hay postulaciones"
+                  description="Comparte el enlace del trabajo para llegar a más candidatos."
                 />
-              ))}
-            </div>
-          )}
-        </div>
+              </div>
+            ) : (
+              <div className="mt-2">
+                {applications.map((app) => (
+                  <ApplicantRow
+                    key={app.id}
+                    applicationId={app.id}
+                    status={app.status}
+                    worker={app.worker!}
+                    canManage={typedJob.status === "abierto"}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </Reveal>
       )}
 
       {/* Calificación mutua al completar el trabajo */}
       {jobCompleted && user && (isOwner || isAssignedWorker) && (
-        <div className="mt-6">
-          {isOwner && typedJob.assigned_worker_id && (
-            <RatingForm
-              jobId={typedJob.id}
-              ratedId={typedJob.assigned_worker_id}
-              ratedName="el trabajador"
-            />
-          )}
-          {isAssignedWorker && (
-            <RatingForm
-              jobId={typedJob.id}
-              ratedId={typedJob.employer_id}
-              ratedName={typedJob.employer?.full_name ?? "el empleador"}
-            />
-          )}
-        </div>
+        <Reveal delay={0.05}>
+          <div className="mt-6">
+            {isOwner && typedJob.assigned_worker_id && (
+              <RatingForm
+                jobId={typedJob.id}
+                ratedId={typedJob.assigned_worker_id}
+                ratedName="el trabajador"
+              />
+            )}
+            {isAssignedWorker && (
+              <RatingForm
+                jobId={typedJob.id}
+                ratedId={typedJob.employer_id}
+                ratedName={typedJob.employer?.full_name ?? "el empleador"}
+              />
+            )}
+          </div>
+        </Reveal>
       )}
     </div>
   );

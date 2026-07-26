@@ -1,4 +1,16 @@
+import {
+  Users,
+  HardHat,
+  Building2,
+  Briefcase,
+  FolderOpen,
+  CheckCircle2,
+  ClipboardList,
+  Star,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { StatCard } from "@/components/ui/StatCard";
+import { Reveal } from "@/components/ui/Reveal";
 
 export default async function AdminOverviewPage() {
   const supabase = createClient();
@@ -24,27 +36,40 @@ export default async function AdminOverviewPage() {
   ]);
 
   const stats = [
-    { label: "Usuarios totales", value: totalUsers ?? 0 },
-    { label: "Trabajadores", value: totalWorkers ?? 0 },
-    { label: "Empleadores", value: totalEmployers ?? 0 },
-    { label: "Trabajos publicados", value: totalJobs ?? 0 },
-    { label: "Trabajos abiertos", value: openJobs ?? 0 },
-    { label: "Trabajos completados", value: completedJobs ?? 0 },
-    { label: "Postulaciones", value: totalApplications ?? 0 },
-    { label: "Calificaciones", value: totalRatings ?? 0 },
+    { label: "Usuarios totales", value: totalUsers ?? 0, icon: Users, tone: "primary" as const },
+    { label: "Trabajadores", value: totalWorkers ?? 0, icon: HardHat, tone: "primary" as const },
+    { label: "Empleadores", value: totalEmployers ?? 0, icon: Building2, tone: "primary" as const },
+    { label: "Trabajos publicados", value: totalJobs ?? 0, icon: Briefcase, tone: "neutral" as const },
+    { label: "Trabajos abiertos", value: openJobs ?? 0, icon: FolderOpen, tone: "success" as const },
+    {
+      label: "Trabajos completados",
+      value: completedJobs ?? 0,
+      icon: CheckCircle2,
+      tone: "success" as const,
+    },
+    {
+      label: "Postulaciones",
+      value: totalApplications ?? 0,
+      icon: ClipboardList,
+      tone: "warning" as const,
+    },
+    { label: "Calificaciones", value: totalRatings ?? 0, icon: Star, tone: "warning" as const },
   ];
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-      <h1 className="text-2xl font-bold text-slate-900">Resumen general</h1>
-      <p className="mt-1 text-slate-500">Métricas clave de la plataforma Chamby.</p>
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+      <Reveal>
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+          Resumen general
+        </h1>
+        <p className="mt-1 text-ink-muted">Métricas clave de la plataforma Chamby.</p>
+      </Reveal>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {stats.map((s) => (
-          <div key={s.label} className="card p-5">
-            <p className="text-xs font-medium uppercase text-slate-400">{s.label}</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">{s.value}</p>
-          </div>
+      <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {stats.map((s, i) => (
+          <Reveal key={s.label} delay={Math.min(i * 0.04, 0.2)}>
+            <StatCard icon={s.icon} label={s.label} value={s.value} tone={s.tone} />
+          </Reveal>
         ))}
       </div>
     </div>

@@ -1,5 +1,8 @@
+import { Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { AdminUserRow } from "@/components/AdminUserRow";
+import { Reveal } from "@/components/ui/Reveal";
+import { EmptyState } from "@/components/ui/EmptyState";
 import type { Profile } from "@/lib/types";
 
 export default async function AdminUsersPage() {
@@ -12,30 +15,38 @@ export default async function AdminUsersPage() {
   const typedProfiles = (profiles as Profile[]) ?? [];
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-      <h1 className="text-2xl font-bold text-slate-900">Usuarios</h1>
-      <p className="mt-1 text-slate-500">Gestiona roles y estado de las cuentas.</p>
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+      <Reveal>
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">Usuarios</h1>
+        <p className="mt-1 text-ink-muted">Gestiona roles y estado de las cuentas.</p>
+      </Reveal>
 
-      <div className="mt-6 card overflow-x-auto p-6">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="border-b border-slate-200 text-xs uppercase text-slate-400">
-              <th className="pb-2 font-medium">Usuario</th>
-              <th className="pb-2 font-medium">Rol</th>
-              <th className="pb-2 font-medium">Registrado</th>
-              <th className="pb-2 text-right font-medium">Estado</th>
-            </tr>
-          </thead>
-          <tbody>
-            {typedProfiles.map((p) => (
-              <AdminUserRow key={p.id} profile={p} />
-            ))}
-          </tbody>
-        </table>
-        {typedProfiles.length === 0 && (
-          <p className="py-6 text-center text-sm text-slate-500">No hay usuarios registrados.</p>
-        )}
-      </div>
+      <Reveal delay={0.05}>
+        <div className="card mt-6 overflow-x-auto p-6">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
+                <th className="pb-3 font-semibold">Usuario</th>
+                <th className="pb-3 font-semibold">Rol</th>
+                <th className="pb-3 font-semibold">Registrado</th>
+                <th className="pb-3 text-right font-semibold">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {typedProfiles.map((p) => (
+                <AdminUserRow key={p.id} profile={p} />
+              ))}
+            </tbody>
+          </table>
+          {typedProfiles.length === 0 && (
+            <EmptyState
+              icon={Users}
+              title="No hay usuarios registrados"
+              description="Cuando alguien se registre en la plataforma, aparecerá aquí."
+            />
+          )}
+        </div>
+      </Reveal>
     </div>
   );
 }

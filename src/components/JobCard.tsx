@@ -1,31 +1,58 @@
 import Link from "next/link";
+import { MapPin, Clock, CalendarDays } from "lucide-react";
 import type { JobWithEmployer } from "@/lib/types";
-import { formatCurrency, payTypeLabel, jobStatusColor, jobStatusLabel, formatDate } from "@/lib/utils";
+import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
+import { Avatar } from "@/components/ui/Avatar";
+import { Badge, jobStatusTone } from "@/components/ui/Badge";
+import { JobCardActions } from "@/components/JobCardActions";
 
 export function JobCard({ job }: { job: JobWithEmployer }) {
   return (
-    <Link href={`/jobs/${job.id}`} className="card block p-5 transition-shadow hover:shadow-md">
+    <article className="card card-hover group relative flex flex-col p-5">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-slate-900">{job.title}</h3>
-          <p className="mt-0.5 text-sm text-slate-500">
-            {job.category} · {job.city}
-          </p>
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar name={job.employer?.full_name ?? "?"} src={job.employer?.avatar_url} size="md" />
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-ink-muted">
+              {job.employer?.full_name ?? "Empleador"}
+            </p>
+            <h3 className="truncate font-bold text-ink transition-colors duration-200 group-hover:text-primary-600">
+              <Link href={`/jobs/${job.id}`} className="focus:outline-none">
+                {/* El enlace expandido hace clicable toda la tarjeta */}
+                <span className="absolute inset-0 z-0" aria-hidden />
+                {job.title}
+              </Link>
+            </h3>
+          </div>
         </div>
-        <span className={`badge shrink-0 ${jobStatusColor(job.status)}`}>
+        <Badge tone={jobStatusTone(job.status)} className="shrink-0">
           {jobStatusLabel(job.status)}
+        </Badge>
+      </div>
+
+      <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-ink-muted">{job.description}</p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-medium text-ink-muted">
+        <span className="inline-flex items-center gap-1">
+          <MapPin className="h-3.5 w-3.5 text-primary-500" />
+          {job.city}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <Clock className="h-3.5 w-3.5 text-primary-500" />
+          {payTypeLabel(job.pay_type)}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <CalendarDays className="h-3.5 w-3.5 text-primary-500" />
+          {formatDate(job.created_at)}
         </span>
       </div>
 
-      <p className="mt-3 line-clamp-2 text-sm text-slate-600">{job.description}</p>
-
-      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-        <span className="font-semibold text-primary-700">
-          {formatCurrency(job.pay_amount)}{" "}
-          <span className="font-normal text-slate-500">{payTypeLabel(job.pay_type)}</span>
-        </span>
-        <span className="text-xs text-slate-400">Publicado el {formatDate(job.created_at)}</span>
+      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+        <p className="text-base font-extrabold tracking-tight text-primary-600">
+          {formatCurrency(job.pay_amount)}
+        </p>
+        <JobCardActions jobId={job.id} jobTitle={job.title} />
       </div>
-    </Link>
+    </article>
   );
 }
