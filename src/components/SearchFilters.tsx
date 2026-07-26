@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useState } from "react";
-import { Search, MapPin, LayoutGrid, X } from "lucide-react";
+import { Search, MapPin, LayoutGrid, X, ChevronDown } from "lucide-react";
 
 export function SearchFilters({ categories }: { categories: string[] }) {
   const router = useRouter();
@@ -75,7 +75,7 @@ export function SearchFilters({ categories }: { categories: string[] }) {
           <LayoutGrid className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <select
             id="filter-category"
-            className="input cursor-pointer appearance-none !pl-11"
+            className="input cursor-pointer appearance-none !pl-11 pr-10"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
@@ -86,6 +86,7 @@ export function SearchFilters({ categories }: { categories: string[] }) {
               </option>
             ))}
           </select>
+          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
         </div>
       </div>
       <div className="flex gap-2">

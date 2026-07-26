@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import { LoginForm } from "@/components/LoginForm";
 import { Reveal } from "@/components/ui/Reveal";
 import { LogoCompacto } from "@/components/brand/Logo";
+
+export const metadata: Metadata = {
+  title: "Ingresar",
+  description: "Ingresa a tu cuenta de Chamby para buscar chambas o gestionar tus publicaciones.",
+};
 
 export default function LoginPage() {
   return (

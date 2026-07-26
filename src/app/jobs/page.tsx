@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { SearchX } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { JobCard } from "@/components/JobCard";
@@ -6,6 +7,12 @@ import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CATEGORY_NAMES } from "@/lib/categories";
 import type { JobWithEmployer } from "@/lib/types";
+
+export const metadata: Metadata = {
+  title: "Buscar trabajos",
+  description:
+    "Encuentra chambas cerca de ti: filtra por ciudad, categoría o palabra clave y postula en minutos.",
+};
 
 interface JobsPageProps {
   searchParams: { city?: string; category?: string; q?: string };

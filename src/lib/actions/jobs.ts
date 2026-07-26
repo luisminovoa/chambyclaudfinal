@@ -63,9 +63,15 @@ if (error) {
   redirect(`/jobs/${newJob.id}`);
 }
 
+const jobStatusSchema = z.enum(["abierto", "en_progreso", "completado", "cancelado"]);
+const applicationStatusSchema = z.enum(["pendiente", "aceptado", "rechazado", "retirado"]);
+
 export async function updateJobStatus(jobId: string, status: string) {
+  const parsedStatus = jobStatusSchema.safeParse(status);
+  if (!parsedStatus.success) return { error: "Estado inválido." };
+
   const supabase = createClient();
-  const { error } = await supabase.from("jobs").update({ status }).eq("id", jobId);
+  const { error } = await supabase.from("jobs").update({ status: parsedStatus.data }).eq("id", jobId);
   if (!error) {
     revalidatePath(`/jobs/${jobId}`);
     revalidatePath("/dashboard/employer");
@@ -109,10 +115,13 @@ export async function applyToJob(jobId: string, message: string) {
 }
 
 export async function updateApplicationStatus(applicationId: string, status: string) {
+  const parsedStatus = applicationStatusSchema.safeParse(status);
+  if (!parsedStatus.success) return { error: "Estado inválido." };
+
   const supabase = createClient();
 const { error, data } = await supabase
     .from("job_applications")
-    .update({ status })
+    .update({ status: parsedStatus.data })
     .eq("id", applicationId)
     .select("job_id")
     .single();

@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import { RegisterForm } from "@/components/RegisterForm";
 import { Reveal } from "@/components/ui/Reveal";
 import { LogoCompacto } from "@/components/brand/Logo";
+
+export const metadata: Metadata = {
+  title: "Crear cuenta",
+  description: "Únete gratis a Chamby como trabajador o empleador en menos de un minuto.",
+};
 
 export default function RegisterPage() {
   return (

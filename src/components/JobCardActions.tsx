@@ -62,7 +62,7 @@ export function JobCardActions({ jobId, jobTitle }: { jobId: string; jobTitle: s
           "flex h-9 w-9 items-center justify-center rounded-xl transition-colors duration-200",
           saved
             ? "bg-primary-50 text-primary-600"
-            : "text-slate-400 hover:bg-slate-100 hover:text-ink"
+            : "text-slate-500 hover:bg-slate-100 hover:text-ink"
         )}
       >
         <Bookmark className={cn("h-4 w-4", saved && "fill-current")} />
@@ -71,7 +71,7 @@ export function JobCardActions({ jobId, jobTitle }: { jobId: string; jobTitle: s
         whileTap={{ scale: 0.85 }}
         onClick={share}
         aria-label="Compartir empleo"
-        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition-colors duration-200 hover:bg-slate-100 hover:text-ink"
+        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition-colors duration-200 hover:bg-slate-100 hover:text-ink"
       >
         <Share2 className="h-4 w-4" />
       </motion.button>

@@ -24,7 +24,7 @@ export default async function AdminJobsPage() {
         <div className="card mt-6 overflow-x-auto p-6">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-500">
                 <th className="pb-3 font-semibold">Trabajo</th>
                 <th className="pb-3 font-semibold">Estado</th>
                 <th className="pb-3 font-semibold">Publicado</th>

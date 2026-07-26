@@ -145,7 +145,7 @@ export function RegisterForm() {
 
       <SubmitButton />
 
-      <div className="relative py-2 text-center text-xs font-medium text-slate-400">
+      <div className="relative py-2 text-center text-xs font-medium text-slate-500">
         <span className="relative z-10 bg-white px-3">o continúa con</span>
         <div className="absolute inset-x-0 top-1/2 border-t border-slate-200" />
       </div>

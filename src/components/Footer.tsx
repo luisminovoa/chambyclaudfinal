@@ -9,10 +9,11 @@ export function Footer() {
           <p className="text-sm text-ink-muted">
             © {new Date().getFullYear()} Chamby. Conectando talento con oportunidades en el Perú.
           </p>
+          {/* Textos sin enlace hasta que existan las páginas legales: no simular interactividad */}
           <div className="flex gap-6 text-sm font-medium text-ink-muted">
-            <span className="cursor-pointer transition-colors hover:text-primary-600">Términos</span>
-            <span className="cursor-pointer transition-colors hover:text-primary-600">Privacidad</span>
-            <span className="cursor-pointer transition-colors hover:text-primary-600">Ayuda</span>
+            <span>Términos</span>
+            <span>Privacidad</span>
+            <span>Ayuda</span>
           </div>
         </div>
       </div>

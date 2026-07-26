@@ -65,7 +65,7 @@ export function BottomNavClient({ isLoggedIn, role }: BottomNavClientProps) {
               aria-current={active ? "page" : undefined}
               className={cn(
                 "relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 transition-colors duration-200",
-                active ? "text-primary-600" : "text-slate-400 hover:text-slate-600"
+                active ? "text-primary-600" : "text-slate-500 hover:text-slate-700"
               )}
             >
               {active && (
