@@ -5,7 +5,7 @@ export default function LoginPage() {
   return (
     <div className="relative mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-4 py-12 sm:px-6">
       <div
-        className="absolute -top-10 left-1/2 h-64 w-[500px] -translate-x-1/2 rounded-full bg-primary-200/30 blur-3xl"
+        className="absolute -top-10 left-1/2 h-64 w-[min(500px,100vw)] -translate-x-1/2 rounded-full bg-primary-200/30 blur-3xl"
         aria-hidden
       />
       <Reveal>
