@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { MapPin, Wallet, CalendarDays, Users, FileText, ChevronRight } from "lucide-react";
@@ -14,6 +15,25 @@ import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { JobCardActions } from "@/components/JobCardActions";
 import type { JobWithEmployer, ApplicationWithProfiles, RatingSummary } from "@/lib/types";
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("jobs")
+    .select("title, description, city, category")
+    .eq("id", params.id)
+    .maybeSingle();
+  const job = data as unknown as Pick<JobWithEmployer, "title" | "description" | "city" | "category"> | null;
+
+  if (!job) return { title: "Trabajo no encontrado" };
+
+  const description = job.description.slice(0, 155);
+  return {
+    title: `${job.title} en ${job.city}`,
+    description,
+    openGraph: { title: `${job.title} — Chamby`, description },
+  };
+}
 
 export default async function JobDetailPage({ params }: { params: { id: string } }) {
   const supabase = createClient();
@@ -60,8 +80,50 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   const jobCompleted = typedJob.status === "completado";
   const isAssignedWorker = user?.id === typedJob.assigned_worker_id;
 
+  // Datos estructurados para Google Jobs (solo vacantes abiertas)
+  const jobPostingJsonLd =
+    typedJob.status === "abierto"
+      ? {
+          "@context": "https://schema.org",
+          "@type": "JobPosting",
+          title: typedJob.title,
+          description: typedJob.description,
+          datePosted: typedJob.created_at,
+          employmentType: "TEMPORARY",
+          hiringOrganization: {
+            "@type": "Organization",
+            name: typedJob.employer?.full_name ?? "Chamby",
+          },
+          jobLocation: {
+            "@type": "Place",
+            address: {
+              "@type": "PostalAddress",
+              addressLocality: typedJob.city,
+              addressCountry: "PE",
+            },
+          },
+          ...(typedJob.pay_amount
+            ? {
+                baseSalary: {
+                  "@type": "MonetaryAmount",
+                  currency: "PEN",
+                  value: { "@type": "QuantitativeValue", value: typedJob.pay_amount },
+                },
+              }
+            : {}),
+        }
+      : null;
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+      {jobPostingJsonLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(jobPostingJsonLd).replace(/</g, "\\u003c"),
+          }}
+        />
+      )}
       {/* Breadcrumb */}
       <Reveal y={8}>
         <nav aria-label="Miga de pan" className="mb-4 flex items-center gap-1 text-xs font-medium text-ink-muted">

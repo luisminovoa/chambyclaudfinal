@@ -21,6 +21,13 @@ export async function submitRating({
 
   if (!user) return { error: "Debes iniciar sesión para calificar." };
 
+  if (!Number.isInteger(score) || score < 1 || score > 5) {
+    return { error: "La calificación debe ser un número entero entre 1 y 5." };
+  }
+  if (comment && comment.length > 1000) {
+    return { error: "El comentario no puede superar los 1000 caracteres." };
+  }
+
   const { error } = await supabase.from("ratings").insert({
     job_id: jobId,
     rater_id: user.id,

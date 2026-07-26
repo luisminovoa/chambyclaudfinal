@@ -38,7 +38,10 @@ export async function adminDeleteJob(jobId: string) {
   return { error: error?.message };
 }
 
+const VALID_JOB_STATUSES = ["abierto", "en_progreso", "completado", "cancelado"];
+
 export async function adminUpdateJobStatus(jobId: string, status: string) {
+  if (!VALID_JOB_STATUSES.includes(status)) return { error: "Estado inválido." };
   const supabase = await assertAdmin();
   const { error } = await supabase.from("jobs").update({ status }).eq("id", jobId);
   revalidatePath("/admin/jobs");

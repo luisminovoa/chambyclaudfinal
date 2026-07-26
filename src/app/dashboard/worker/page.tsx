@@ -200,7 +200,7 @@ export default async function WorkerDashboardPage() {
                   {ratingSummary ? `${ratingSummary.average_score} / 5` : "Sin calificaciones"}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1 text-xs text-ink-muted">
                 {ratingSummary?.total_ratings ?? 0} reseñas totales
               </p>
 

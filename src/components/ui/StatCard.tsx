@@ -25,7 +25,7 @@ export function StatCard({ icon: Icon, label, value, tone = "primary", hint }: S
       </span>
       <p className="mt-4 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">{value}</p>
       <p className="mt-0.5 text-sm font-medium text-ink-muted">{label}</p>
-      {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
   MapPin,
   AlertCircle,
   Check,
+  ChevronDown,
 } from "lucide-react";
 import { createJob } from "@/lib/actions/jobs";
 import type { ActionResult } from "@/lib/actions/auth";
@@ -177,19 +178,22 @@ export function NewJobForm() {
                     <label htmlFor="category" className="label">
                       Puesto / categoría
                     </label>
-                    <select
-                      id="category"
-                      className="input cursor-pointer appearance-none"
-                      value={values.category}
-                      onChange={(e) => set("category", e.target.value)}
-                    >
-                      <option value="">Selecciona una categoría</option>
-                      {CATEGORY_NAMES.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <select
+                        id="category"
+                        className="input cursor-pointer appearance-none pr-10"
+                        value={values.category}
+                        onChange={(e) => set("category", e.target.value)}
+                      >
+                        <option value="">Selecciona una categoría</option>
+                        {CATEGORY_NAMES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                    </div>
                   </div>
                   <div>
                     <label htmlFor="city" className="label">
