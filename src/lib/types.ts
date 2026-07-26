@@ -74,7 +74,12 @@ export interface ApplicationWithProfiles extends JobApplication {
 
 /**
  * Definición mínima de la base de datos para tipar el cliente de Supabase.
- * En producción se recomienda generar esto con:
+ * Cada tabla/vista incluye `Relationships: []` porque supabase-js exige esa
+ * propiedad para reconocer el tipo como una tabla válida internamente; sin
+ * ella, TypeScript no logra resolver el tipo y las mutaciones (.update(),
+ * .insert()) colapsan silenciosamente a `never`.
+ *
+ * En producción se recomienda generar esto automáticamente con:
  * `supabase gen types typescript --project-id <id> > src/lib/database.types.ts`
  */
 export type Database = {
@@ -84,6 +89,7 @@ export type Database = {
         Row: Profile;
         Insert: Partial<Profile> & { id: string; full_name: string };
         Update: Partial<Profile>;
+        Relationships: [];
       };
       jobs: {
         Row: Job;
@@ -95,11 +101,13 @@ export type Database = {
           city: string;
         };
         Update: Partial<Job>;
+        Relationships: [];
       };
       job_applications: {
         Row: JobApplication;
         Insert: Partial<JobApplication> & { job_id: string; worker_id: string };
         Update: Partial<JobApplication>;
+        Relationships: [];
       };
       ratings: {
         Row: Rating;
@@ -110,12 +118,17 @@ export type Database = {
           score: number;
         };
         Update: Partial<Rating>;
+        Relationships: [];
       };
     };
     Views: {
       rating_summary: {
         Row: RatingSummary;
+        Relationships: [];
       };
     };
+    Functions: Record<string, never>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 };
