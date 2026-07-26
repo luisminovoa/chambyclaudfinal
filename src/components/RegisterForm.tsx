@@ -3,6 +3,8 @@
 import { useFormState, useFormStatus } from "react-dom";
 import { useState } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import { AlertCircle, Search, Briefcase, UserPlus } from "lucide-react";
 import { register, type ActionResult } from "@/lib/actions/auth";
 import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 import { cn } from "@/lib/utils";
@@ -13,7 +15,17 @@ function SubmitButton() {
   const { pending } = useFormStatus();
   return (
     <button type="submit" disabled={pending} className="btn-primary w-full">
-      {pending ? "Creando cuenta..." : "Crear cuenta"}
+      {pending ? (
+        <>
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+          Creando cuenta...
+        </>
+      ) : (
+        <>
+          <UserPlus className="h-4 w-4" />
+          Crear cuenta
+        </>
+      )}
     </button>
   );
 }
@@ -25,32 +37,42 @@ export function RegisterForm() {
   return (
     <form action={formAction} className="space-y-4">
       {state.error && (
-        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{state.error}</div>
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-2xl bg-danger-50 px-4 py-3 text-sm font-medium text-danger-700"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {state.error}
+        </div>
       )}
 
       <div>
         <label className="label">Quiero...</label>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setRole("worker")}
-            className={cn(
-              "rounded-xl border-2 px-4 py-3 text-sm font-medium",
-              role === "worker" ? "border-primary-600 bg-primary-50 text-primary-700" : "border-slate-200 text-slate-600"
-            )}
-          >
-            Buscar trabajo
-          </button>
-          <button
-            type="button"
-            onClick={() => setRole("employer")}
-            className={cn(
-              "rounded-xl border-2 px-4 py-3 text-sm font-medium",
-              role === "employer" ? "border-primary-600 bg-primary-50 text-primary-700" : "border-slate-200 text-slate-600"
-            )}
-          >
-            Contratar
-          </button>
+        <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Tipo de cuenta">
+          {(
+            [
+              { value: "worker", label: "Buscar trabajo", icon: Search },
+              { value: "employer", label: "Contratar", icon: Briefcase },
+            ] as const
+          ).map((opt) => (
+            <motion.button
+              key={opt.value}
+              type="button"
+              role="radio"
+              aria-checked={role === opt.value}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setRole(opt.value)}
+              className={cn(
+                "flex flex-col items-center gap-2 rounded-2xl border-2 px-4 py-4 text-sm font-semibold transition-all duration-200",
+                role === opt.value
+                  ? "border-primary-600 bg-primary-50 text-primary-700 shadow-glow-sm"
+                  : "border-slate-200 text-ink-muted hover:border-slate-300"
+              )}
+            >
+              <opt.icon className="h-5 w-5" />
+              {opt.label}
+            </motion.button>
+          ))}
         </div>
         <input type="hidden" name="role" value={role} />
       </div>
@@ -59,21 +81,45 @@ export function RegisterForm() {
         <label htmlFor="fullName" className="label">
           Nombre completo
         </label>
-        <input id="fullName" name="fullName" required className="input" placeholder="Juan Pérez" />
+        <input
+          id="fullName"
+          name="fullName"
+          autoComplete="name"
+          required
+          className="input"
+          placeholder="Juan Pérez"
+        />
       </div>
 
       <div>
         <label htmlFor="email" className="label">
           Correo electrónico
         </label>
-        <input id="email" name="email" type="email" required className="input" placeholder="tu@correo.com" />
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          className="input"
+          placeholder="tu@correo.com"
+        />
       </div>
 
       <div>
         <label htmlFor="password" className="label">
           Contraseña
         </label>
-        <input id="password" name="password" type="password" required minLength={6} className="input" placeholder="Mínimo 6 caracteres" />
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={6}
+          className="input"
+          placeholder="Mínimo 6 caracteres"
+        />
       </div>
 
       <div>
@@ -88,22 +134,30 @@ export function RegisterForm() {
           <label htmlFor="category" className="label">
             Puesto / oficio principal
           </label>
-          <input id="category" name="category" className="input" placeholder="Electricista, niñera, albañil..." />
+          <input
+            id="category"
+            name="category"
+            className="input"
+            placeholder="Electricista, niñera, albañil..."
+          />
         </div>
       )}
 
- <SubmitButton />
+      <SubmitButton />
 
-      <div className="relative py-2 text-center text-xs text-slate-400">
-        <span className="relative bg-white px-2">o continúa con</span>
-        <div className="absolute inset-x-0 top-1/2 -z-10 border-t border-slate-200" />
+      <div className="relative py-2 text-center text-xs font-medium text-slate-400">
+        <span className="relative z-10 bg-white px-3">o continúa con</span>
+        <div className="absolute inset-x-0 top-1/2 border-t border-slate-200" />
       </div>
 
       <GoogleAuthButton />
 
-      <p className="text-center text-sm text-slate-500">
+      <p className="text-center text-sm text-ink-muted">
         ¿Ya tienes cuenta?{" "}
-        <Link href="/login" className="font-medium text-primary-700 hover:underline">
+        <Link
+          href="/login"
+          className="font-bold text-primary-600 transition-colors hover:text-primary-700"
+        >
           Ingresa
         </Link>
       </p>
