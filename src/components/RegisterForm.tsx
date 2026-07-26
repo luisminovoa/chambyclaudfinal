@@ -4,6 +4,7 @@ import { useFormState, useFormStatus } from "react-dom";
 import { useState } from "react";
 import Link from "next/link";
 import { register, type ActionResult } from "@/lib/actions/auth";
+import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 import { cn } from "@/lib/utils";
 
 const initialState: ActionResult = {};
@@ -91,7 +92,15 @@ export function RegisterForm() {
         </div>
       )}
 
-      <SubmitButton />
+ <SubmitButton />
+
+      <div className="relative py-2 text-center text-xs text-slate-400">
+        <span className="relative bg-white px-2">o continúa con</span>
+        <div className="absolute inset-x-0 top-1/2 -z-10 border-t border-slate-200" />
+      </div>
+
+      <GoogleAuthButton />
+
       <p className="text-center text-sm text-slate-500">
         ¿Ya tienes cuenta?{" "}
         <Link href="/login" className="font-medium text-primary-700 hover:underline">
