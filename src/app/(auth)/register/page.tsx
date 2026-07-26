@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: "Únete gratis a Chamby como trabajador o empleador en menos de un minuto.",
 };
 
-export default function RegisterPage() {
+export default function RegisterPage({ searchParams }: { searchParams: { next?: string } }) {
   return (
     <div className="relative mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-4 py-12 sm:px-6">
       <div
@@ -23,7 +23,7 @@ export default function RegisterPage() {
             <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">Crea tu cuenta</h1>
             <p className="mt-1 text-sm text-ink-muted">Únete a Chamby en menos de un minuto</p>
             <div className="mt-6">
-              <RegisterForm />
+              <RegisterForm next={searchParams.next} />
             </div>
           </div>
         </div>

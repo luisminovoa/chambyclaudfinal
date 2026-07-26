@@ -243,7 +243,10 @@ export default async function JobDetailPage({ params }: { params: { id: string }
         <Reveal delay={0.05}>
           <div className="card mt-6 p-8 text-center">
             <p className="text-ink-muted">
-              <Link href="/login" className="font-bold text-primary-600 transition-colors hover:text-primary-700">
+              <Link
+                href={`/login?next=${encodeURIComponent(`/jobs/${typedJob.id}`)}`}
+                className="font-bold text-primary-600 transition-colors hover:text-primary-700"
+              >
                 Inicia sesión
               </Link>{" "}
               como trabajador para postular a este trabajo.

@@ -30,12 +30,15 @@ function SubmitButton() {
   );
 }
 
-export function RegisterForm() {
+export function RegisterForm({ next }: { next?: string }) {
   const [state, formAction] = useFormState(register, initialState);
   const [role, setRole] = useState<"worker" | "employer">("worker");
+  const loginHref = next ? `/login?next=${encodeURIComponent(next)}` : "/login";
 
   return (
     <form action={formAction} className="space-y-4">
+      {/* El server action valida que sea una ruta interna antes de redirigir */}
+      {next && <input type="hidden" name="next" value={next} />}
       {state.error && (
         <div
           role="alert"
@@ -155,7 +158,7 @@ export function RegisterForm() {
       <p className="text-center text-sm text-ink-muted">
         ¿Ya tienes cuenta?{" "}
         <Link
-          href="/login"
+          href={loginHref}
           className="font-bold text-primary-600 transition-colors hover:text-primary-700"
         >
           Ingresa

@@ -16,7 +16,8 @@ export function BottomNavClient({ isLoggedIn, role }: BottomNavClientProps) {
   const pathname = usePathname();
 
   const profileHref = isLoggedIn ? (role === "admin" ? "/admin" : "/dashboard") : "/login";
-  const publishHref = isLoggedIn ? "/jobs/new" : "/register";
+  // Un invitado que quiere publicar vuelve al formulario justo después de registrarse
+  const publishHref = isLoggedIn ? "/jobs/new" : "/register?next=/jobs/new";
 
   const tabs = [
     { href: "/", label: "Inicio", icon: Home, exact: true },
