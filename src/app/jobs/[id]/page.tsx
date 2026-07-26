@@ -30,11 +30,12 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   const typedJob = job as unknown as JobWithEmployer;
   const isOwner = user?.id === typedJob.employer_id;
 
-  const { data: employerRating } = await supabase
+const { data: employerRatingRaw } = await supabase
     .from("rating_summary")
     .select("*")
     .eq("profile_id", typedJob.employer_id)
     .maybeSingle();
+  const employerRating = employerRatingRaw as unknown as RatingSummary | null;
 
   let applications: ApplicationWithProfiles[] = [];
   let myApplication: ApplicationWithProfiles | null = null;
