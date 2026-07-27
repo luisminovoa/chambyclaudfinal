@@ -1,181 +1,342 @@
-# Sistema completo de contratación — diseño funcional (revisión 3)
+# Sistema completo de contratación — diseño funcional (revisión 4)
 
-> **Estado: PENDIENTE DE APROBACIÓN.** No se implementará nada hasta que este
-> diseño quede aprobado. Documento vivo — ver también la versión visual con
-> diagramas y wireframes: https://claude.ai/code/artifact/fc322b6c-516d-42ae-9d6e-03d30b68e3b1
+> **Estado: APROBADO — en implementación.**
 >
-> **Corrección respecto a la revisión 1**: se afirmaba que aceptar un
-> postulante no producía ningún efecto en el trabajo. Al revisar los
-> *triggers* de Postgres (no solo el código TypeScript) se confirmó que la
-> asignación automática ya existe y funciona en producción — ver §1. Esta
-> revisión se construye sobre esa base real.
+> Revisión 4 incorpora las decisiones arquitectónicas finales del usuario
+> (julio 2026): chat automático al aceptar, audit trail completo, reglas
+> estrictas de cancelación e infraestructura Realtime compartida.
+
+---
 
 ## 1. Diagrama de estados
 
-**Trabajo (`jobs.status`)**: `abierto` → *(empleador acepta postulante)* →
-`en_progreso` → *(empleador marca completado)* → `completado`. Desde
-`abierto` o `en_progreso`, el empleador puede cancelar → `cancelado`
-(terminal).
+```
+              postular
+ abierto ─────────────────► en_progreso ──── completar ──► completado (terminal)
+    │         (trigger acepta      │
+    │          + chat creado       │ cancelar
+    │          + notificación)     │ (solo via flujo especial
+    │                              │  de incidente)
+    │ cancelar
+    ▼
+ cancelado (terminal)
+```
 
-**Postulación (`job_applications.status`)**: `pendiente` → *(empleador
-acepta)* → `aceptado`, o → *(rechazo manual o cascada automática)* →
-`rechazado`. Existe además `retirado` en el enum, sin ningún camino de
-código que lo setee hoy (ver §4/§8).
+**Regla de cancelación:**
+- `abierto` → `cancelado` : acción directa del empleador, requiere confirmación.
+- `en_progreso` → *cancelar* : flujo de incidente aparte (PR separado). No se
+  implementa en este PR.
 
-**Ya en producción** — `handle_application_accepted()`
-(`supabase/migrations/0001_init.sql`, líneas 179-202), disparada por el
-`UPDATE` que hace `updateApplicationStatus()`:
-1. `jobs.assigned_worker_id` ← trabajador aceptado.
-2. `jobs.status` ← `en_progreso`.
-3. Las demás postulaciones `pendiente` del mismo trabajo → `rechazado`.
-4. Corre como `security definer`: no depende de los permisos RLS del
-   empleador para tocar filas de otros usuarios.
+**Postulación (`job_applications.status`):**
+```
+ pendiente ──── (empleador acepta) ──── aceptado
+    │                                      │
+    ├── (empleador rechaza)                (único por trabajo)
+    │
+    └── (empleador acepta a otro) ── rechazado (cascada automática)
+    │
+    └── (trabajador retira)        ── retirado (nueva acción en este PR)
+```
 
-La calificación mutua en `/jobs/[id]` ya está condicionada a
-`status = 'completado'` + ser dueño o trabajador asignado — tampoco requiere
-cambios.
+---
 
 ## 2. Flujo del trabajador
 
-1. Explora y postula a un trabajo `abierto` (existente).
-2. Su postulación queda `pendiente`; **nuevo**: puede retirarla mientras
-   siga pendiente.
-3. Rama rechazado: queda en su historial con el estado real (existente).
-4. Rama contratado: **nuevo** — aviso "Fuiste contratado" + timeline de
-   seguimiento visible en el detalle del trabajo.
-5. Realiza el trabajo (coordinación fuera de la plataforma — el chat es la
-   prioridad 2 de MVP v1.0, fuera de este PR).
-6. Cuando el empleador marca `completado`, aparece el formulario de
-   calificación mutua (existente).
+1. Explora y postula a un trabajo `abierto`.
+2. Su postulación queda `pendiente`; puede retirarla mientras siga pendiente.
+3. **Si rechazado**: queda en historial con estado real.
+4. **Si aceptado**:
+   - Recibe notificación in-app "Fuiste contratado".
+   - Se crea automáticamente una conversación privada empleador ↔ trabajador.
+   - Ve el timeline de seguimiento en el detalle del trabajo.
+   - Cuando el empleador marca completado → aparece formulario de calificación.
+
+---
 
 ## 3. Flujo del empleador
 
-1. Publica y recibe postulaciones (existente).
-2. **Nuevo**: confirmación antes de aceptar — "Vas a contratar a {nombre}.
-   Las demás postulaciones se rechazarán automáticamente."
-3. Acepta un postulante → dispara la cascada automática del §1 (existente,
-   sin cambios de lógica).
-4. **Nuevo**: ve la tarjeta del trabajador asignado (avatar, nombre, oficio)
-   y el timeline en el detalle del trabajo.
-5. Marca completado — ya existe en el dashboard; **nuevo**: también
-   disponible en el detalle del trabajo.
-6. Califica al trabajador (existente).
+1. Publica y recibe postulaciones.
+2. Confirma antes de aceptar: *"Vas a contratar a {nombre}. Las demás
+   postulaciones pendientes se rechazarán automáticamente."*
+3. **Al aceptar (atomic)**:
+   - `jobs.assigned_worker_id` ← trabajador.
+   - `jobs.status` ← `en_progreso`, `jobs.hired_at` ← `now()`.
+   - Postulaciones `pendiente` del mismo job → `rechazado`.
+   - Conversación privada creada automáticamente.
+   - Notificación enviada al trabajador.
+   - Entrada en `job_state_history` registrada.
+4. Ve tarjeta del trabajador asignado y timeline en el detalle del trabajo.
+5. Marca **completado** → `jobs.status` ← `completado`, `jobs.completed_at`
+   ← `now()`, entrada en historial.
+6. Ambos pueden calificarse mutuamente.
+
+---
 
 ## 4. Reglas de negocio
 
 | # | Regla | Estado |
-| --- | --- | --- |
-| R1 | Un trabajo activo admite como máximo un trabajador asignado (limitación del esquema: una sola columna `assigned_worker_id`) | Vigente |
+|---|-------|--------|
+| R1 | Un trabajo tiene máximo un trabajador asignado | Vigente |
 | R2 | Solo se postula a trabajos `abierto` | Vigente |
-| R3 | Aceptar rechaza automáticamente las demás postulaciones `pendiente` | Vigente |
-| R4 | Calificación mutua solo con `completado` + participante | Vigente |
-| R5 | Retirar postulación solo mientras esté `pendiente` | **Propuesta** |
-| R6 | Cancelar un trabajo `en_progreso`: ¿la postulación aceptada pasa a `retirado`, o se deja como está? | **Decisión pendiente** |
-| R7 | Un trabajo `cancelado` no se reabre — se publica uno nuevo | **Decisión pendiente** |
-| R8 | La confirmación antes de aceptar es obligatoria en la UI | **Propuesta** |
+| R3 | Aceptar rechaza automáticamente las demás postulaciones `pendiente` | Vigente (trigger) |
+| R4 | Calificación mutua solo con `completado` + ser participante | Vigente |
+| R5 | Retirar postulación solo mientras esté `pendiente` | **Nuevo en este PR** |
+| R6 | Al cancelar `en_progreso` → flujo de incidente separado | **Reservado** |
+| R7 | Un trabajo `cancelado` no se reabre — se publica uno nuevo | **Confirmado** |
+| R8 | Confirmación obligatoria en UI antes de aceptar | **Nuevo en este PR** |
+| R9 | Rating: solo al completarse, uno por usuario por trabajo, **inmutable** | **Confirmado** |
+| R10 | Chat privado: solo existe cuando hay un trabajador aceptado | **Confirmado** |
+| R11 | Toda transición de estado se registra en `job_state_history` | **Nuevo en este PR** |
 
-## 5. Modelo de datos (actual, sin modificar)
+---
 
-- **`jobs`**: `id`, `employer_id`, `status`, `assigned_worker_id`,
-  `positions_needed` (hoy solo informativo — ver multi-vacante en §6),
-  `created_at`/`updated_at` (este último se sobreescribe en cada cambio).
-- **`job_applications`**: `id`, `job_id`, `worker_id`, `status`, `message`.
-- **`profiles`**: `id`, `role`, `full_name`, `city`, `category`, `is_active`.
-- **`ratings`** + vista `rating_summary`: `job_id`, `rater_id`, `rated_id`,
-  `score` (1–5), `comment` (≤1000 car.).
+## 5. Modelo de datos
 
-## 6. Cambios propuestos en la base de datos
+### Existente (sin modificar)
+- `jobs`, `job_applications`, `profiles`, `ratings` — sin cambios en columnas.
 
-Una migración aditiva y retrocompatible (`0002_hiring_tracking.sql`,
-columnas nullable, sin backfill):
+### Columnas nuevas en `jobs` (nullable, retrocompatibles)
+```sql
+hired_at     timestamptz   -- cuándo se contrató al trabajador
+completed_at timestamptz   -- cuándo se marcó completado
+cancelled_at timestamptz   -- cuándo se canceló
+```
+
+### Tabla nueva: `job_state_history`
+```sql
+id           uuid  PK
+job_id       uuid  FK jobs
+actor_id     uuid  FK profiles (quien ejecutó la acción)
+prev_status  job_status
+new_status   job_status
+notes        text nullable
+created_at   timestamptz default now()
+```
+
+### Tabla nueva: `conversations`
+```sql
+id           uuid  PK
+job_id       uuid  FK jobs (unique — una conversación por trabajo)
+employer_id  uuid  FK profiles
+worker_id    uuid  FK profiles
+created_at   timestamptz
+```
+
+### Tabla nueva: `messages`
+```sql
+id              uuid  PK
+conversation_id uuid  FK conversations
+sender_id       uuid  FK profiles
+body            text  not null
+read_at         timestamptz nullable
+created_at      timestamptz
+```
+
+---
+
+## 6. Cambios en la base de datos (`0002_hiring_tracking.sql`)
 
 ```sql
+-- Columnas de timestamp en jobs
 alter table public.jobs
-  add column hired_at timestamptz,
-  add column completed_at timestamptz,
-  add column cancelled_at timestamptz;
+  add column if not exists hired_at     timestamptz,
+  add column if not exists completed_at timestamptz,
+  add column if not exists cancelled_at timestamptz;
 
+-- Audit trail de estados
+create table if not exists public.job_state_history (
+  id          uuid primary key default uuid_generate_v4(),
+  job_id      uuid not null references public.jobs(id) on delete cascade,
+  actor_id    uuid not null references public.profiles(id) on delete cascade,
+  prev_status job_status,
+  new_status  job_status not null,
+  notes       text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists idx_state_history_job
+  on public.job_state_history (job_id, created_at desc);
+
+-- Conversaciones (una por trabajo, creada al contratar)
+create table if not exists public.conversations (
+  id          uuid primary key default uuid_generate_v4(),
+  job_id      uuid not null unique references public.jobs(id) on delete cascade,
+  employer_id uuid not null references public.profiles(id) on delete cascade,
+  worker_id   uuid not null references public.profiles(id) on delete cascade,
+  created_at  timestamptz not null default now()
+);
+
+-- Mensajes del chat
+create table if not exists public.messages (
+  id              uuid primary key default uuid_generate_v4(),
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  sender_id       uuid not null references public.profiles(id) on delete cascade,
+  body            text not null,
+  read_at         timestamptz,
+  created_at      timestamptz not null default now()
+);
+create index if not exists idx_messages_conversation
+  on public.messages (conversation_id, created_at);
+
+-- Trigger actualizado: guarda de carrera + hired_at + crea conversación
 create or replace function public.handle_application_accepted()
 returns trigger as $$
+declare v_job record;
 begin
   if new.status = 'aceptado' and (old.status is distinct from 'aceptado') then
-    -- guarda: impide aceptar si el trabajo ya no está abierto
-    -- (corrige la condición de carrera de aceptación doble, ver §8/§10)
-    if not exists (
-      select 1 from public.jobs where id = new.job_id and status = 'abierto'
-    ) then
+    select * into v_job from public.jobs where id = new.job_id;
+    if v_job.status <> 'abierto' then
       raise exception 'Este trabajo ya no acepta postulantes';
     end if;
 
     update public.jobs
-      set assigned_worker_id = new.worker_id, status = 'en_progreso', hired_at = now()
+      set assigned_worker_id = new.worker_id,
+          status  = 'en_progreso',
+          hired_at = now()
       where id = new.job_id;
 
     update public.job_applications
       set status = 'rechazado'
       where job_id = new.job_id and id <> new.id and status = 'pendiente';
+
+    insert into public.conversations (job_id, employer_id, worker_id)
+      values (new.job_id, v_job.employer_id, new.worker_id)
+      on conflict (job_id) do nothing;
+
+    insert into public.job_state_history
+      (job_id, actor_id, prev_status, new_status, notes)
+      values (new.job_id, v_job.employer_id, 'abierto', 'en_progreso',
+              'Trabajador aceptado — automático');
   end if;
   return new;
 end;
 $$ language plpgsql security definer set search_path = public;
 ```
 
-`updateJobStatus("completado"/"cancelado")` se extiende (en la Server
-Action) para escribir `completed_at`/`cancelled_at`.
+### RLS de las nuevas tablas
 
-**Fuera de esta fase**: soporte real de multi-vacante (`positions_needed >
-1`) requeriría una tabla `job_assignments` nueva — no se construye salvo que
-se priorice explícitamente.
+```sql
+-- job_state_history: solo participantes del trabajo o admin
+alter table public.job_state_history enable row level security;
+create policy "history_select_participant"
+  on public.job_state_history for select
+  using (
+    job_id in (
+      select id from public.jobs
+      where employer_id = auth.uid() or assigned_worker_id = auth.uid()
+    )
+    or public.current_user_role() = 'admin'
+  );
+create policy "history_insert_system"
+  on public.job_state_history for insert
+  with check (actor_id = auth.uid() or public.current_user_role() = 'admin');
+
+-- conversations: employer y worker del job
+alter table public.conversations enable row level security;
+create policy "conversations_select_participant"
+  on public.conversations for select
+  using (employer_id = auth.uid() or worker_id = auth.uid()
+         or public.current_user_role() = 'admin');
+create policy "conversations_insert_system"
+  on public.conversations for insert
+  with check (public.current_user_role() = 'admin'
+              or auth.uid() in (
+                select employer_id from public.jobs where jobs.id = job_id
+              ));
+
+-- messages: solo participantes de la conversación
+alter table public.messages enable row level security;
+create policy "messages_select_participant"
+  on public.messages for select
+  using (
+    conversation_id in (
+      select id from public.conversations
+      where employer_id = auth.uid() or worker_id = auth.uid()
+    )
+  );
+create policy "messages_insert_participant"
+  on public.messages for insert
+  with check (
+    sender_id = auth.uid()
+    and conversation_id in (
+      select id from public.conversations
+      where employer_id = auth.uid() or worker_id = auth.uid()
+    )
+  );
+```
+
+---
 
 ## 7. Permisos por rol
 
-| Acción | Trabajador | Empleador (dueño) | Empleador (no dueño) | Admin |
-| --- | --- | --- | --- | --- |
-| Postular | Sí | — | — | Solo si rol worker |
-| Retirar su postulación | Solo si `pendiente` | — | — | — |
-| Ver postulantes | — | Sí | — | Sí |
-| Aceptar/rechazar postulante | — | Sí | — | — |
-| Marcar completado | — | Solo si `en_progreso` | — | Vía moderación |
-| Cancelar el trabajo | — | Solo `abierto`/`en_progreso` | — | Sí |
-| Ver tarjeta del asignado | Solo si es él mismo | Sí | — | Sí |
-| Calificar a la contraparte | Solo si asignado + completado | Solo si completado | — | — |
+| Acción | Trabajador | Empleador (dueño) | Admin |
+|--------|-----------|-------------------|-------|
+| Postular | Sí | — | Solo si rol worker |
+| Retirar su postulación | Solo si `pendiente` | — | — |
+| Ver postulantes | — | Sí | Sí |
+| Aceptar/rechazar postulante | — | Solo si job `abierto` | — |
+| Marcar completado | — | Solo si `en_progreso` | Vía moderación |
+| Cancelar trabajo | — | Solo si `abierto` | Sí |
+| Ver tarjeta del asignado | Solo si es él | Sí | Sí |
+| Calificar contraparte | Solo asignado + completado | Solo si completado | — |
+| Ver historial de estados | Solo si participante | Sí | Sí |
+| Ver conversación | Solo si es él | Sí | Sí |
+| Enviar mensaje | Solo si es él | Sí (solo si `en_progreso`) | — |
 
-## 8. Casos límite
+---
 
-| Severidad | Caso | Detalle |
-| --- | --- | --- |
-| Alta | Aceptación concurrente de dos postulantes | Sin guarda, el segundo `UPDATE` pisa silenciosamente al primero. Mitigado por la guarda del §6. |
-| Media | Cancelar un trabajo `en_progreso` | La postulación aceptada queda en `aceptado` aunque el trabajo esté `cancelado` — depende de R6. |
-| Media | El enum `retirado` nunca se usa | Depende de R5: conectarlo a una acción real o documentarlo como reservado. |
-| Media | Admin cambia el estado por fuera del flujo | `adminUpdateJobStatus` no pasa por el trigger; reabrir un trabajo puede dejar `assigned_worker_id` desactualizado. |
-| Baja | Trabajador quiere retirarse tras ser aceptado | Sin flujo de disputa; el empleador cancela y republica. |
-| Baja | Calificar dos veces | Ya bloqueado por restricción única (error Postgres `23505`, ya manejado). |
+## 8. Casos límite resueltos
 
-## 9. Wireframes
+| Caso | Resolución |
+|------|-----------|
+| Aceptación concurrente de dos postulantes | Guarda `raise exception` en trigger — el segundo falla con HTTP 500 limpio |
+| Rating duplicado | Restricción `unique(job_id, rater_id, rated_id)` — ya existía |
+| Admin cambia estado fuera del flujo | Acción de moderación consciente; el historial refleja el actor |
+| Cancelar `en_progreso` | Flujo de incidente separado (PR posterior) |
+| Trabajador quiere retirarse tras ser aceptado | Sin flujo de disputa; el empleador cancela y republica |
 
-Ver la versión visual (bocetos de baja fidelidad, 4 pantallas: aceptar
-postulante con confirmación, detalle del trabajo — vista empleador con
-timeline y tarjeta del asignado, detalle del trabajo — vista trabajador
-contratado, calificación mutua) en el artifact enlazado arriba.
+---
 
-## 10. Riesgos técnicos
+## 9. Infraestructura Realtime (compartida)
 
-| Riesgo | Severidad | Mitigación propuesta |
-| --- | --- | --- |
-| Condición de carrera en aceptación concurrente | Alta | Guarda `raise exception` en la migración del §6 |
-| Sin pruebas automatizadas sobre la máquina de estados | Media | Fuera de alcance de este PR; recomendar como ítem propio |
-| Sin tiempo real (hay que refrescar para ver cambios) | Media | No resolver aquí — compartir infraestructura de Realtime con las prioridades "chat" y "notificaciones" de MVP v1.0 |
-| Migración manual sin pipeline automatizado | Baja | Aplicar en Supabase SQL Editor y verificar antes de mergear el código que depende de ella |
-| Función del trigger con privilegio elevado (`security definer`) | Baja | Ya acotado a esta única función; no se propone ampliarla |
+Un único hook `useRealtimeSubscriptions(jobId?)` en
+`src/lib/realtime/useRealtimeSubscriptions.ts` suscribe a:
 
-## 11. Preguntas abiertas para tu aprobación
+| Canal | Tabla | Filtro |
+|-------|-------|--------|
+| `jobs:{id}` | `jobs` | `id=eq.{jobId}` |
+| `applications:{jobId}` | `job_applications` | `job_id=eq.{jobId}` |
+| `messages:{convId}` | `messages` | `conversation_id=eq.{convId}` |
 
-1. **R6**: ¿al cancelar un trabajo `en_progreso`, la postulación aceptada
-   pasa a `retirado` automáticamente, o se deja como está?
-2. **R7**: ¿confirmamos que un trabajo `cancelado` nunca se reabre?
-3. **R5**: ¿conectamos "retirar postulación" en esta fase, o queda
-   reservado para después?
-4. **§8**: cuando un admin cambia el estado por fuera del flujo normal,
-   ¿lo bloqueamos o queda como acción de moderación consciente?
-5. **Alcance general**: ¿aprobamos las secciones 1–10 tal cual para pasar a
-   la implementación, o hay algo que agregar, quitar o cambiar?
+Las páginas del MVP v1.0 que reutilicen este hook (chat, notificaciones,
+dashboard) solo necesitan suscribirse al canal relevante — no construyen
+su propia conexión Realtime.
+
+---
+
+## 10. Pantallas implementadas en este PR
+
+1. **`/jobs/[id]` — detalle del trabajo**
+   - Tarjeta del trabajador asignado (empleador y trabajador).
+   - Timeline de estados con timestamps.
+   - Botón "Marcar como completado" (empleador, solo `en_progreso`).
+   - Botón "Cancelar trabajo" (empleador, solo `abierto`, con confirmación).
+   - Banner "Fuiste contratado" (trabajador, solo `en_progreso`).
+   - Sección de calificación mutua (solo `completado`).
+
+2. **`/dashboard` — panel del empleador**
+   - Fila de postulante con botón inline de aceptar + modal de confirmación.
+   - Badge de estado actualizado en tiempo real (Realtime).
+
+3. **`/dashboard` — panel del trabajador**
+   - Sección "Mis trabajos activos" con estado en tiempo real.
+
+---
+
+## 11. Riesgos técnicos
+
+| Riesgo | Severidad | Mitigación |
+|--------|-----------|------------|
+| Condición de carrera en aceptación doble | Alta | Guarda `raise exception` en trigger |
+| Migración manual sin pipeline | Baja | Aplicar en Supabase SQL Editor antes de deploy |
+| `security definer` en trigger | Baja | Acotado a esta función; sin ampliar |
+| Sin pruebas automatizadas | Media | Ítem propio post-MVP |

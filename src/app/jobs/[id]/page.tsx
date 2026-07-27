@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { MapPin, Wallet, CalendarDays, Users, FileText, ChevronRight } from "lucide-react";
+import { MapPin, Wallet, CalendarDays, Users, FileText, ChevronRight, PartyPopper } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
@@ -9,12 +9,22 @@ import { ApplyForm } from "@/components/ApplyForm";
 import { ApplicantRow } from "@/components/ApplicantRow";
 import { RatingForm } from "@/components/RatingForm";
 import { RatingStars } from "@/components/RatingStars";
+import { JobStatusTimeline } from "@/components/JobStatusTimeline";
+import { AssignedWorkerCard } from "@/components/AssignedWorkerCard";
+import { JobActions } from "@/components/JobActions";
+import { WithdrawButton } from "@/components/WithdrawButton";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { JobCardActions } from "@/components/JobCardActions";
-import type { JobWithEmployer, ApplicationWithProfiles, RatingSummary } from "@/lib/types";
+import type {
+  JobWithEmployer,
+  ApplicationWithProfiles,
+  RatingSummary,
+  StateHistoryEntry,
+  Profile,
+} from "@/lib/types";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const supabase = createClient();
@@ -49,13 +59,41 @@ export default async function JobDetailPage({ params }: { params: { id: string }
 
   const typedJob = job as unknown as JobWithEmployer;
   const isOwner = user?.id === typedJob.employer_id;
+  const isAssignedWorker = user?.id === typedJob.assigned_worker_id;
+  const jobCompleted = typedJob.status === "completado";
 
-  const { data: employerRatingRaw } = await supabase
-    .from("rating_summary")
-    .select("*")
-    .eq("profile_id", typedJob.employer_id)
-    .maybeSingle();
-  const employerRating = employerRatingRaw as unknown as RatingSummary | null;
+  // Fetch em parallel: employer rating, state history, assigned worker profile
+  const [employerRatingRes, stateHistoryRes, assignedWorkerRes] = await Promise.all([
+    supabase
+      .from("rating_summary")
+      .select("*")
+      .eq("profile_id", typedJob.employer_id)
+      .maybeSingle(),
+    (isOwner || isAssignedWorker) && user
+      ? supabase
+          .from("job_state_history")
+          .select("*")
+          .eq("job_id", typedJob.id)
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [] }),
+    typedJob.assigned_worker_id
+      ? supabase.from("profiles").select("*").eq("id", typedJob.assigned_worker_id).single()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const employerRating = employerRatingRes.data as unknown as RatingSummary | null;
+  const stateHistory = (stateHistoryRes.data as unknown as StateHistoryEntry[]) ?? [];
+  const assignedWorker = assignedWorkerRes.data as unknown as Profile | null;
+
+  // Assigned worker rating (only when worker is assigned)
+  const workerRatingRes = assignedWorker
+    ? await supabase
+        .from("rating_summary")
+        .select("*")
+        .eq("profile_id", assignedWorker.id)
+        .maybeSingle()
+    : null;
+  const workerRating = workerRatingRes?.data as unknown as RatingSummary | null;
 
   let applications: ApplicationWithProfiles[] = [];
   let myApplication: ApplicationWithProfiles | null = null;
@@ -77,10 +115,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
     myApplication = (data as unknown as ApplicationWithProfiles) ?? null;
   }
 
-  const jobCompleted = typedJob.status === "completado";
-  const isAssignedWorker = user?.id === typedJob.assigned_worker_id;
-
-  // Datos estructurados para Google Jobs (solo vacantes abiertas)
+  // JSON-LD for Google Jobs (open listings only)
   const jobPostingJsonLd =
     typedJob.status === "abierto"
       ? {
@@ -124,21 +159,34 @@ export default async function JobDetailPage({ params }: { params: { id: string }
           }}
         />
       )}
+
       {/* Breadcrumb */}
       <Reveal y={8}>
         <nav aria-label="Miga de pan" className="mb-4 flex items-center gap-1 text-xs font-medium text-ink-muted">
-          <Link href="/" className="transition-colors hover:text-primary-600">
-            Inicio
-          </Link>
+          <Link href="/" className="transition-colors hover:text-primary-600">Inicio</Link>
           <ChevronRight className="h-3.5 w-3.5" />
-          <Link href="/jobs" className="transition-colors hover:text-primary-600">
-            Trabajos
-          </Link>
+          <Link href="/jobs" className="transition-colors hover:text-primary-600">Trabajos</Link>
           <ChevronRight className="h-3.5 w-3.5" />
           <span className="line-clamp-1 text-ink">{typedJob.title}</span>
         </nav>
       </Reveal>
 
+      {/* Banner: trabajador contratado */}
+      {isAssignedWorker && typedJob.status === "en_progreso" && (
+        <Reveal>
+          <div className="mb-6 flex items-center gap-3 rounded-2xl border border-success-100 bg-success-50 px-5 py-4">
+            <PartyPopper className="h-6 w-6 shrink-0 text-success-600" />
+            <div>
+              <p className="text-sm font-bold text-success-700">¡Fuiste contratado para este trabajo!</p>
+              <p className="text-xs text-success-600">
+                El empleador te ha seleccionado. Coordina los detalles directamente con él.
+              </p>
+            </div>
+          </div>
+        </Reveal>
+      )}
+
+      {/* Card principal del trabajo */}
       <Reveal>
         <div className="card overflow-hidden">
           <div className="h-2 bg-brand-gradient" aria-hidden />
@@ -216,6 +264,25 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                 </div>
               </div>
             </div>
+
+            {/* Trabajador asignado */}
+            {assignedWorker && (isOwner || isAssignedWorker) && (
+              <AssignedWorkerCard worker={assignedWorker} rating={workerRating} />
+            )}
+
+            {/* Timeline de estados (solo para participantes) */}
+            {(isOwner || isAssignedWorker) && (
+              <JobStatusTimeline
+                currentStatus={typedJob.status}
+                history={stateHistory}
+                createdAt={typedJob.created_at}
+              />
+            )}
+
+            {/* Botones de acción del empleador */}
+            {isOwner && (
+              <JobActions jobId={typedJob.id} jobStatus={typedJob.status} />
+            )}
           </div>
         </div>
       </Reveal>
@@ -226,9 +293,18 @@ export default async function JobDetailPage({ params }: { params: { id: string }
           <div className="card mt-6 p-6">
             <h2 className="text-base font-bold text-ink">Postular a este trabajo</h2>
             {myApplication ? (
-              <div className="mt-4 flex items-center gap-3 rounded-2xl bg-primary-50/60 p-4">
-                <Badge tone={jobStatusTone(myApplication.status)}>{myApplication.status}</Badge>
-                <p className="text-sm text-ink-muted">Ya enviaste tu postulación a este trabajo.</p>
+              <div className="mt-4 rounded-2xl bg-primary-50/60 p-4">
+                <div className="flex items-center gap-3">
+                  <Badge tone={jobStatusTone(myApplication.status)}>
+                    {myApplication.status === "pendiente" ? "Postulación enviada" : myApplication.status}
+                  </Badge>
+                  <p className="text-sm text-ink-muted">Ya enviaste tu postulación a este trabajo.</p>
+                </div>
+                {myApplication.status === "pendiente" && (
+                  <div className="mt-3">
+                    <WithdrawButton applicationId={myApplication.id} />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="mt-4">
@@ -288,7 +364,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
         </Reveal>
       )}
 
-      {/* Calificación mutua al completar el trabajo */}
+      {/* Calificación mutua al completar */}
       {jobCompleted && user && (isOwner || isAssignedWorker) && (
         <Reveal delay={0.05}>
           <div className="mt-6">

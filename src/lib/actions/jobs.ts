@@ -80,6 +80,109 @@ export async function updateJobStatus(jobId: string, status: string) {
   return { error: error?.message };
 }
 
+export async function completeJob(jobId: string): Promise<ActionResult> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("status, employer_id")
+    .eq("id", jobId)
+    .single();
+
+  const typedJob = job as { status: string; employer_id: string } | null;
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (typedJob.employer_id !== user.id) return { error: "Sin permiso." };
+  if (typedJob.status !== "en_progreso") return { error: "El trabajo no está en progreso." };
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from("jobs")
+    .update({ status: "completado", completed_at: now })
+    .eq("id", jobId);
+
+  if (updateError) return { error: "No se pudo completar el trabajo." };
+
+  await supabase.from("job_state_history").insert({
+    job_id: jobId,
+    actor_id: user.id,
+    prev_status: "en_progreso",
+    new_status: "completado",
+    notes: "Trabajo marcado como completado por el empleador",
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/dashboard/employer");
+  revalidatePath("/dashboard/worker");
+  return { success: true };
+}
+
+export async function cancelJob(jobId: string): Promise<ActionResult> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("status, employer_id")
+    .eq("id", jobId)
+    .single();
+
+  const typedJob = job as { status: string; employer_id: string } | null;
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (typedJob.employer_id !== user.id) return { error: "Sin permiso." };
+  if (typedJob.status !== "abierto") return { error: "Solo puedes cancelar trabajos abiertos." };
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from("jobs")
+    .update({ status: "cancelado", cancelled_at: now })
+    .eq("id", jobId);
+
+  if (updateError) return { error: "No se pudo cancelar el trabajo." };
+
+  await supabase.from("job_state_history").insert({
+    job_id: jobId,
+    actor_id: user.id,
+    prev_status: "abierto",
+    new_status: "cancelado",
+    notes: "Trabajo cancelado por el empleador",
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/dashboard/employer");
+  return { success: true };
+}
+
+export async function withdrawApplication(applicationId: string): Promise<ActionResult> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: app } = await supabase
+    .from("job_applications")
+    .select("status, worker_id, job_id")
+    .eq("id", applicationId)
+    .single();
+
+  const typedApp = app as { status: string; worker_id: string; job_id: string } | null;
+  if (!typedApp) return { error: "Postulación no encontrada." };
+  if (typedApp.worker_id !== user.id) return { error: "Sin permiso." };
+  if (typedApp.status !== "pendiente") return { error: "Solo puedes retirar postulaciones pendientes." };
+
+  const { error } = await supabase
+    .from("job_applications")
+    .update({ status: "retirado" })
+    .eq("id", applicationId);
+
+  if (error) return { error: "No se pudo retirar la postulación." };
+
+  revalidatePath(`/jobs/${typedApp.job_id}`);
+  revalidatePath("/dashboard/worker");
+  return { success: true };
+}
+
 export async function deleteJob(jobId: string) {
   const supabase = createClient();
   const { error } = await supabase.from("jobs").delete().eq("id", jobId);

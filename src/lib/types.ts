@@ -32,8 +32,38 @@ export interface Job {
   positions_needed: number;
   assigned_worker_id: string | null;
   starts_at: string | null;
+  hired_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface StateHistoryEntry {
+  id: string;
+  job_id: string;
+  actor_id: string;
+  prev_status: JobStatus | null;
+  new_status: JobStatus;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface Conversation {
+  id: string;
+  job_id: string;
+  employer_id: string;
+  worker_id: string;
+  created_at: string;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  body: string;
+  read_at: string | null;
+  created_at: string;
 }
 
 export interface JobApplication {
@@ -101,6 +131,36 @@ export type Database = {
           city: string;
         };
         Update: Partial<Job>;
+        Relationships: [];
+      };
+      job_state_history: {
+        Row: StateHistoryEntry;
+        Insert: Partial<StateHistoryEntry> & {
+          job_id: string;
+          actor_id: string;
+          new_status: JobStatus;
+        };
+        Update: Partial<StateHistoryEntry>;
+        Relationships: [];
+      };
+      conversations: {
+        Row: Conversation;
+        Insert: Partial<Conversation> & {
+          job_id: string;
+          employer_id: string;
+          worker_id: string;
+        };
+        Update: Partial<Conversation>;
+        Relationships: [];
+      };
+      messages: {
+        Row: Message;
+        Insert: Partial<Message> & {
+          conversation_id: string;
+          sender_id: string;
+          body: string;
+        };
+        Update: Partial<Message>;
         Relationships: [];
       };
       job_applications: {
