@@ -56,9 +56,22 @@ creación de trabajos y registro), ni errores de build/runtime, ni roturas respo
 
 | # | Hallazgo | Propuesta |
 | --- | --- | --- |
-| P1 | El login ignora el parámetro `next`: al intentar publicar sin sesión (`/login?next=/jobs/new`), tras ingresar te lleva a `/dashboard` en vez de a publicar | Leer `next` en el server action de login y redirigir ahí (validando que sea ruta interna) |
-| P2 | "Términos", "Privacidad" y "Ayuda" no tienen páginas | Crear páginas legales reales (requiere contenido legal tuyo) |
-| P3 | Al aceptar un postulante el trabajo no cambia a `en_progreso` ni asigna `assigned_worker_id` automáticamente | Definir la regla de negocio: ¿aceptar = asignar? Hoy la calificación mutua depende de `assigned_worker_id`, que nunca se setea desde la UI |
+| P1 | El login ignora el parámetro `next`: al intentar publicar sin sesión (`/login?next=/jobs/new`), tras ingresar te lleva a `/dashboard` en vez de a publicar | Leer `next` en el server action de login y redirigir ahí (validando que sea ruta interna) — **resuelto en PR #4** |
+| P2 | "Términos", "Privacidad" y "Ayuda" no tienen páginas | Crear páginas legales reales (requiere contenido legal tuyo) — **resuelto en PR #6** |
+
+> **Corrección posterior (ver `docs/FLUJO-CONTRATACION.md`)**: el hallazgo P3
+> original de esta tabla — "aceptar un postulante no asigna `assigned_worker_id`
+> ni cambia el estado del trabajo" — era **incorrecto**. Solo se revisó la
+> Server Action `updateApplicationStatus`, sin revisar los *triggers* de la
+> base de datos. La función `handle_application_accepted()`
+> (`supabase/migrations/0001_init.sql`, líneas 179-202) ya asigna al
+> trabajador, pasa el trabajo a `en_progreso` y rechaza las demás
+> postulaciones pendientes, disparada automáticamente al aceptar. La
+> calificación mutua ya funciona en cuanto el trabajo llega a `completado`.
+> Lo que sí falta es solo interfaz (confirmación antes de aceptar, timeline
+> de seguimiento, tarjeta del trabajador asignado) — propuesto como fase de
+> UI en `docs/FLUJO-CONTRATACION.md`, sin tocar el esquema ni las Server
+> Actions de transición.
 
 ## Verificación final
 
