@@ -1,95 +1,113 @@
-# Propuesta: flujo completo de contratación
+# Flujo de contratación: diagnóstico corregido y propuesta (revisión 2)
 
-> **Estado: PENDIENTE DE APROBACIÓN.** Este documento es la propuesta de diseño del PR #5.
-> No se implementará nada hasta que el flujo y los estados queden aprobados.
+> **Estado: PENDIENTE DE APROBACIÓN.** No se implementará nada hasta que este
+> alcance quede aprobado.
+>
+> **Nota de corrección**: la revisión 1 de este documento (y el hallazgo P3 de
+> `docs/AUDITORIA.md`) afirmaban que "aceptar un postulante no asigna
+> `assigned_worker_id` ni cambia el estado del trabajo". **Eso era incorrecto.**
+> Solo revisé el código de la Server Action (`updateApplicationStatus`) sin
+> revisar los *triggers* de la base de datos. Al leer
+> `supabase/migrations/0001_init.sql` completo aparece la función
+> `handle_application_accepted()` (líneas 179-202), con un trigger
+> `AFTER UPDATE ON job_applications` que ya hace exactamente eso. Corrijo el
+> diagnóstico aquí y en `docs/AUDITORIA.md`.
 
-## Problema actual
+## Qué YA funciona hoy (verificado en el trigger + RLS, no solo en el código TS)
 
-Aceptar un postulante solo cambia el estado de su postulación. Nunca se asigna
-`assigned_worker_id` ni se pasa el trabajo a `en_progreso`, y la calificación mutua
-depende de ese campo — por lo que hoy el ciclo nunca puede completarse desde la UI.
-
-## Estados propuestos
-
-Se reutilizan los estados existentes de la base de datos (sin migración de esquema):
-
+```sql
+create or replace function public.handle_application_accepted()
+returns trigger as $$
+begin
+  if new.status = 'aceptado' and (old.status is distinct from 'aceptado') then
+    update public.jobs
+      set assigned_worker_id = new.worker_id, status = 'en_progreso'
+      where id = new.job_id;
+    update public.job_applications
+      set status = 'rechazado'
+      where job_id = new.job_id and id <> new.id and status = 'pendiente';
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
 ```
-                    ┌────────────┐
-   publicar         │  ABIERTO   │  ← recibe postulaciones
-  ──────────────►   └─────┬──────┘
-                          │ aceptar postulante
-                          ▼
-                    ┌────────────┐
-                    │EN_PROGRESO │  ← trabajo asignado, seguimiento activo
-                    └─────┬──────┘
-              finalizar   │            cancelar (empleador, en abierto
-                          ▼            o en progreso) → CANCELADO
-                    ┌────────────┐
-                    │ COMPLETADO │  ← habilita calificación mutua
-                    └────────────┘
-```
 
-## Transición clave: "Aceptar postulante" (atómica)
+Al pulsar "Aceptar" en `ApplicantRow` → `updateApplicationStatus(id, "aceptado")` →
+`UPDATE job_applications SET status = 'aceptado'` (una llamada normal de
+PostgREST, que sí dispara triggers de Postgres) →
 
-Al pulsar **Aceptar** sobre una postulación pendiente:
+1. ✅ `jobs.assigned_worker_id` se asigna automáticamente.
+2. ✅ `jobs.status` pasa a `en_progreso` automáticamente.
+3. ✅ Las demás postulaciones **pendientes** del mismo trabajo se rechazan
+   automáticamente.
+4. ✅ La política RLS `applications_update` ya permite al empleador dueño del
+   trabajo hacer esta actualización; la función es `security definer`, así
+   que sus efectos en cascada (que tocan filas de otros usuarios) no
+   dependen de los permisos RLS del empleador.
+5. ✅ "Marcar completado" (`updateJobStatus("completado")`) ya existe en
+   `EmployerJobRow` dentro del dashboard del empleador, solo si el trabajo
+   está `en_progreso`.
+6. ✅ La calificación mutua en `/jobs/[id]` ya está condicionada a
+   `status === "completado"` + `isOwner`/`isAssignedWorker` — ya funciona
+   en cuanto el trabajo llega a ese estado.
 
-1. `job_applications.status` → `aceptado`.
-2. `jobs.assigned_worker_id` → id del trabajador aceptado.
-3. `jobs.status` → `en_progreso`.
-4. Las demás postulaciones **pendientes** del mismo trabajo → `rechazado`
-   automáticamente (los candidatos ven un estado honesto en su panel en vez de
-   esperar para siempre). *Alternativa a decidir: dejarlas pendientes.*
-5. Confirmación previa en la UI: "Vas a contratar a {nombre}. Las demás
-   postulaciones se rechazarán automáticamente."
+**Conclusión: la máquina de estados y la transición atómica ya existen y
+funcionan de punta a punta a nivel de base de datos.** No se necesita
+migración nueva, ni función SQL nueva, ni cambios en las Server Actions
+de estado.
 
-Implementación vía función SQL `accept_application(application_id)` con
-`security definer` + verificación de ownership, para que los 4 pasos sean
-atómicos (todo o nada). Se añade como migración nueva sin tocar el esquema.
+## Qué SÍ falta (gaps reales, solo de interfaz — alcance revisado y reducido)
 
-## Seguimiento del trabajo (en progreso)
+| # | Gap | Dónde |
+| --- | --- | --- |
+| G1 | Al aceptar, no hay confirmación previa: el empleador no ve el aviso "se rechazarán las demás postulaciones" antes de que ocurra | `ApplicantRow.tsx` |
+| G2 | El detalle del trabajo (`/jobs/[id]`) no muestra ningún seguimiento del progreso (línea de tiempo) para trabajo `en_progreso` | `jobs/[id]/page.tsx` |
+| G3 | El detalle del trabajo no muestra una tarjeta del trabajador asignado (el empleador solo lo ve en la lista de postulantes, mezclado con los rechazados) | `jobs/[id]/page.tsx` |
+| G4 | "Marcar completado" solo existe en el dashboard del empleador, no en el detalle del trabajo — un empleador que entra desde el enlace del trabajo no lo encuentra ahí | `jobs/[id]/page.tsx` |
+| G5 | El trabajador no tiene ninguna señal visual de "fuiste contratado, aquí va el seguimiento" más allá del badge de estado genérico | `jobs/[id]/page.tsx`, dashboard del trabajador |
 
-En el detalle del trabajo, visible para empleador y trabajador asignado:
+## Propuesta de esta fase (solo UI, sin tocar el esquema ni las Server Actions de transición)
 
-- **Timeline de estados**: Publicado → Contratado → En progreso → Completado,
-  con fechas y el componente Timeline del design system.
-- **Tarjeta del trabajador asignado** (para el empleador): avatar, nombre,
-  oficio, teléfono si existe.
-- **Tarjeta del empleador** (para el trabajador): ya existe, se mantiene.
-- El botón "Marcar completado" del dashboard del empleador se replica en el
-  detalle del trabajo (hoy solo está en el dashboard).
+1. **Confirmación elegante** antes de aceptar (mismo patrón ya usado en
+   `EmployerJobRow` para eliminar/cancelar — sin `window.confirm`):
+   "Vas a contratar a {nombre}. Las demás postulaciones se rechazarán
+   automáticamente." → Aceptar / Cancelar.
+2. **Timeline de estados** en `/jobs/[id]` (nuevo componente
+   `components/ui/Timeline.tsx` del design system) — Publicado → Contratado →
+   En progreso → Completado, visible para empleador y trabajador asignado.
+3. **Tarjeta del trabajador asignado** en el detalle del trabajo, para el
+   empleador, una vez `assigned_worker_id` está seteado.
+4. **Botón "Marcar completado"** también en el detalle del trabajo (mismo
+   `updateJobStatus`, sin lógica nueva), visible solo para el dueño con
+   `status === "en_progreso"`.
+5. **Aviso claro al trabajador asignado**: badge o tarjeta destacando "Fuiste
+   contratado para este trabajo" en el detalle y en su dashboard.
 
-## Finalizar y calificar
+## Reglas y casos borde (sin cambios respecto a la revisión 1)
 
-- Solo el **empleador** puede marcar `completado` (v1; si luego se quiere
-  confirmación bilateral, se agrega en v2).
-- Al completar: se muestran los formularios de calificación mutua **ya
-  existentes** — empleador califica al trabajador asignado y viceversa.
-  Esta parte no cambia: hoy ya está correctamente condicionada a
-  `status = completado` + `assigned_worker_id`.
-
-## Reglas y casos borde
-
-| Caso | Regla propuesta |
+| Caso | Regla |
 | --- | --- |
-| Trabajo con varias vacantes (`positions_needed > 1`) | El esquema actual solo admite **un** `assigned_worker_id`. v1: al aceptar al primer trabajador el trabajo pasa a `en_progreso` y deja de aceptar postulaciones. El soporte real multi-vacante requiere migración (tabla de asignaciones) y se propone como fase posterior. |
-| Cancelar un trabajo `en_progreso` | Permitido al empleador (ya existe). La postulación aceptada pasa a `retirado` para liberar el historial del trabajador. |
-| Trabajador quiere retirarse tras ser aceptado | Fuera de alcance v1 (requiere flujo de disputa); el empleador puede cancelar y re-abrir. |
-| Postular a un trabajo `en_progreso` | Ya es imposible: el formulario solo aparece con `status = abierto`. |
+| Trabajo con varias vacantes (`positions_needed > 1`) | El esquema solo admite **un** `assigned_worker_id`. Al aceptar al primer trabajador, el trabajo pasa a `en_progreso` y dejan de aceptarse postulaciones nuevas (el formulario de postular ya solo aparece con `status = "abierto"`). Soporte multi-vacante real requeriría una tabla de asignaciones — se deja fuera de esta fase. |
+| Cancelar un trabajo `en_progreso` | Ya permitido al empleador. La postulación aceptada **no** cambia de estado automáticamente hoy (queda en `aceptado` aunque el trabajo esté `cancelado`) — posible mejora menor a incluir en esta fase si se aprueba. |
+| Trabajador quiere retirarse tras ser aceptado | Fuera de alcance (requeriría flujo de disputa). |
 
 ## Cambios por archivo (cuando se apruebe)
 
-- `supabase/migrations/0002_accept_application.sql` — función atómica.
-- `src/lib/actions/jobs.ts` — `acceptApplication()` llama a la función y
-  revalida rutas; `updateJobStatus("cancelado")` pasa la postulación aceptada
-  a `retirado`.
-- `src/components/ApplicantRow.tsx` — confirmación elegante antes de aceptar.
-- `src/app/jobs/[id]/page.tsx` — timeline de seguimiento + tarjeta del
-  asignado + botón "Marcar completado" para el dueño.
+- `src/components/ApplicantRow.tsx` — confirmación en línea antes de aceptar.
 - `src/components/ui/Timeline.tsx` — nuevo componente del design system.
+- `src/app/jobs/[id]/page.tsx` — timeline, tarjeta del asignado, botón
+  "Marcar completado" para el dueño.
+- `docs/AUDITORIA.md` — corrección del hallazgo P3 (ya no es un P3 de
+  "lógica faltante"; pasa a ser una mejora de UX menor).
+
+**Sin migraciones nuevas. Sin cambios en `src/lib/actions/jobs.ts`** más allá,
+opcionalmente, de decidir la regla de la fila "Cancelar en progreso" de la
+tabla de arriba.
 
 ## Preguntas abiertas para el product owner
 
-1. ¿Rechazo automático de las demás postulaciones al aceptar una? (recomendado)
-2. ¿El trabajador debe poder confirmar la finalización (bilateral) o basta el
-   empleador? (v1 propone: solo empleador)
-3. Multi-vacante: ¿lo dejamos explícitamente para una fase con migración?
+1. ¿Confirmamos el punto G1-G5 tal cual, o quieres agregar/quitar alguno?
+2. Al cancelar un trabajo `en_progreso`, ¿la postulación aceptada debe pasar
+   a `retirado` automáticamente, o se deja como está (aceptada, pero el
+   trabajo cancelado)?
+3. Multi-vacante: ¿confirmamos que queda fuera de esta fase?
