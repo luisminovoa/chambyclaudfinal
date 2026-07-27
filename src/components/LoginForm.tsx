@@ -27,11 +27,14 @@ function SubmitButton() {
   );
 }
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [state, formAction] = useFormState(login, initialState);
+  const registerHref = next ? `/register?next=${encodeURIComponent(next)}` : "/register";
 
   return (
     <form action={formAction} className="space-y-4">
+      {/* El server action valida que sea una ruta interna antes de redirigir */}
+      {next && <input type="hidden" name="next" value={next} />}
       {state.error && (
         <div
           role="alert"
@@ -81,7 +84,7 @@ export function LoginForm() {
       <p className="text-center text-sm text-ink-muted">
         ¿No tienes cuenta?{" "}
         <Link
-          href="/register"
+          href={registerHref}
           className="font-bold text-primary-600 transition-colors hover:text-primary-700"
         >
           Regístrate

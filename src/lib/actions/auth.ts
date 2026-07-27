@@ -20,6 +20,18 @@ const registerSchema = z.object({
 
 export type ActionResult = { error?: string; success?: boolean };
 
+/**
+ * Devuelve `next` solo si es una ruta interna segura: empieza con un único
+ * "/" (sin "//" ni "\", que el navegador interpretaría como URL absoluta
+ * hacia otro dominio) y tiene un largo razonable. Cualquier otro valor se
+ * descarta para evitar open redirects.
+ */
+function safeNextPath(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > 500) return null;
+  if (!/^\/(?!\/)[^\\]*$/.test(value)) return null;
+  return value;
+}
+
 export async function login(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
@@ -37,7 +49,7 @@ export async function login(_prev: ActionResult, formData: FormData): Promise<Ac
     return { error: "Correo o contraseña incorrectos." };
   }
 
-  redirect("/dashboard");
+  redirect(safeNextPath(formData.get("next")) ?? "/dashboard");
 }
 
 export async function register(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
@@ -77,7 +89,7 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
     return { error: "No se pudo crear la cuenta. Intenta nuevamente." };
   }
 
-  redirect("/dashboard");
+  redirect(safeNextPath(formData.get("next")) ?? "/dashboard");
 }
 
 export async function logout() {
