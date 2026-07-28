@@ -1,12 +1,19 @@
 "use client";
 
 import { useFormState, useFormStatus } from "react-dom";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, LogIn } from "lucide-react";
 import { login, type ActionResult } from "@/lib/actions/auth";
 import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 
 const initialState: ActionResult = {};
+
+const OAUTH_ERRORS: Record<string, string> = {
+  oauth_cancelled: "Cancelaste el inicio de sesión con Google.",
+  oauth_failed:
+    "No se pudo completar el inicio de sesión con Google. Intenta de nuevo.",
+};
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -27,21 +34,37 @@ function SubmitButton() {
   );
 }
 
-export function LoginForm({ next }: { next?: string }) {
+export function LoginForm({ next, oauthError }: { next?: string; oauthError?: string }) {
   const [state, formAction] = useFormState(login, initialState);
+  // AUTH-007: errores de Supabase OAuth que llegan en el hash de la URL
+  const [hashError, setHashError] = useState<string | undefined>();
   const registerHref = next ? `/register?next=${encodeURIComponent(next)}` : "/register";
+
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    if (hash.get("error")) {
+      const desc = hash.get("error_description") ?? "";
+      setHashError(
+        desc.includes("exchange")
+          ? "Error al conectar con Google. Verifica que tu cuenta esté autorizada e intenta de nuevo."
+          : "Error al iniciar sesión con Google. Intenta de nuevo."
+      );
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, []);
+
+  const displayError = hashError ?? oauthError ?? state.error;
 
   return (
     <form action={formAction} className="space-y-4">
-      {/* El server action valida que sea una ruta interna antes de redirigir */}
       {next && <input type="hidden" name="next" value={next} />}
-      {state.error && (
+      {displayError && (
         <div
           role="alert"
           className="flex items-center gap-2 rounded-2xl bg-danger-50 px-4 py-3 text-sm font-medium text-danger-700"
         >
           <AlertCircle className="h-4 w-4 shrink-0" />
-          {state.error}
+          {displayError}
         </div>
       )}
       <div>

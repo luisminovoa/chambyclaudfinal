@@ -6,25 +6,36 @@ import { z } from "zod";
 
 const loginSchema = z.object({
   email: z.string().email("Ingresa un correo válido"),
-  password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
+  password: z.string().min(1, "Ingresa tu contraseña"),
 });
 
-const registerSchema = z.object({
-  fullName: z.string().min(2, "Ingresa tu nombre completo"),
-  email: z.string().email("Ingresa un correo válido"),
-  password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
-  role: z.enum(["worker", "employer"]),
-  city: z.string().min(2, "Selecciona tu ciudad"),
-  category: z.string().optional(),
-});
+// AUTH-001 confirmPassword, AUTH-002 min 8 chars, AUTH-006 max fullName
+const registerSchema = z
+  .object({
+    fullName: z
+      .string()
+      .min(2, "El nombre debe tener al menos 2 caracteres")
+      .max(100, "El nombre es demasiado largo"),
+    email: z.string().email("Ingresa un correo válido"),
+    password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
+    confirmPassword: z.string(),
+    role: z.enum(["worker", "employer"]),
+    city: z.string().min(2, "Ingresa tu ciudad"),
+    category: z.string().optional(),
+  })
+  .refine((d) => d.password === d.confirmPassword, {
+    message: "Las contraseñas no coinciden",
+    path: ["confirmPassword"],
+  });
 
-export type ActionResult = { error?: string; success?: boolean };
+export type ActionResult = {
+  error?: string;
+  success?: boolean;
+  needsEmailConfirmation?: boolean;
+};
 
 /**
- * Devuelve `next` solo si es una ruta interna segura: empieza con un único
- * "/" (sin "//" ni "\", que el navegador interpretaría como URL absoluta
- * hacia otro dominio) y tiene un largo razonable. Cualquier otro valor se
- * descarta para evitar open redirects.
+ * Devuelve `next` solo si es una ruta interna segura (previene open redirects).
  */
 function safeNextPath(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string" || value.length === 0 || value.length > 500) return null;
@@ -46,6 +57,13 @@ export async function login(_prev: ActionResult, formData: FormData): Promise<Ac
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
 
   if (error) {
+    // AUTH-004: distinguir "email no confirmado" de credenciales incorrectas
+    const msg = error.message.toLowerCase();
+    if (msg.includes("email not confirmed")) {
+      return {
+        error: "Debes confirmar tu correo antes de ingresar. Revisa tu bandeja de entrada.",
+      };
+    }
     return { error: "Correo o contraseña incorrectos." };
   }
 
@@ -57,6 +75,7 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
     fullName: formData.get("fullName"),
     email: formData.get("email"),
     password: formData.get("password"),
+    confirmPassword: formData.get("confirmPassword"),
     role: formData.get("role"),
     city: formData.get("city"),
     category: formData.get("category") || undefined,
@@ -69,7 +88,7 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
   const { fullName, email, password, role, city, category } = parsed.data;
   const supabase = createClient();
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -83,10 +102,16 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
   });
 
   if (error) {
-    if (error.message.includes("already registered")) {
-      return { error: "Este correo ya está registrado." };
+    const msg = error.message.toLowerCase();
+    if (msg.includes("already registered") || msg.includes("user already registered")) {
+      return { error: "Este correo ya está registrado. ¿Quieres ingresar?" };
     }
     return { error: "No se pudo crear la cuenta. Intenta nuevamente." };
+  }
+
+  // AUTH-003: si session es null, Supabase requiere confirmación de email
+  if (!data.session) {
+    return { needsEmailConfirmation: true };
   }
 
   redirect(safeNextPath(formData.get("next")) ?? "/dashboard");
