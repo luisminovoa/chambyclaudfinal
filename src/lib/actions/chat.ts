@@ -1,0 +1,396 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
+import type { ActionResult } from "@/lib/actions/auth";
+import type {
+  Message,
+  MessageType,
+  Conversation,
+  ConversationWithDetails,
+  ConversationSettings,
+  Profile,
+  Job,
+} from "@/lib/types";
+
+const VALID_TYPES: MessageType[] = ["text", "image", "location", "pdf", "audio", "video"];
+const MAX_BODY_LENGTH = 4000;
+const MESSAGES_PER_PAGE = 50;
+
+/** Validates the user is a participant of the given conversation. */
+async function assertParticipant(
+  supabase: ReturnType<typeof createClient>,
+  conversationId: string,
+  userId: string
+): Promise<{ employer_id: string; worker_id: string; job_id: string } | null> {
+  const { data } = await supabase
+    .from("conversations")
+    .select("employer_id, worker_id, job_id")
+    .eq("id", conversationId)
+    .single();
+  const conv = data as { employer_id: string; worker_id: string; job_id: string } | null;
+  if (!conv) return null;
+  if (conv.employer_id !== userId && conv.worker_id !== userId) return null;
+  return conv;
+}
+
+export async function sendMessage(
+  conversationId: string,
+  body: string,
+  type: MessageType = "text",
+  attachmentUrl?: string,
+  metadata?: Record<string, number | string | boolean | null>
+): Promise<ActionResult & { messageId?: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const conv = await assertParticipant(supabase, conversationId, user.id);
+  if (!conv) return { error: "Sin permiso." };
+
+  if (!VALID_TYPES.includes(type)) return { error: "Tipo de mensaje inválido." };
+
+  const trimmed = body.trim();
+  if (type === "text") {
+    if (!trimmed) return { error: "El mensaje no puede estar vacío." };
+    if (trimmed.length > MAX_BODY_LENGTH) return { error: "El mensaje es demasiado largo." };
+  }
+  if (type === "image" && !attachmentUrl) return { error: "Adjunto requerido." };
+  if (type === "location" && (!metadata?.lat || !metadata?.lng)) {
+    return { error: "Coordenadas requeridas." };
+  }
+
+  // Rate limiting via Postgres function
+  const { data: rateOk, error: rateErr } = await supabase.rpc("check_message_rate_limit", {
+    p_conversation_id: conversationId,
+    p_sender_id: user.id,
+  });
+  if (!rateErr && rateOk === false) {
+    return { error: "Estás enviando mensajes demasiado rápido. Espera un momento." };
+  }
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: conversationId,
+      sender_id: user.id,
+      body: trimmed || (type === "image" ? "📷 Imagen" : "📍 Ubicación"),
+      type,
+      attachment_url: attachmentUrl ?? null,
+      metadata: metadata ?? null,
+    })
+    .select("id")
+    .single();
+
+  if (error) return { error: "No se pudo enviar el mensaje." };
+  const msg = data as unknown as { id: string };
+
+  return { success: true, messageId: msg.id };
+}
+
+export async function markRead(conversationId: string): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const now = new Date().toISOString();
+  await Promise.all([
+    supabase.from("conversation_read_cursors").upsert(
+      { conversation_id: conversationId, profile_id: user.id, last_read_at: now },
+      { onConflict: "conversation_id,profile_id" }
+    ),
+    supabase
+      .from("messages")
+      .update({ read_at: now })
+      .eq("conversation_id", conversationId)
+      .neq("sender_id", user.id)
+      .is("read_at", null),
+  ]);
+}
+
+export async function getMessages(
+  conversationId: string,
+  cursor?: string
+): Promise<{ messages: Message[]; hasMore: boolean }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { messages: [], hasMore: false };
+
+  let query = supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(MESSAGES_PER_PAGE + 1);
+
+  if (cursor) query = query.lt("created_at", cursor);
+
+  const { data } = await query;
+  const rows = (data as unknown as Message[]) ?? [];
+  const hasMore = rows.length > MESSAGES_PER_PAGE;
+
+  return {
+    messages: rows.slice(0, MESSAGES_PER_PAGE).reverse(),
+    hasMore,
+  };
+}
+
+export async function createUploadUrl(
+  conversationId: string,
+  fileName: string,
+  contentType: string
+): Promise<ActionResult & { uploadUrl?: string; publicUrl?: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const conv = await assertParticipant(supabase, conversationId, user.id);
+  if (!conv) return { error: "Sin permiso." };
+
+  const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+  if (!ALLOWED_TYPES.includes(contentType)) {
+    return { error: "Solo se permiten imágenes JPG, PNG, GIF o WebP." };
+  }
+
+  const ext = contentType.split("/")[1] ?? "jpg";
+  const path = `${conversationId}/${user.id}/${Date.now()}.${ext}`;
+
+  // Use admin client for private bucket operations — participant check above
+  // ensures authorization; service role is required to generate signed URLs.
+  const admin = createAdminClient();
+  const SIGNED_URL_TTL = 60 * 60 * 24 * 365; // 1 year in seconds
+
+  const { data: uploadData, error: uploadError } = await admin.storage
+    .from("conversation-attachments")
+    .createSignedUploadUrl(path);
+
+  if (uploadError) return { error: "No se pudo preparar la subida de imagen." };
+
+  const { data: downloadData, error: downloadError } = await admin.storage
+    .from("conversation-attachments")
+    .createSignedUrl(path, SIGNED_URL_TTL);
+
+  if (downloadError) return { error: "No se pudo generar URL de descarga." };
+
+  return {
+    success: true,
+    uploadUrl: uploadData.signedUrl,
+    publicUrl: downloadData.signedUrl, // signed, expires in 1 year; stored as attachment_url
+  };
+}
+
+export async function updateConversationSettings(
+  conversationId: string,
+  settings: { is_muted?: boolean; is_archived?: boolean; muted_until?: string | null }
+): Promise<ActionResult> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const conv = await assertParticipant(supabase, conversationId, user.id);
+  if (!conv) return { error: "Sin permiso." };
+
+  const { error } = await supabase.from("conversation_settings").upsert(
+    {
+      conversation_id: conversationId,
+      profile_id: user.id,
+      ...settings,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "conversation_id,profile_id" }
+  );
+
+  if (error) return { error: "No se pudo actualizar la configuración." };
+
+  revalidatePath("/messages");
+  return { success: true };
+}
+
+export async function blockConversation(conversationId: string): Promise<ActionResult> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  // Only admin can block
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const typedProfile = profile as { role: string } | null;
+  if (typedProfile?.role !== "admin") return { error: "Sin permiso de administrador." };
+
+  const { error } = await supabase.from("conversation_settings").upsert(
+    {
+      conversation_id: conversationId,
+      profile_id: user.id,
+      is_blocked: true,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "conversation_id,profile_id" }
+  );
+
+  if (error) return { error: "No se pudo bloquear la conversación." };
+  revalidatePath("/messages");
+  return { success: true };
+}
+
+export async function getConversations(): Promise<ConversationWithDetails[]> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data: convRows } = await supabase
+    .from("conversations")
+    .select("id, job_id, employer_id, worker_id, created_at")
+    .or(`employer_id.eq.${user.id},worker_id.eq.${user.id}`)
+    .order("created_at", { ascending: false });
+
+  if (!convRows || convRows.length === 0) return [];
+
+  const typedConvs = convRows as unknown as Conversation[];
+  const convIds = typedConvs.map((c) => c.id);
+  const allUserIds = [
+    ...new Set([
+      ...typedConvs.map((c) => c.employer_id),
+      ...typedConvs.map((c) => c.worker_id),
+    ]),
+  ];
+  const jobIds = typedConvs.map((c) => c.job_id);
+
+  const [
+    { data: profileRows },
+    { data: jobRows },
+    { data: msgRows },
+    { data: cursorRows },
+    { data: settingRows },
+  ] = await Promise.all([
+    supabase.from("profiles").select("id, full_name, avatar_url").in("id", allUserIds),
+    supabase.from("jobs").select("id, title, status").in("id", jobIds),
+    supabase
+      .from("messages")
+      .select("id, conversation_id, sender_id, body, type, created_at, read_at, attachment_url, metadata")
+      .in("conversation_id", convIds)
+      .order("created_at", { ascending: false })
+      .limit(500),
+    supabase
+      .from("conversation_read_cursors")
+      .select("conversation_id, last_read_at")
+      .eq("profile_id", user.id)
+      .in("conversation_id", convIds),
+    supabase
+      .from("conversation_settings")
+      .select("*")
+      .eq("profile_id", user.id)
+      .in("conversation_id", convIds),
+  ]);
+
+  const profileMap = new Map(
+    (profileRows as unknown as Pick<Profile, "id" | "full_name" | "avatar_url">[] ?? []).map(
+      (p) => [p.id, p]
+    )
+  );
+  const jobMap = new Map(
+    (jobRows as unknown as Pick<Job, "id" | "title" | "status">[] ?? []).map((j) => [j.id, j])
+  );
+  const lastMsgByConv = new Map<string, Message>();
+  const msgsByConv = new Map<string, Message[]>();
+  for (const msg of (msgRows as unknown as Message[]) ?? []) {
+    if (!lastMsgByConv.has(msg.conversation_id)) {
+      lastMsgByConv.set(msg.conversation_id, msg);
+    }
+    const arr = msgsByConv.get(msg.conversation_id) ?? [];
+    arr.push(msg);
+    msgsByConv.set(msg.conversation_id, arr);
+  }
+  const cursorMap = new Map(
+    (
+      cursorRows as unknown as { conversation_id: string; last_read_at: string }[] | null
+    )?.map((c) => [c.conversation_id, c.last_read_at]) ?? []
+  );
+  const settingsMap = new Map(
+    (settingRows as unknown as ConversationSettings[] ?? []).map((s) => [s.conversation_id, s])
+  );
+
+  const result = typedConvs.map((conv) => {
+    const msgs = msgsByConv.get(conv.id) ?? [];
+    const cursor = cursorMap.get(conv.id);
+    const unreadCount = cursor
+      ? msgs.filter((m) => m.sender_id !== user.id && m.created_at > cursor).length
+      : msgs.filter((m) => m.sender_id !== user.id && !m.read_at).length;
+
+    return {
+      ...conv,
+      job: (jobMap.get(conv.job_id) as Pick<Job, "id" | "title" | "status"> | undefined) ?? null,
+      employer: (profileMap.get(conv.employer_id) as Pick<Profile, "id" | "full_name" | "avatar_url"> | undefined) ?? null,
+      worker: (profileMap.get(conv.worker_id) as Pick<Profile, "id" | "full_name" | "avatar_url"> | undefined) ?? null,
+      last_message: lastMsgByConv.get(conv.id) ?? null,
+      unread_count: unreadCount,
+      settings: settingsMap.get(conv.id) ?? null,
+    } satisfies ConversationWithDetails;
+  });
+
+  // Sort by last message time, most recent first
+  return result.sort((a, b) => {
+    const ta = a.last_message?.created_at ?? a.created_at;
+    const tb = b.last_message?.created_at ?? b.created_at;
+    return tb.localeCompare(ta);
+  });
+}
+
+export async function getConversationForChat(conversationId: string): Promise<{
+  otherUser: Profile;
+  currentUserId: string;
+  initialMessages: Message[];
+  initialHasMore: boolean;
+  jobTitle: string | null;
+} | null> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const conv = await assertParticipant(supabase, conversationId, user.id);
+  if (!conv) return null;
+
+  const otherId = conv.employer_id === user.id ? conv.worker_id : conv.employer_id;
+
+  const [{ data: otherProfile }, { data: jobData }, { data: msgRows }] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", otherId).single(),
+    supabase.from("jobs").select("title").eq("id", conv.job_id).single(),
+    supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(MESSAGES_PER_PAGE + 1),
+  ]);
+
+  if (!otherProfile) return null;
+
+  const rows = (msgRows as unknown as Message[]) ?? [];
+  const hasMore = rows.length > MESSAGES_PER_PAGE;
+
+  return {
+    otherUser: otherProfile as unknown as Profile,
+    currentUserId: user.id,
+    initialMessages: rows.slice(0, MESSAGES_PER_PAGE).reverse(),
+    initialHasMore: hasMore,
+    jobTitle: (jobData as unknown as { title: string } | null)?.title ?? null,
+  };
+}

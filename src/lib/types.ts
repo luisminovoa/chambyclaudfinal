@@ -57,13 +57,44 @@ export interface Conversation {
   created_at: string;
 }
 
+export type MessageType = "text" | "image" | "location" | "pdf" | "audio" | "video";
+
 export interface Message {
   id: string;
   conversation_id: string;
   sender_id: string;
   body: string;
+  type: MessageType;
+  attachment_url: string | null;
+  metadata: Record<string, number | string | boolean | null> | null;
   read_at: string | null;
   created_at: string;
+}
+
+export interface ConversationReadCursor {
+  conversation_id: string;
+  profile_id: string;
+  last_read_at: string;
+}
+
+export interface ConversationSettings {
+  conversation_id: string;
+  profile_id: string;
+  is_muted: boolean;
+  is_archived: boolean;
+  is_blocked: boolean;
+  muted_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationWithDetails extends Conversation {
+  job: Pick<Job, "id" | "title" | "status"> | null;
+  employer: Pick<Profile, "id" | "full_name" | "avatar_url"> | null;
+  worker: Pick<Profile, "id" | "full_name" | "avatar_url"> | null;
+  last_message: Message | null;
+  unread_count: number;
+  settings: ConversationSettings | null;
 }
 
 export interface JobApplication {
@@ -161,6 +192,24 @@ export type Database = {
           body: string;
         };
         Update: Partial<Message>;
+        Relationships: [];
+      };
+      conversation_read_cursors: {
+        Row: ConversationReadCursor;
+        Insert: Partial<ConversationReadCursor> & {
+          conversation_id: string;
+          profile_id: string;
+        };
+        Update: Partial<ConversationReadCursor>;
+        Relationships: [];
+      };
+      conversation_settings: {
+        Row: ConversationSettings;
+        Insert: Partial<ConversationSettings> & {
+          conversation_id: string;
+          profile_id: string;
+        };
+        Update: Partial<ConversationSettings>;
         Relationships: [];
       };
       job_applications: {
