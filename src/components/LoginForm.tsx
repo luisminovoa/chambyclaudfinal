@@ -1,6 +1,7 @@
 "use client";
 
 import { useFormState, useFormStatus } from "react-dom";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, LogIn } from "lucide-react";
 import { login, type ActionResult } from "@/lib/actions/auth";
@@ -29,8 +30,24 @@ function SubmitButton() {
 
 export function LoginForm({ next, oauthError }: { next?: string; oauthError?: string }) {
   const [state, formAction] = useFormState(login, initialState);
+  const [hashError, setHashError] = useState<string | undefined>();
   const registerHref = next ? `/register?next=${encodeURIComponent(next)}` : "/register";
-  const displayError = oauthError ?? state.error;
+
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    if (hash.get("error")) {
+      const desc = hash.get("error_description");
+      setHashError(
+        desc?.includes("exchange")
+          ? "Error al conectar con Google. Verifica que tu cuenta esté autorizada e intenta de nuevo."
+          : "Error al iniciar sesión con Google. Intenta de nuevo."
+      );
+      // Limpiar el hash para que no persista al recargar
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, []);
+
+  const displayError = hashError ?? oauthError ?? state.error;
 
   return (
     <form action={formAction} className="space-y-4">
