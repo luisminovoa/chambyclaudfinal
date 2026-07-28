@@ -144,9 +144,56 @@ create policy "audit_log_admin_only"
   using (public.current_user_role() = 'admin');
 
 -- ------------------------------------------------------------
--- Supabase Storage: instrucciones de configuración manual
--- Crear bucket "conversation-attachments" en Supabase Dashboard:
---   - Public: NO (privado)
---   - Políticas: authenticated users pueden INSERT en su propio prefix
---   - Max file size: 5 MB
+-- Supabase Storage: bucket privado para adjuntos de conversaciones
+-- Acceso de LECTURA solo vía URLs firmadas generadas por service role.
+-- No hay política SELECT: la URL firmada es el token de acceso.
 -- ------------------------------------------------------------
+
+-- Crear (o actualizar) el bucket como privado
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'conversation-attachments',
+  'conversation-attachments',
+  false,                           -- privado: sin acceso anónimo
+  5242880,                         -- 5 MB máximo por archivo
+  array['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+)
+on conflict (id) do update set
+  public             = false,
+  file_size_limit    = 5242880,
+  allowed_mime_types = array['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+-- Política de subida: solo participantes de la conversación
+-- El prefijo del path es {conversationId}/{userId}/{filename}
+drop policy if exists "conv_attach_participant_upload" on storage.objects;
+create policy "conv_attach_participant_upload"
+  on storage.objects for insert
+  to authenticated
+  with check (
+    bucket_id = 'conversation-attachments'
+    and (
+      select count(*) > 0
+      from public.conversations c
+      where c.id::text = (storage.foldername(name))[1]
+        and (c.employer_id = auth.uid() or c.worker_id = auth.uid())
+    )
+  );
+
+-- Política de borrado: solo el propio emisor puede eliminar su archivo
+drop policy if exists "conv_attach_sender_delete" on storage.objects;
+create policy "conv_attach_sender_delete"
+  on storage.objects for delete
+  to authenticated
+  using (
+    bucket_id = 'conversation-attachments'
+    and (storage.foldername(name))[2] = auth.uid()::text
+  );
+
+-- Sin política SELECT: los archivos se descargan exclusivamente
+-- mediante URLs firmadas generadas por el service role en Server Actions.
+-- Esto garantiza que solo los participantes verificados pueden obtener
+-- una URL válida, independientemente del tiempo de expiración.
+
+-- Nota para integración antivirus futura:
+-- Agregar un trigger o webhook en storage.objects after INSERT
+-- que encole el path en una tabla "scan_queue" para procesamiento asíncrono.

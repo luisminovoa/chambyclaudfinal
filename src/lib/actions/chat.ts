@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/actions/auth";
 import type {
   Message,
@@ -163,20 +163,27 @@ export async function createUploadUrl(
   const ext = contentType.split("/")[1] ?? "jpg";
   const path = `${conversationId}/${user.id}/${Date.now()}.${ext}`;
 
-  const { data, error } = await supabase.storage
+  // Use admin client for private bucket operations — participant check above
+  // ensures authorization; service role is required to generate signed URLs.
+  const admin = createAdminClient();
+  const SIGNED_URL_TTL = 60 * 60 * 24 * 365; // 1 year in seconds
+
+  const { data: uploadData, error: uploadError } = await admin.storage
     .from("conversation-attachments")
     .createSignedUploadUrl(path);
 
-  if (error) return { error: "No se pudo preparar la subida de imagen." };
+  if (uploadError) return { error: "No se pudo preparar la subida de imagen." };
 
-  const { data: publicUrlData } = supabase.storage
+  const { data: downloadData, error: downloadError } = await admin.storage
     .from("conversation-attachments")
-    .getPublicUrl(path);
+    .createSignedUrl(path, SIGNED_URL_TTL);
+
+  if (downloadError) return { error: "No se pudo generar URL de descarga." };
 
   return {
     success: true,
-    uploadUrl: data.signedUrl,
-    publicUrl: publicUrlData.publicUrl,
+    uploadUrl: uploadData.signedUrl,
+    publicUrl: downloadData.signedUrl, // signed, expires in 1 year; stored as attachment_url
   };
 }
 
