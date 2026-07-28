@@ -170,6 +170,31 @@ export interface NotificationPreferences {
   updated_at: string;
 }
 
+export interface BugReport {
+  id: string;
+  user_id: string | null;
+  route: string;
+  description: string;
+  browser: string | null;
+  os: string | null;
+  resolution: string | null;
+  version: string;
+  created_at: string;
+}
+
+export interface BetaStats {
+  totalUsers: number;
+  activeUsers: number;
+  totalJobs: number;
+  completedJobs: number;
+  totalConversations: number;
+  totalMessages: number;
+  totalNotifications: number;
+  bugReports: number;
+  avgRating: number | null;
+  avgHireMinutes: number | null;
+}
+
 // Tipos compuestos usados en la UI
 export interface JobWithEmployer extends Job {
   employer: Pick<Profile, "id" | "full_name" | "avatar_url" | "city"> | null;
@@ -291,6 +316,12 @@ export type Database = {
         Row: NotificationPreferences;
         Insert: Partial<NotificationPreferences> & { user_id: string };
         Update: Partial<NotificationPreferences>;
+        Relationships: [];
+      };
+      bug_reports: {
+        Row: BugReport;
+        Insert: Partial<BugReport> & { route: string; description: string };
+        Update: Partial<BugReport>;
         Relationships: [];
       };
     };

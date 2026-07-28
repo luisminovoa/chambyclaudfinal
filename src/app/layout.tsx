@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { BottomNav } from "@/components/BottomNav";
 import { ToastProvider } from "@/components/ui/Toaster";
 import { RegisterSW } from "@/components/RegisterSW";
+import { ReportErrorButtonWrapper } from "@/components/beta/ReportErrorButtonWrapper";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -77,6 +78,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </main>
           <Footer />
           <BottomNav />
+          <ReportErrorButtonWrapper />
         </ToastProvider>
         <RegisterSW />
         <script

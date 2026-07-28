@@ -6,6 +6,44 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [v0.7.0-beta] — 2026-07-28
+
+### Fase 4 — Beta Privada
+
+#### Añadido
+
+**Base de datos** (`supabase/migrations/0005_beta.sql`)
+- Tabla `bug_reports` — reportes de errores con campos: id, user_id, route, description, browser, os, resolution, version, created_at
+- RLS: INSERT permitido para usuarios autenticados; SELECT solo para admin
+
+**Infraestructura beta**
+- `src/lib/beta-config.ts` — constantes de versión, etapa y fecha de despliegue; respeta `NEXT_PUBLIC_DEPLOY_DATE` y `NEXT_PUBLIC_BUILD_SHA` para entornos de CI/CD
+- `src/lib/actions/beta.ts` — `submitBugReport`, `getBetaStats`, `getBugReports`
+- Tipos `BugReport` y `BetaStats` en `src/lib/types.ts`
+
+**Badge "Beta Privada"**
+- `BetaBadge` — pill de advertencia animado junto al logo en el Navbar; tooltip con versión y fecha
+- Footer actualizado con `{version} · {stage} · {deployDate}`
+
+**Botón Reportar Error** (visible en toda la aplicación)
+- `ReportErrorButton` — FAB flotante (esquina inferior derecha); abre un modal con captura automática de ruta, navegador, OS, resolución, versión y hora
+- `ReportErrorButtonWrapper` — wrapper servidor que inyecta `userId` sin exponer lógica al cliente
+
+**Panel Beta Admin** (`/admin/beta`)
+- 10 métricas: usuarios registrados, usuarios activos, trabajos publicados, trabajos completados, conversaciones, mensajes enviados, notificaciones, errores reportados, calificación promedio, tiempo promedio de contratación
+- Listado de últimos 20 reportes de error con metadatos completos
+- Nueva pestaña "Beta" en `AdminTabs`
+
+**Guía para beta testers** (`/beta`)
+- Página pública (no indexable) con 10 escenarios de prueba detallados
+- Instrucciones claras para reportar errores
+- Diseño mobile-first, sin requerir autenticación
+
+#### Corregido (QA)
+- `NotificationsPageClient`: los cambios de pestaña de filtro ahora filtran client-side sin re-fetch, eliminando el estado inconsistente al cambiar filtros
+
+---
+
 ## [v0.6.0] — 2026-07-28
 
 ### Fase 3 — Centro de Notificaciones

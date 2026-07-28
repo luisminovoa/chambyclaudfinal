@@ -12,15 +12,31 @@ import {
   markNotificationRead,
 } from "@/lib/actions/notifications";
 import type { ActionResult } from "@/lib/actions/auth";
-import type { Notification } from "@/lib/types";
+import type { Notification, NotificationType } from "@/lib/types";
 
 type Filter = "all" | "unread" | "jobs" | "messages";
+
 const FILTER_LABELS: Record<Filter, string> = {
   all: "Todas",
   unread: "No leídas",
   jobs: "Trabajos",
   messages: "Mensajes",
 };
+
+const JOB_TYPES: NotificationType[] = [
+  "new_application",
+  "application_accepted",
+  "application_rejected",
+  "job_started",
+  "job_completed",
+];
+
+function applyFilter(notifications: Notification[], filter: Filter): Notification[] {
+  if (filter === "all") return notifications;
+  if (filter === "unread") return notifications.filter((n) => !n.is_read);
+  if (filter === "jobs") return notifications.filter((n) => JOB_TYPES.includes(n.type));
+  return notifications.filter((n) => n.type === "new_message");
+}
 
 function getNavPath(n: Notification): string | null {
   if (n.type === "new_message" && n.conversation_id) return `/messages/${n.conversation_id}`;
@@ -68,25 +84,12 @@ export function NotificationsPageClient({
 
   const handleLoadMore = useCallback(async () => {
     setLoading(true);
-    const result = await getNotifications(cursor, filter);
+    const result = await getNotifications(cursor);
     prependNotifications(result.notifications);
     setHasMore(result.hasMore);
     setCursor(result.notifications.at(-1)?.created_at);
     setLoading(false);
-  }, [cursor, filter, prependNotifications]);
-
-  const handleFilterChange = useCallback(
-    async (f: Filter) => {
-      setFilter(f);
-      setLoading(true);
-      const result = await getNotifications(undefined, f);
-      prependNotifications(result.notifications);
-      setHasMore(result.hasMore);
-      setCursor(result.notifications.at(-1)?.created_at);
-      setLoading(false);
-    },
-    [prependNotifications]
-  );
+  }, [cursor, prependNotifications]);
 
   async function handleClickNotification(n: Notification) {
     if (!n.is_read) {
@@ -104,18 +107,8 @@ export function NotificationsPageClient({
     });
   }
 
-  const filtered =
-    filter === "all"
-      ? notifications
-      : filter === "unread"
-        ? notifications.filter((n) => !n.is_read)
-        : filter === "jobs"
-          ? notifications.filter((n) =>
-              ["new_application", "application_accepted", "application_rejected", "job_started", "job_completed"].includes(
-                n.type
-              )
-            )
-          : notifications.filter((n) => n.type === "new_message");
+  // Client-side filtering — no re-fetch on tab switch
+  const filtered = applyFilter(notifications, filter);
 
   // Group by date
   const grouped: { label: string; items: Notification[] }[] = [];
@@ -153,7 +146,7 @@ export function NotificationsPageClient({
           <button
             key={f}
             type="button"
-            onClick={() => handleFilterChange(f)}
+            onClick={() => setFilter(f)}
             className={[
               "shrink-0 px-4 py-2 text-sm font-medium transition-colors",
               filter === f
@@ -172,12 +165,12 @@ export function NotificationsPageClient({
       </div>
 
       {/* Notification list */}
-      {loading && filtered.length === 0 ? (
-        <div className="py-16 text-center text-sm text-ink-muted">Cargando…</div>
-      ) : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="flex flex-col items-center py-20 text-center">
           <Bell className="mb-4 h-12 w-12 text-slate-300" />
-          <p className="text-sm font-medium text-ink-muted">No hay notificaciones</p>
+          <p className="text-sm font-medium text-ink-muted">
+            {filter === "all" ? "No hay notificaciones" : "No hay notificaciones en esta categoría"}
+          </p>
         </div>
       ) : (
         <div className="card overflow-hidden divide-y divide-slate-100">
@@ -191,7 +184,7 @@ export function NotificationsPageClient({
               ))}
             </div>
           ))}
-          {hasMore && (
+          {hasMore && filter === "all" && (
             <div className="p-4 text-center">
               <button
                 type="button"

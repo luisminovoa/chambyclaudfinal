@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { LayoutDashboard, Users, Briefcase } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
   { href: "/admin", label: "Resumen", icon: LayoutDashboard, exact: true },
   { href: "/admin/users", label: "Usuarios", icon: Users, exact: false },
   { href: "/admin/jobs", label: "Trabajos", icon: Briefcase, exact: false },
+  { href: "/admin/beta", label: "Beta", icon: FlaskConical, exact: false },
 ];
 
 export function AdminTabs() {

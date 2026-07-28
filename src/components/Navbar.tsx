@@ -6,6 +6,7 @@ import { getUnreadCount } from "@/lib/actions/notifications";
 import { Avatar } from "@/components/ui/Avatar";
 import { LogoLink } from "@/components/brand/Logo";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { BetaBadge } from "@/components/beta/BetaBadge";
 
 export async function Navbar() {
   const { user, profile } = await getCurrentUserAndProfile();
@@ -14,7 +15,10 @@ export async function Navbar() {
   return (
     <header className="glass sticky top-0 z-40">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-        <LogoLink tone="color" withSlogan />
+        <div className="flex items-center gap-2">
+          <LogoLink tone="color" withSlogan />
+          <BetaBadge />
+        </div>
 
 
         {/* En escritorio se muestran los enlaces principales; en móvil viven en el BottomNav */}
