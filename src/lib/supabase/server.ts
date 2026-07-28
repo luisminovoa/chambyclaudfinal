@@ -9,22 +9,17 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name: string, value: string, options: CookieOptions) {
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           try {
-            cookieStore.set({ name, value, ...options });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
           } catch {
-            // Se puede ignorar si se llama desde un Server Component sin
-            // capacidad de escritura; el middleware se encarga de refrescar.
-          }
-        },
-        remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value: "", ...options });
-          } catch {
-            // Igual que arriba.
+            // Ignored when called from a Server Component without write access;
+            // middleware handles session refresh.
           }
         },
       },
@@ -33,8 +28,8 @@ export function createClient() {
 }
 
 /**
- * Cliente con service role, SOLO para operaciones administrativas
- * en Server Actions/Route Handlers. Nunca exponer al cliente.
+ * Service-role client for admin-only Server Actions/Route Handlers.
+ * Never expose to the client.
  */
 export function createAdminClient() {
   return createServerClient(
@@ -42,11 +37,10 @@ export function createAdminClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
       cookies: {
-        get() {
-          return undefined;
+        getAll() {
+          return [];
         },
-        set() {},
-        remove() {},
+        setAll() {},
       },
     }
   );

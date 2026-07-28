@@ -21,8 +21,9 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Aplica a todas las rutas excepto archivos estáticos y de Next internos
+     * Aplica a todas las rutas excepto archivos estáticos, Next internos,
+     * y el callback OAuth (necesita procesar las cookies PKCE sin interferencia).
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|auth/callback|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
