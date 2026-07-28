@@ -27,21 +27,22 @@ function SubmitButton() {
   );
 }
 
-export function LoginForm({ next }: { next?: string }) {
+export function LoginForm({ next, oauthError }: { next?: string; oauthError?: string }) {
   const [state, formAction] = useFormState(login, initialState);
   const registerHref = next ? `/register?next=${encodeURIComponent(next)}` : "/register";
+  const displayError = oauthError ?? state.error;
 
   return (
     <form action={formAction} className="space-y-4">
       {/* El server action valida que sea una ruta interna antes de redirigir */}
       {next && <input type="hidden" name="next" value={next} />}
-      {state.error && (
+      {displayError && (
         <div
           role="alert"
           className="flex items-center gap-2 rounded-2xl bg-danger-50 px-4 py-3 text-sm font-medium text-danger-700"
         >
           <AlertCircle className="h-4 w-4 shrink-0" />
-          {state.error}
+          {displayError}
         </div>
       )}
       <div>

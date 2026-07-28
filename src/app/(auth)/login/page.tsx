@@ -8,7 +8,18 @@ export const metadata: Metadata = {
   description: "Ingresa a tu cuenta de Chamby para buscar chambas o gestionar tus publicaciones.",
 };
 
-export default function LoginPage({ searchParams }: { searchParams: { next?: string } }) {
+const OAUTH_ERRORS: Record<string, string> = {
+  oauth_cancelled: "Cancelaste el inicio de sesión con Google.",
+  oauth_failed: "No se pudo completar el inicio de sesión con Google. Intenta de nuevo.",
+};
+
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams: { next?: string; error?: string };
+}) {
+  const oauthError = searchParams.error ? OAUTH_ERRORS[searchParams.error] : undefined;
+
   return (
     <div className="relative mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-4 py-12 sm:px-6">
       <div
@@ -25,7 +36,7 @@ export default function LoginPage({ searchParams }: { searchParams: { next?: str
             </h1>
             <p className="mt-1 text-sm text-ink-muted">Ingresa a tu cuenta de Chamby</p>
             <div className="mt-6">
-              <LoginForm next={searchParams.next} />
+              <LoginForm next={searchParams.next} oauthError={oauthError} />
             </div>
           </div>
         </div>
