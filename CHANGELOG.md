@@ -6,6 +6,95 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [v0.7.0-beta] — 2026-07-28
+
+### Fase 4 — Beta Privada
+
+#### Añadido
+
+**Base de datos** (`supabase/migrations/0005_beta.sql`)
+- Tabla `bug_reports` — reportes de errores con campos: id, user_id, route, description, browser, os, resolution, version, created_at
+- RLS: INSERT permitido para usuarios autenticados; SELECT solo para admin
+
+**Infraestructura beta**
+- `src/lib/beta-config.ts` — constantes de versión, etapa y fecha de despliegue; respeta `NEXT_PUBLIC_DEPLOY_DATE` y `NEXT_PUBLIC_BUILD_SHA` para entornos de CI/CD
+- `src/lib/actions/beta.ts` — `submitBugReport`, `getBetaStats`, `getBugReports`
+- Tipos `BugReport` y `BetaStats` en `src/lib/types.ts`
+
+**Badge "Beta Privada"**
+- `BetaBadge` — pill de advertencia animado junto al logo en el Navbar; tooltip con versión y fecha
+- Footer actualizado con `{version} · {stage} · {deployDate}`
+
+**Botón Reportar Error** (visible en toda la aplicación)
+- `ReportErrorButton` — FAB flotante (esquina inferior derecha); abre un modal con captura automática de ruta, navegador, OS, resolución, versión y hora
+- `ReportErrorButtonWrapper` — wrapper servidor que inyecta `userId` sin exponer lógica al cliente
+
+**Panel Beta Admin** (`/admin/beta`)
+- 10 métricas: usuarios registrados, usuarios activos, trabajos publicados, trabajos completados, conversaciones, mensajes enviados, notificaciones, errores reportados, calificación promedio, tiempo promedio de contratación
+- Listado de últimos 20 reportes de error con metadatos completos
+- Nueva pestaña "Beta" en `AdminTabs`
+
+**Guía para beta testers** (`/beta`)
+- Página pública (no indexable) con 10 escenarios de prueba detallados
+- Instrucciones claras para reportar errores
+- Diseño mobile-first, sin requerir autenticación
+
+#### Corregido (QA)
+- `NotificationsPageClient`: los cambios de pestaña de filtro ahora filtran client-side sin re-fetch, eliminando el estado inconsistente al cambiar filtros
+
+---
+
+## [v0.6.0] — 2026-07-28
+
+### Fase 3 — Centro de Notificaciones
+
+#### Añadido
+
+**Base de datos** (`supabase/migrations/0004_notifications.sql`)
+- Tabla `notifications` — registro unificado con campos: `id`, `user_id`, `type`, `title`, `body`, `data (jsonb)`, `is_read`, `read_at`, `priority`, `channel`, `sender_id`, `job_id`, `conversation_id`, `expires_at`, `created_at`
+- Tabla `notification_preferences` — preferencias por canal (in_app, push, email, sms, whatsapp), tipos silenciados y horario de silencio
+- Índice parcial `idx_notifications_user_unread` para conteo O(1) de no leídas
+- RLS: SELECT/UPDATE/DELETE solo para el propietario; INSERT exclusivo por triggers (`security definer`) — ningún cliente autenticado puede crear notificaciones propias
+- Trigger `notify_new_application` → INSERT en `job_applications` → notifica al employer con tipo `new_application`
+- Trigger `notify_application_status_changed` → UPDATE en `job_applications` → notifica al worker en aceptación (`high`) o rechazo manual (con guardia contra auto-rechazo masivo)
+- Trigger `notify_new_message` → INSERT en `messages` → notifica al otro participante con nombre del emisor
+- Trigger `notify_job_status_changed` → UPDATE en `jobs` a `completado` → notifica al `assigned_worker_id`
+- Trigger `notify_new_rating` → INSERT en `ratings` → notifica al calificado con puntuación
+
+**Server Actions** (`src/lib/actions/notifications.ts`)
+- `getNotifications(cursor?, filter?)` — paginación cursor-based (20/página), filtros: all/unread/jobs/messages
+- `getUnreadCount()` — conteo SSR para badge inicial en Navbar
+- `markNotificationRead(id)` — actualiza `is_read` y `read_at`
+- `markAllNotificationsRead()` — bulk update por `user_id`
+- `getNotificationPreferences()` — lee preferencias del usuario
+- `updateNotificationPreferences(prefs)` — upsert en tabla de preferencias
+- `getMessagesUnreadCount()` — conteo de mensajes no leídos para badge en BottomNav
+
+**Realtime Hook** (`src/lib/realtime/useNotifications.ts`)
+- Canal `user:{userId}` — `postgres_changes INSERT` en `notifications`
+- Estado: `notifications[]`, `unreadCount`, `isConnected`
+- Métodos: `markRead(id)`, `markAllRead()`, `prependNotifications(items)`
+- Callback `onNewNotification` para toasts futuros
+- Máximo 2 canales Realtime por usuario (1 de chat + 1 global)
+
+**Componentes UI**
+- `NotificationItem` — ítem individual con icono por tipo, indicador de prioridad, estado leído/no leído, tiempo relativo
+- `NotificationBell` — campana en Navbar con badge, panel dropdown, filtros, carga incremental, cierre por Escape/clic exterior; accesible (`aria-haspopup`, `aria-live`, `role="dialog"`)
+- `NotificationsPageClient` — página completa con filtros, agrupación por fecha, carga incremental y "marcar todo como leído"
+- `src/app/notifications/page.tsx` — SSR con datos iniciales para hidratación sin flash
+
+**Navegación**
+- `Navbar` — campana de notificaciones con `initialUnreadCount` desde SSR
+- `BottomNav` — pasa `messagesUnreadCount` al cliente
+- `BottomNavClient` — badge numérico en el tab Mensajes
+
+#### Infraestructura preparada
+- Modelo de datos preparado para push (Web Push / FCM), email (Resend), SMS y WhatsApp sin cambios de esquema
+- Campo `channel` para enrutar hacia canal externo en fases posteriores
+- Campo `expires_at` para notificaciones efímeras (recordatorios, OTP)
+
+---
+
 ## [v0.5.0] — 2026-07-28
 
 ### Fase 2 — Chat en tiempo real

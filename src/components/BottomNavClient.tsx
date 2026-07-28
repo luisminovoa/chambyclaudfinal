@@ -10,9 +10,10 @@ import type { UserRole } from "@/lib/types";
 interface BottomNavClientProps {
   isLoggedIn: boolean;
   role: UserRole | null;
+  messagesUnreadCount?: number;
 }
 
-export function BottomNavClient({ isLoggedIn, role }: BottomNavClientProps) {
+export function BottomNavClient({ isLoggedIn, role, messagesUnreadCount = 0 }: BottomNavClientProps) {
   const pathname = usePathname();
 
   const profileHref = isLoggedIn ? (role === "admin" ? "/admin" : "/dashboard") : "/login";
@@ -20,11 +21,11 @@ export function BottomNavClient({ isLoggedIn, role }: BottomNavClientProps) {
   const publishHref = isLoggedIn ? "/jobs/new" : "/register?next=/jobs/new";
 
   const tabs = [
-    { href: "/", label: "Inicio", icon: Home, exact: true },
-    { href: "/jobs", label: "Buscar", icon: Search, exact: false },
-    { href: publishHref, label: "Publicar", icon: Plus, center: true, exact: false },
-    { href: "/messages", label: "Mensajes", icon: MessageCircle, exact: false },
-    { href: profileHref, label: "Perfil", icon: User, exact: false },
+    { href: "/", label: "Inicio", icon: Home, exact: true, badge: 0 },
+    { href: "/jobs", label: "Buscar", icon: Search, exact: false, badge: 0 },
+    { href: publishHref, label: "Publicar", icon: Plus, center: true, exact: false, badge: 0 },
+    { href: "/messages", label: "Mensajes", icon: MessageCircle, exact: false, badge: messagesUnreadCount },
+    { href: profileHref, label: "Perfil", icon: User, exact: false, badge: 0 },
   ];
 
   return (
@@ -76,7 +77,17 @@ export function BottomNavClient({ isLoggedIn, role }: BottomNavClientProps) {
                   transition={{ type: "spring", stiffness: 400, damping: 32 }}
                 />
               )}
-              <tab.icon className="h-6 w-6" strokeWidth={active ? 2.25 : 2} />
+              <span className="relative">
+                <tab.icon className="h-6 w-6" strokeWidth={active ? 2.25 : 2} />
+                {tab.badge > 0 && (
+                  <span
+                    aria-hidden
+                    className="absolute -right-1.5 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary-600 px-0.5 text-[9px] font-bold text-white leading-none"
+                  >
+                    {tab.badge > 99 ? "99+" : tab.badge}
+                  </span>
+                )}
+              </span>
               <span className="text-[11px] font-semibold leading-none">{tab.label}</span>
             </Link>
           );

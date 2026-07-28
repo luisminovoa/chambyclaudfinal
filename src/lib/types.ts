@@ -123,6 +123,78 @@ export interface RatingSummary {
   total_ratings: number;
 }
 
+// Notification types
+export type NotificationType =
+  | "new_application"
+  | "application_accepted"
+  | "application_rejected"
+  | "new_message"
+  | "job_started"
+  | "job_completed"
+  | "new_rating"
+  | "reminder"
+  | "system"
+  | "admin_alert";
+
+export type NotificationPriority = "low" | "normal" | "high" | "urgent";
+export type NotificationChannel = "in_app" | "push" | "email" | "whatsapp" | "sms";
+
+export interface Notification {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data: Record<string, string | number | boolean | null>;
+  is_read: boolean;
+  read_at: string | null;
+  priority: NotificationPriority;
+  channel: NotificationChannel;
+  sender_id: string | null;
+  job_id: string | null;
+  conversation_id: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationPreferences {
+  user_id: string;
+  in_app: boolean;
+  push: boolean;
+  email: boolean;
+  sms: boolean;
+  whatsapp: boolean;
+  types_muted: NotificationType[];
+  quiet_from: string | null;
+  quiet_to: string | null;
+  updated_at: string;
+}
+
+export interface BugReport {
+  id: string;
+  user_id: string | null;
+  route: string;
+  description: string;
+  browser: string | null;
+  os: string | null;
+  resolution: string | null;
+  version: string;
+  created_at: string;
+}
+
+export interface BetaStats {
+  totalUsers: number;
+  activeUsers: number;
+  totalJobs: number;
+  completedJobs: number;
+  totalConversations: number;
+  totalMessages: number;
+  totalNotifications: number;
+  bugReports: number;
+  avgRating: number | null;
+  avgHireMinutes: number | null;
+}
+
 // Tipos compuestos usados en la UI
 export interface JobWithEmployer extends Job {
   employer: Pick<Profile, "id" | "full_name" | "avatar_url" | "city"> | null;
@@ -227,6 +299,29 @@ export type Database = {
           score: number;
         };
         Update: Partial<Rating>;
+        Relationships: [];
+      };
+      notifications: {
+        Row: Notification;
+        Insert: Partial<Notification> & {
+          user_id: string;
+          type: NotificationType;
+          title: string;
+          body: string;
+        };
+        Update: Partial<Notification>;
+        Relationships: [];
+      };
+      notification_preferences: {
+        Row: NotificationPreferences;
+        Insert: Partial<NotificationPreferences> & { user_id: string };
+        Update: Partial<NotificationPreferences>;
+        Relationships: [];
+      };
+      bug_reports: {
+        Row: BugReport;
+        Insert: Partial<BugReport> & { route: string; description: string };
+        Update: Partial<BugReport>;
         Relationships: [];
       };
     };
