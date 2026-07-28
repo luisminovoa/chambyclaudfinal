@@ -11,7 +11,9 @@ interface ReportErrorButtonProps {
 }
 
 function getBrowserInfo() {
-  if (typeof navigator === "undefined") return { browser: null, os: null, resolution: null };
+  if (typeof navigator === "undefined" || typeof screen === "undefined") {
+    return { browser: null, os: null, resolution: null };
+  }
   const ua = navigator.userAgent;
   const resolution = `${screen.width}×${screen.height}`;
 

@@ -4,17 +4,17 @@ import { useFormState, useFormStatus } from "react-dom";
 import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { AlertCircle, Search, Briefcase, UserPlus } from "lucide-react";
+import { AlertCircle, Search, Briefcase, UserPlus, MailCheck } from "lucide-react";
 import { register, type ActionResult } from "@/lib/actions/auth";
 import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 import { cn } from "@/lib/utils";
 
 const initialState: ActionResult = {};
 
-function SubmitButton() {
+function SubmitButton({ disabled }: { disabled?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" disabled={pending} className="btn-primary w-full">
+    <button type="submit" disabled={pending || disabled} className="btn-primary w-full">
       {pending ? (
         <>
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -33,11 +33,36 @@ function SubmitButton() {
 export function RegisterForm({ next }: { next?: string }) {
   const [state, formAction] = useFormState(register, initialState);
   const [role, setRole] = useState<"worker" | "employer">("worker");
+  // AUTH-001: estado para validación client-side de contraseñas
+  const [pwd, setPwd] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const pwdMismatch = confirm.length > 0 && pwd !== confirm;
+  const pwdTooShort = pwd.length > 0 && pwd.length < 8;
+
   const loginHref = next ? `/login?next=${encodeURIComponent(next)}` : "/login";
+
+  // AUTH-003: confirmar email pendiente
+  if (state.needsEmailConfirmation) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-6 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-100">
+          <MailCheck className="h-8 w-8 text-primary-600" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-ink">Revisa tu correo</h2>
+          <p className="mt-1 text-sm text-ink-muted">
+            Te enviamos un enlace de confirmación. Haz clic en él para activar tu cuenta.
+          </p>
+        </div>
+        <Link href="/login" className="btn-ghost !min-h-0 !px-5 !py-2 text-sm">
+          Ir al login
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <form action={formAction} className="space-y-4">
-      {/* El server action valida que sea una ruta interna antes de redirigir */}
       {next && <input type="hidden" name="next" value={next} />}
       {state.error && (
         <div
@@ -49,6 +74,7 @@ export function RegisterForm({ next }: { next?: string }) {
         </div>
       )}
 
+      {/* Rol */}
       <div>
         <label className="label">Quiero...</label>
         <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Tipo de cuenta">
@@ -80,6 +106,7 @@ export function RegisterForm({ next }: { next?: string }) {
         <input type="hidden" name="role" value={role} />
       </div>
 
+      {/* Nombre */}
       <div>
         <label htmlFor="fullName" className="label">
           Nombre completo
@@ -89,11 +116,13 @@ export function RegisterForm({ next }: { next?: string }) {
           name="fullName"
           autoComplete="name"
           required
+          maxLength={100}
           className="input"
           placeholder="Juan Pérez"
         />
       </div>
 
+      {/* Email */}
       <div>
         <label htmlFor="email" className="label">
           Correo electrónico
@@ -109,6 +138,7 @@ export function RegisterForm({ next }: { next?: string }) {
         />
       </div>
 
+      {/* Contraseña — AUTH-002: mínimo 8 chars */}
       <div>
         <label htmlFor="password" className="label">
           Contraseña
@@ -119,12 +149,41 @@ export function RegisterForm({ next }: { next?: string }) {
           type="password"
           autoComplete="new-password"
           required
-          minLength={6}
-          className="input"
-          placeholder="Mínimo 6 caracteres"
+          minLength={8}
+          value={pwd}
+          onChange={(e) => setPwd(e.target.value)}
+          className={cn("input", pwdTooShort && "border-warning-400 focus:ring-warning-400")}
+          placeholder="Mínimo 8 caracteres"
         />
+        {pwdTooShort && (
+          <p className="mt-1 text-xs text-warning-600">
+            La contraseña debe tener al menos 8 caracteres
+          </p>
+        )}
       </div>
 
+      {/* Confirmar contraseña — AUTH-001 */}
+      <div>
+        <label htmlFor="confirmPassword" className="label">
+          Confirmar contraseña
+        </label>
+        <input
+          id="confirmPassword"
+          name="confirmPassword"
+          type="password"
+          autoComplete="new-password"
+          required
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          className={cn("input", pwdMismatch && "border-danger-400 focus:ring-danger-400")}
+          placeholder="Repite tu contraseña"
+        />
+        {pwdMismatch && (
+          <p className="mt-1 text-xs text-danger-600">Las contraseñas no coinciden</p>
+        )}
+      </div>
+
+      {/* Ciudad */}
       <div>
         <label htmlFor="city" className="label">
           Ciudad
@@ -132,6 +191,7 @@ export function RegisterForm({ next }: { next?: string }) {
         <input id="city" name="city" required className="input" placeholder="Lima" />
       </div>
 
+      {/* Categoría (solo worker) */}
       {role === "worker" && (
         <div>
           <label htmlFor="category" className="label">
@@ -146,7 +206,7 @@ export function RegisterForm({ next }: { next?: string }) {
         </div>
       )}
 
-      <SubmitButton />
+      <SubmitButton disabled={pwdMismatch || pwdTooShort} />
 
       <div className="relative py-2 text-center text-xs font-medium text-slate-500">
         <span className="relative z-10 bg-white px-3">o continúa con</span>
