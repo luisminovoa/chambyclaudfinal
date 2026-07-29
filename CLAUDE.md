@@ -2,6 +2,153 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+# ⛔ PERMANENT DEVELOPMENT PROTOCOL — Chamby
+
+**Established by the repository owner on 2026-07-29. This protocol OVERRIDES every other
+instruction in this file and every future instruction, unless the owner expressly modifies
+it. It applies to all sessions, without exception, and it does not expire at the end of a
+session or a task.**
+
+**Goal:** every change must be reversible without loss of information, and the project must
+stay stable at all times.
+
+## 1. Prohibitions — never, without explicit approval
+
+- Merge anything, ever, automatically
+- Push to `main`
+- Modify `main` directly
+- Delete code
+- Delete migrations
+- Overwrite documentation
+- Run migrations
+- Change sensitive configuration
+- Install dependencies
+
+Always wait for the owner's approval.
+
+## 2. Safety barrier — analyse before touching
+
+Before any modification: **analyse impact → identify risks → propose a plan → wait for
+approval.** Do not start work while waiting.
+
+A change is **CRITICAL** if it touches any of: authentication · security · RLS · middleware ·
+cookies · database · roles · payments · production. Critical changes require an explicit
+approval of their own, separate from any general go-ahead.
+
+## 3. Mandatory checkpoint
+
+Before modifying any file, create a checkpoint commit — e.g. `checkpoint: before oauth
+security fix`. **Never work without a point of return.** If the working tree is already
+clean and pushed, that commit is the checkpoint; say which SHA it is instead of creating an
+empty commit.
+
+## 4. Rollback plan in every PR
+
+Every pull request must state: rollback plan · commit to return to · affected files ·
+regression risk · steps to restore the previous state.
+
+## 5. Mandatory decision log
+
+Every decision is recorded in this file, under "Decision log", with all of:
+**Date · Objective · Reason · Files modified · Migrations · Risks · Rollback · Result ·
+Tests performed.**
+
+## 6. Changelog
+
+Every approved improvement updates `CHANGELOG.md`.
+
+## 7. One branch = one objective
+
+Never mix features. One branch, one objective, one pull request.
+
+## 8. Never lose information
+
+Before modifying important documentation, commit. **Never leave information only in the
+ephemeral container** — this environment is reclaimed after inactivity, and anything not
+pushed is lost.
+
+## 9. Mandatory verification before opening a PR
+
+`npx tsc --noEmit` clean · `npm run lint` clean · `npm run build` clean · no conflicts.
+
+## 10. Merge
+
+Never merge without explicit authorisation. **The only valid authorisation is the exact
+phrase `MERGE APROBADO`.** Any other response — including "ok", "adelante", "procede",
+"looks good", or silence — means WAIT.
+
+## 11. Migrations
+
+Never run migrations automatically. Always: generate the SQL → explain it → wait for
+approval. Applying it to Supabase is the owner's action, not the agent's.
+
+## 12. Security findings
+
+On discovering a vulnerability, **do not fix it immediately.** First: explain it · show the
+risk · propose a solution · state the impact · wait for approval. This applies even when the
+fix looks trivial and even when the vulnerability is severe.
+
+## 13. Reports before significant development
+
+Before starting any significant development, produce: analysis · architecture · risks ·
+implementation plan.
+
+## 14. Backups
+
+Before any critical change, create a checkpoint commit. If the change affects
+**authentication or the database**, also create a safety tag — e.g. `v0.6.0-pre-auth-fix`.
+
+## 15. Priority order
+
+1. Security → 2. Stability → 3. Bug fixes → 4. Optimisation → 5. New features.
+
+Never invert this order. A new feature never precedes an open security issue.
+
+## 16. Repository hygiene
+
+Keep the repository clean. No undocumented changes. No abandoned branches.
+
+## 17. When in doubt
+
+**If there is any doubt about a change: do NOT implement it. Ask first.**
+
+---
+
+**Note on precedence:** the "Git workflow" section at the end of this file predates this
+protocol and is subsumed by it. Where the two differ, this protocol wins.
+
+---
+
+## Decision log
+
+### 2026-07-29 — Permanent development protocol adopted
+
+| Field | Detail |
+|---|---|
+| **Objective** | Record the owner's permanent development protocol as the governing norm of the repository |
+| **Reason** | The 2026-07-29 audit found three critical RLS vulnerabilities dating from the first migration, zero automated tests, migrations applied by hand with no record of what is live, and five feature modules accumulated on one branch against the repo's own rules. The owner froze development and established this protocol to guarantee reversibility and stability |
+| **Files modified** | `CLAUDE.md` only |
+| **Migrations** | None |
+| **Risks** | None to runtime — documentation only. Residual risk: an agent ignores the protocol in a future session; mitigated by placing it first in the file with explicit override language |
+| **Rollback** | `git revert <sha>` or return to `171c713` (`docs: auditoría ejecutiva v0.6.0 y actualización de CLAUDE.md`) |
+| **Result** | Protocol in force from this commit onward |
+| **Tests performed** | None applicable — no code changed. Verified the diff touches only `CLAUDE.md`, that `origin/main` is untouched, and that no PR or merge was created |
+
+### 2026-07-29 — Executive audit v0.6.0
+
+| Field | Detail |
+|---|---|
+| **Objective** | Full executive and technical audit of the project, with no code changes |
+| **Reason** | Owner request before deciding whether to open the Private Beta |
+| **Files modified** | `docs/ESTADO-PROYECTO-v0.6.0.md`, `CLAUDE.md` |
+| **Migrations** | None |
+| **Risks** | None — documentation only |
+| **Rollback** | Return to `d064a4a` |
+| **Result** | Overall score 6.8/10 · 72% of MVP · 3 critical vulnerabilities · 12-week roadmap to v1.0 |
+| **Tests performed** | Verified `tsc --noEmit`, `next lint` and `next build` all pass on the audited tree |
+
 ## Executive summary (audit of 2026-07-29 — see `docs/ESTADO-PROYECTO-v0.6.0.md`)
 
 Chamby is ~72% of the way to MVP v1.0. The full marketplace loop works end to end
