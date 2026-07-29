@@ -50,6 +50,38 @@ Version numbers disagree across five files (`beta-config.ts` v0.6.0 · `CHANGELO
 v0.7.0-beta · `README.md` v0.5.0 · `package.json` 1.0.0 · last tag v0.5.0). `beta-config.ts`
 is what users actually see.
 
+### Scores and the shortest path to a better one
+
+| Dimension | Score | | Dimension | Score |
+|---|---|---|---|---|
+| Architecture | 7.5/10 | | Scalability | 6/10 |
+| Code | 7.5/10 | | Documentation | 7/10 |
+| Security | **4/10** | | Database | 7/10 |
+| UX | 8.5/10 | | **DevOps** | **2/10** |
+| Performance | 6.5/10 | | **Overall** | **6.8/10** |
+
+Six fixes take this project from 6.8 to ~8/10, and they total about seven days: the three
+critical RLS holes above, pulling `phone` out of anonymous reach, either building the
+verification back-office or removing the "Verificado" badges from the UI, and **one test per
+fix** so none of them silently regress. Everything else in the report is downstream of those.
+
+Two things that are easy to get wrong when working here:
+
+1. **Write RLS policies by asking what a row's owner may *change*, not just who may touch
+   the row.** All three critical holes come from the same mistake. `WITH CHECK` is not
+   optional on UPDATE.
+2. **Don't trust `docs/AUDITORIA.md`'s "críticos: 0".** That audit verified RLS was *enabled*,
+   not that it was correctly scoped per column — the mirror image of the P3 mistake it itself
+   documents. Read policies column by column.
+
+Per-area completion: Backend 85% · Frontend 90% · DB 80% · Security 40% · Auth 95% ·
+Responsive 95% · UX 80% · Realtime 95% · Chat 95% · Notifications 55% · Admin 65% ·
+Docs 70% · **DevOps 20%**.
+
+Roadmap to v1.0 is 12 weeks in four phases (v0.7 hardening → v0.8 trust → v0.9 scale →
+v1.0 payments); the first two deliberately contain **no new features**. Full reasoning,
+risk matrix, and the 20 prioritised recommendations are in `docs/ESTADO-PROYECTO-v0.6.0.md`.
+
 ## Commands
 
 ```bash
