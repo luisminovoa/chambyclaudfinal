@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Plus, Briefcase, Loader2, CheckCircle2, Star, Award } from "lucide-react";
+import { Plus, Briefcase, Loader2, CheckCircle2, Star, Award, UserCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { RatingStars } from "@/components/RatingStars";
@@ -72,10 +72,16 @@ export default async function EmployerDashboardPage() {
             </h1>
             <p className="mt-1 text-ink-muted">Gestiona tus publicaciones y postulantes.</p>
           </div>
-          <Link href="/jobs/new" className="btn-primary">
-            <Plus className="h-4 w-4" />
-            Publicar trabajo
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard/employer/assignments" className="btn-secondary">
+              <UserCheck className="h-4 w-4" />
+              Mis contrataciones
+            </Link>
+            <Link href="/jobs/new" className="btn-primary">
+              <Plus className="h-4 w-4" />
+              Publicar trabajo
+            </Link>
+          </div>
         </div>
       </Reveal>
 

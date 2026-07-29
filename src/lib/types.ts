@@ -3,6 +3,12 @@ export type JobStatus = "borrador" | "abierto" | "en_progreso" | "completado" | 
 export type JobUrgency = "normal" | "urgente";
 export type ApplicationStatus = "pendiente" | "preseleccionado" | "aceptado" | "rechazado" | "retirado";
 export type PayType = "por_hora" | "por_dia" | "fijo";
+export type AssignmentStatus =
+  | "asignado"
+  | "confirmado"
+  | "en_progreso"
+  | "completado"
+  | "cancelado";
 
 export interface Profile {
   id: string;
@@ -123,6 +129,30 @@ export interface JobApplication {
   updated_at: string;
 }
 
+export interface JobAssignment {
+  id: string;
+  job_id: string;
+  worker_id: string;
+  employer_id: string;
+  application_id: string | null;
+  status: AssignmentStatus;
+  agreed_pay: number | null;
+  notes: string | null;
+  confirmed_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssignmentWithDetails extends JobAssignment {
+  job: Job | null;
+  worker: Pick<Profile, "id" | "full_name" | "avatar_url" | "city" | "category"> | null;
+  employer: Pick<Profile, "id" | "full_name" | "avatar_url" | "city"> | null;
+}
+
 export interface SavedJob {
   id: string;
   worker_id: string;
@@ -165,6 +195,7 @@ export interface RatingSummary {
 export type NotificationType =
   | "new_application"
   | "application_accepted"
+  | "application_shortlisted"
   | "application_rejected"
   | "new_message"
   | "job_started"
@@ -379,6 +410,16 @@ export type Database = {
         Row: JobApplication;
         Insert: Partial<JobApplication> & { job_id: string; worker_id: string };
         Update: Partial<JobApplication>;
+        Relationships: [];
+      };
+      job_assignments: {
+        Row: JobAssignment;
+        Insert: Partial<JobAssignment> & {
+          job_id: string;
+          worker_id: string;
+          employer_id: string;
+        };
+        Update: Partial<JobAssignment>;
         Relationships: [];
       };
       saved_jobs: {

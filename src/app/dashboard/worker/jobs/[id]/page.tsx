@@ -19,8 +19,14 @@ import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { Reveal } from "@/components/ui/Reveal";
 import { RatingStars } from "@/components/RatingStars";
 import { ImageGallery } from "@/components/jobs/ImageGallery";
+import { ApplicationTimeline } from "@/components/ApplicationTimeline";
 import { computeCompatibility } from "@/lib/compatibility";
-import type { JobListing, RatingSummary, JobApplication } from "@/lib/types";
+import type {
+  AssignmentStatus,
+  JobListing,
+  RatingSummary,
+  JobApplication,
+} from "@/lib/types";
 
 export default async function WorkerJobDetailPage({
   params,
@@ -49,7 +55,7 @@ export default async function WorkerJobDetailPage({
     job_images: Array<{ id: string; public_url: string; display_order: number }>;
   };
 
-  const [employerRatingRes, myApplicationRes, employerJobsRes, expRes] =
+  const [employerRatingRes, myApplicationRes, employerJobsRes, expRes, myAssignmentRes] =
     await Promise.all([
       supabase
         .from("rating_summary")
@@ -75,10 +81,17 @@ export default async function WorkerJobDetailPage({
         .select("*", { count: "exact", head: true })
         .eq("worker_id", user.id)
         .eq("status", "aceptado"),
+      supabase
+        .from("job_assignments")
+        .select("status")
+        .eq("job_id", params.id)
+        .eq("worker_id", user.id)
+        .maybeSingle(),
     ]);
 
   const employerRating = employerRatingRes.data as unknown as RatingSummary | null;
   const myApplication = myApplicationRes.data as unknown as JobApplication | null;
+  const myAssignment = myAssignmentRes.data as unknown as { status: AssignmentStatus } | null;
   const employerJobs = (employerJobsRes.data ?? []) as Array<{ id: string; title: string; city: string }>;
   const acceptedCount = expRes.count ?? 0;
 
@@ -262,6 +275,10 @@ export default async function WorkerJobDetailPage({
                   <Badge tone={jobStatusTone(myApplication.status)}>
                     {applicationStatusLabel(myApplication.status)}
                   </Badge>
+                  <ApplicationTimeline
+                    applicationStatus={myApplication.status}
+                    assignmentStatus={myAssignment?.status ?? null}
+                  />
                   {myApplication.status === "pendiente" && (
                     <WithdrawButton applicationId={myApplication.id} />
                   )}

@@ -86,10 +86,16 @@ export default async function WorkerDashboardPage() {
             </h1>
             <p className="mt-1 text-ink-muted">Este es tu panel de trabajador.</p>
           </div>
-          <Link href="/dashboard/worker/jobs" className="btn-primary">
-            <Search className="h-4 w-4" />
-            Buscar trabajos
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard/worker/assignments" className="btn-secondary">
+              <Briefcase className="h-4 w-4" />
+              Mis trabajos
+            </Link>
+            <Link href="/dashboard/worker/jobs" className="btn-primary">
+              <Search className="h-4 w-4" />
+              Buscar trabajos
+            </Link>
+          </div>
         </div>
       </Reveal>
 
