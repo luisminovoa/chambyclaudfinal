@@ -1,5 +1,6 @@
 export type UserRole = "worker" | "employer" | "admin";
-export type JobStatus = "abierto" | "en_progreso" | "completado" | "cancelado";
+export type JobStatus = "borrador" | "abierto" | "en_progreso" | "completado" | "cancelado";
+export type JobUrgency = "normal" | "urgente";
 export type ApplicationStatus = "pendiente" | "aceptado" | "rechazado" | "retirado";
 export type PayType = "por_hora" | "por_dia" | "fijo";
 
@@ -25,7 +26,13 @@ export interface Job {
   description: string;
   category: string;
   city: string;
+  district: string | null;
   address: string | null;
+  work_date: string | null;
+  start_time: string | null;
+  estimated_duration: string | null;
+  urgency: JobUrgency;
+  requirements: string[];
   pay_amount: number | null;
   pay_type: PayType;
   status: JobStatus;
@@ -37,6 +44,15 @@ export interface Job {
   cancelled_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface JobImage {
+  id: string;
+  job_id: string;
+  storage_path: string;
+  public_url: string;
+  display_order: number;
+  created_at: string;
 }
 
 export interface StateHistoryEntry {
@@ -287,6 +303,16 @@ export type Database = {
           city: string;
         };
         Update: Partial<Job>;
+        Relationships: [];
+      };
+      job_images: {
+        Row: JobImage;
+        Insert: Partial<JobImage> & {
+          job_id: string;
+          storage_path: string;
+          public_url: string;
+        };
+        Update: Partial<JobImage>;
         Relationships: [];
       };
       job_state_history: {

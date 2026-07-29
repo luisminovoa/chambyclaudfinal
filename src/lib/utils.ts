@@ -25,6 +25,7 @@ export function payTypeLabel(payType: string): string {
 
 export function jobStatusLabel(status: string): string {
   const labels: Record<string, string> = {
+    borrador: "Borrador",
     abierto: "Abierto",
     en_progreso: "En progreso",
     completado: "Completado",
