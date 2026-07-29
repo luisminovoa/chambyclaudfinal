@@ -86,7 +86,7 @@ export default async function WorkerDashboardPage() {
             </h1>
             <p className="mt-1 text-ink-muted">Este es tu panel de trabajador.</p>
           </div>
-          <Link href="/jobs" className="btn-primary">
+          <Link href="/dashboard/worker/jobs" className="btn-primary">
             <Search className="h-4 w-4" />
             Buscar trabajos
           </Link>
@@ -129,7 +129,7 @@ export default async function WorkerDashboardPage() {
                     title="La hormiguita no encontró postulaciones activas"
                     description="Explora los trabajos disponibles y postula a tu próxima chamba."
                     actionLabel="Explorar trabajos"
-                    actionHref="/jobs"
+                    actionHref="/dashboard/worker/jobs"
                   />
                 </div>
               ) : (

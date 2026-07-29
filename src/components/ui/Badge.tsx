@@ -34,6 +34,7 @@ export function jobStatusTone(status: string): VariantProps<typeof badgeVariants
     completado: "neutral",
     cancelado: "danger",
     pendiente: "warning",
+    preseleccionado: "info",
     aceptado: "success",
     rechazado: "danger",
     retirado: "neutral",

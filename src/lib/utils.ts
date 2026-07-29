@@ -47,11 +47,24 @@ export function jobStatusColor(status: string): string {
 export function applicationStatusLabel(status: string): string {
   const labels: Record<string, string> = {
     pendiente: "Pendiente",
+    preseleccionado: "Preseleccionado",
     aceptado: "Aceptado",
     rechazado: "Rechazado",
     retirado: "Retirado",
   };
   return labels[status] ?? status;
+}
+
+export function timeAgo(dateString: string): string {
+  const diffMs = Date.now() - new Date(dateString).getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "hace un momento";
+  if (mins < 60) return `hace ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `hace ${days} d`;
+  return formatDate(dateString);
 }
 
 export function formatDate(dateString: string): string {

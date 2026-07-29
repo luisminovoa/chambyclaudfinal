@@ -1,7 +1,7 @@
 export type UserRole = "worker" | "employer" | "admin";
 export type JobStatus = "borrador" | "abierto" | "en_progreso" | "completado" | "cancelado";
 export type JobUrgency = "normal" | "urgente";
-export type ApplicationStatus = "pendiente" | "aceptado" | "rechazado" | "retirado";
+export type ApplicationStatus = "pendiente" | "preseleccionado" | "aceptado" | "rechazado" | "retirado";
 export type PayType = "por_hora" | "por_dia" | "fijo";
 
 export interface Profile {
@@ -121,6 +121,18 @@ export interface JobApplication {
   message: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface SavedJob {
+  id: string;
+  worker_id: string;
+  job_id: string;
+  created_at: string;
+}
+
+export interface JobListing extends Job {
+  employer: Pick<Profile, "id" | "full_name" | "avatar_url" | "city" | "is_active"> | null;
+  job_images: Array<Pick<JobImage, "id" | "public_url" | "display_order">> | null;
 }
 
 export interface RoleEntry {
@@ -367,6 +379,12 @@ export type Database = {
         Row: JobApplication;
         Insert: Partial<JobApplication> & { job_id: string; worker_id: string };
         Update: Partial<JobApplication>;
+        Relationships: [];
+      };
+      saved_jobs: {
+        Row: SavedJob;
+        Insert: Partial<SavedJob> & { worker_id: string; job_id: string };
+        Update: Partial<SavedJob>;
         Relationships: [];
       };
       ratings: {

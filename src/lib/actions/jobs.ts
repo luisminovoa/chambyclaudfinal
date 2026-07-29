@@ -65,7 +65,7 @@ if (error) {
 }
 
 const jobStatusSchema = z.enum(["abierto", "en_progreso", "completado", "cancelado"]);
-const applicationStatusSchema = z.enum(["pendiente", "aceptado", "rechazado", "retirado"]);
+const applicationStatusSchema = z.enum(["pendiente", "preseleccionado", "aceptado", "rechazado", "retirado"]);
 
 export async function updateJobStatus(jobId: string, status: string) {
   const parsedStatus = jobStatusSchema.safeParse(status);
