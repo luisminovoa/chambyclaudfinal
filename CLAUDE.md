@@ -116,12 +116,120 @@ Keep the repository clean. No undocumented changes. No abandoned branches.
 
 ---
 
+*Sections 19–27 were added by the owner on 2026-07-29 as an extension of this protocol.
+There is no §18: the owner's numbering skips it. Nothing is missing.*
+
+## 19. One critical vulnerability = one PR
+
+Critical vulnerabilities are fixed **one at a time**. Never fix two or more critical
+vulnerabilities in the same pull request.
+
+```
+PR #14  ✔ Privilege escalation
+PR #15  ✔ Self-hiring
+PR #16  ✔ Reputation system
+```
+
+Never group them. The purpose is to make auditing easy, reduce regressions, allow an
+immediate rollback of one fix without reverting the others, and keep review simple.
+
+## 20. One critical layer per pull request
+
+If a change touches a critical layer, that PR is limited to **that layer only**.
+
+Critical layers: **authentication · database · migrations · middleware · security · RLS ·
+Server Actions**.
+
+Never mix critical layers in the same PR.
+
+```
+✔ OAuth                             ❌ OAuth + migrations + chat
+✔ RLS                               ❌ RLS + dashboard
+✔ Middleware                        ❌ Middleware + UI
+```
+
+## 21. Mandatory pre-merge report
+
+Before requesting merge authorisation, produce a technical report containing **all** of:
+
+Objective of the PR · files modified · files created · files deleted · lines added · lines
+removed · risks · compatibility · impact · possible regressions · TypeScript result · ESLint
+result · Build result · test status · rollback plan · checkpoint commit · final commit.
+
+**Without this report, do not request merge authorisation.**
+
+## 22. Security mini-audit
+
+Any change touching **authentication · authorisation · RLS · middleware · cookies · roles ·
+sessions · Server Actions** must include a mini-audit answering four questions:
+
+1. What risk does it eliminate?
+2. What risk does it introduce?
+3. How was it tested?
+4. How is it reverted?
+
+## 23. No mixing objectives
+
+One branch = one objective. One pull request = one objective.
+
+Never mix improvements, refactors, cleanup, optimisations, documentation or bug fixes with
+new features. (Extends §7 to cover non-feature work, which §7 did not state explicitly.)
+
+## 24. Repository cleanup
+
+Old branches are **never deleted automatically**. First produce a report listing: local
+branches · remote branches · state · associated PR · merged or not · recommendation.
+Only after the owner's authorisation may any branch be deleted.
+
+## 25. Versioning and points of return
+
+Before any critical change, create a checkpoint. If it affects **authentication or the
+database**, also create a safety tag — e.g. `v0.6.0-pre-auth-fix`.
+
+**Never begin a critical change without a clear point of return.** (Restates and reinforces
+§14; both are in force.)
+
+## 26. Hardening sprint — currently in force
+
+**The project's next sprint is exclusively security and stability.** No new features will be
+developed until the audit's critical findings are closed.
+
+Mandatory priority: **1 Security → 2 Stability → 3 Bug fixes → 4 Optimisation → 5 New
+features.** (Same order as §15; §26 makes it a concrete, active constraint on the current
+sprint rather than a general principle.)
+
+The critical findings that must close before this sprint ends are listed in the executive
+summary below and detailed in `docs/ESTADO-PROYECTO-v0.6.0.md`.
+
+## 27. Knowledge preservation
+
+Every important technical decision is recorded in this file. **Do not rely on git history or
+on conversation memory alone** — sessions end and containers are reclaimed.
+
+**`CLAUDE.md` is the project's primary source of technical knowledge.** If a decision exists
+only in a commit message or in a past conversation, it is not recorded.
+
+---
+
 **Note on precedence:** the "Git workflow" section at the end of this file predates this
 protocol and is subsumed by it. Where the two differ, this protocol wins.
 
 ---
 
 ## Decision log
+
+### 2026-07-29 — Protocol extended with §19–§27
+
+| Field | Detail |
+|---|---|
+| **Objective** | Extend the permanent protocol with nine further norms governing how critical fixes are split into PRs, what must be reported before a merge, and how knowledge is preserved |
+| **Reason** | The audit showed the two failure modes this extension targets: (a) five feature modules accumulated on one branch, making review impractical — addressed by §19, §20 and §23; (b) three critical RLS holes that survived a prior audit and a year of commits because the knowledge of *how* to audit RLS lived nowhere — addressed by §21, §22 and §27. §26 makes the hardening sprint an active constraint rather than a recommendation |
+| **Files modified** | `CLAUDE.md` only |
+| **Migrations** | None |
+| **Risks** | None to runtime — documentation only. Process risk: §19 and §20 will make the security sprint produce more PRs (roughly 6–8 instead of 1–2), each smaller; this is the intended trade-off — slower to merge, far cheaper to roll back |
+| **Rollback** | `git revert <sha>` or return to `9f0315e` (`docs: establece el protocolo permanente de desarrollo en CLAUDE.md`) |
+| **Result** | §19–§27 in force from this commit onward. Overlaps are deliberate and both versions stay: §23 extends §7 · §25 reinforces §14 · §26 activates §15 |
+| **Tests performed** | None applicable — no code changed. Verified the diff touches only `CLAUDE.md`, that it deletes zero lines (nothing overwritten, per §1), that `origin/main` is untouched, and that no PR or merge was created |
 
 ### 2026-07-29 — Permanent development protocol adopted
 
