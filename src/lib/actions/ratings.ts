@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import type { UserRole } from "@/lib/types";
 
 export async function submitRating({
   jobId,
@@ -28,10 +29,25 @@ export async function submitRating({
     return { error: "El comentario no puede superar los 1000 caracteres." };
   }
 
+  // Derivar el rol en que fue calificada la persona (no confiar en el cliente)
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("employer_id, assigned_worker_id")
+    .eq("id", jobId)
+    .single();
+
+  if (!job) return { error: "Trabajo no encontrado." };
+
+  const ratedAsRole: UserRole =
+    ratedId === (job as { employer_id: string; assigned_worker_id: string | null }).assigned_worker_id
+      ? "worker"
+      : "employer";
+
   const { error } = await supabase.from("ratings").insert({
     job_id: jobId,
     rater_id: user.id,
     rated_id: ratedId,
+    rated_as_role: ratedAsRole,
     score,
     comment: comment || null,
   });

@@ -16,9 +16,10 @@ import {
 import type { ProfilePhoto, VerificationDocument, ProfileStats } from "@/lib/types";
 
 export default async function WorkerProfilePage() {
-  const { user, profile } = await getCurrentUserAndProfile();
+  const { user, profile, userRoles } = await getCurrentUserAndProfile();
   if (!user) redirect("/login?next=/dashboard/worker/profile");
-  if (!profile || profile.role !== "worker") redirect("/dashboard");
+  // Accessible if the user has worker role (regardless of current active mode)
+  if (!profile || !userRoles.includes("worker")) redirect("/dashboard");
 
   const [photos, documents, statsRaw] = await Promise.all([
     getProfilePhotos(),

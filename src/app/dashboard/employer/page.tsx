@@ -8,11 +8,12 @@ import { EmployerJobRow } from "@/components/EmployerJobRow";
 import { StatCard } from "@/components/ui/StatCard";
 import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { RoleSwitcher } from "@/components/roles/RoleSwitcher";
 import type { Job, RatingSummary } from "@/lib/types";
 
 export default async function EmployerDashboardPage() {
   const supabase = createClient();
-  const { user, profile } = await getCurrentUserAndProfile();
+  const { user, profile, userRoles } = await getCurrentUserAndProfile();
 
   if (!user) redirect("/login");
   if (profile && profile.role === "worker") redirect("/dashboard/worker");
@@ -55,6 +56,14 @@ export default async function EmployerDashboardPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
+      {userRoles.length > 1 && (
+        <RoleSwitcher
+          activeRole={profile?.role ?? "employer"}
+          availableRoles={userRoles}
+          variant="card"
+        />
+      )}
+
       <Reveal>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -133,6 +142,14 @@ export default async function EmployerDashboardPage() {
             <p className="mt-1 text-xs text-ink-muted">
               {ratingSummary?.total_ratings ?? 0} reseñas totales
             </p>
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <Link
+                href="/dashboard/settings"
+                className="btn-ghost w-full justify-center text-sm"
+              >
+                Configuración
+              </Link>
+            </div>
           </aside>
         </Reveal>
       </div>

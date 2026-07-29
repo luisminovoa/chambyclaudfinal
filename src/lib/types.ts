@@ -107,11 +107,21 @@ export interface JobApplication {
   updated_at: string;
 }
 
+export interface RoleEntry {
+  id: string;
+  user_id: string;
+  role: UserRole;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Rating {
   id: string;
   job_id: string;
   rater_id: string;
   rated_id: string;
+  rated_as_role: UserRole;
   score: number;
   comment: string | null;
   created_at: string;
@@ -340,8 +350,15 @@ export type Database = {
           rater_id: string;
           rated_id: string;
           score: number;
+          rated_as_role: UserRole;
         };
         Update: Partial<Rating>;
+        Relationships: [];
+      };
+      user_roles: {
+        Row: RoleEntry;
+        Insert: Partial<RoleEntry> & { user_id: string; role: UserRole };
+        Update: Partial<RoleEntry>;
         Relationships: [];
       };
       notifications: {
@@ -397,6 +414,14 @@ export type Database = {
     };
     Views: {
       rating_summary: {
+        Row: RatingSummary;
+        Relationships: [];
+      };
+      worker_rating_summary: {
+        Row: RatingSummary;
+        Relationships: [];
+      };
+      employer_rating_summary: {
         Row: RatingSummary;
         Relationships: [];
       };

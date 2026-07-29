@@ -23,11 +23,12 @@ import {
   applicationStatusLabel,
   formatDate,
 } from "@/lib/utils";
+import { RoleSwitcher } from "@/components/roles/RoleSwitcher";
 import type { ApplicationWithProfiles, RatingSummary, Rating } from "@/lib/types";
 
 export default async function WorkerDashboardPage() {
   const supabase = createClient();
-  const { user, profile } = await getCurrentUserAndProfile();
+  const { user, profile, userRoles } = await getCurrentUserAndProfile();
 
   if (!user) redirect("/login");
   if (profile && profile.role === "employer") redirect("/dashboard/employer");
@@ -69,6 +70,14 @@ export default async function WorkerDashboardPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
+      {userRoles.length > 1 && (
+        <RoleSwitcher
+          activeRole={profile?.role ?? "worker"}
+          availableRoles={userRoles}
+          variant="card"
+        />
+      )}
+
       <Reveal>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -250,12 +259,18 @@ export default async function WorkerDashboardPage() {
                   </div>
                 </div>
               )}
-              <div className="mt-4 border-t border-slate-100 pt-4">
+              <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
                 <Link
                   href="/dashboard/worker/profile"
                   className="btn-secondary w-full justify-center"
                 >
                   Editar perfil profesional
+                </Link>
+                <Link
+                  href="/dashboard/settings"
+                  className="btn-ghost w-full justify-center text-sm"
+                >
+                  Configuración
                 </Link>
               </div>
             </section>
