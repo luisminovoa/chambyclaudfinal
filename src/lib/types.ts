@@ -195,6 +195,49 @@ export interface BetaStats {
   avgHireMinutes: number | null;
 }
 
+// ── Perfil Profesional Verificado ─────────────────────────────────────────────
+
+export type DocumentType =
+  | "dni"
+  | "ruc"
+  | "antecedentes_policiales"
+  | "antecedentes_penales"
+  | "certificado"
+  | "licencia"
+  | "carnet"
+  | "otro";
+
+export type DocumentStatus = "pending" | "verified" | "rejected";
+
+export interface ProfilePhoto {
+  id: string;
+  profile_id: string;
+  storage_path: string;
+  public_url: string;
+  is_primary: boolean;
+  display_order: number;
+  created_at: string;
+}
+
+export interface VerificationDocument {
+  id: string;
+  profile_id: string;
+  document_type: DocumentType;
+  storage_path: string;
+  file_name: string;
+  status: DocumentStatus;
+  uploaded_at: string;
+  verified_at: string | null;
+}
+
+export interface ProfileStats {
+  profile_id: string;
+  completion_percentage: number;
+  trust_score: number;
+  badges: string[];
+  updated_at: string;
+}
+
 // Tipos compuestos usados en la UI
 export interface JobWithEmployer extends Job {
   employer: Pick<Profile, "id" | "full_name" | "avatar_url" | "city"> | null;
@@ -322,6 +365,33 @@ export type Database = {
         Row: BugReport;
         Insert: Partial<BugReport> & { route: string; description: string };
         Update: Partial<BugReport>;
+        Relationships: [];
+      };
+      profile_photos: {
+        Row: ProfilePhoto;
+        Insert: Partial<ProfilePhoto> & {
+          profile_id: string;
+          storage_path: string;
+          public_url: string;
+        };
+        Update: Partial<ProfilePhoto>;
+        Relationships: [];
+      };
+      verification_documents: {
+        Row: VerificationDocument;
+        Insert: Partial<VerificationDocument> & {
+          profile_id: string;
+          document_type: DocumentType;
+          storage_path: string;
+          file_name: string;
+        };
+        Update: Partial<VerificationDocument>;
+        Relationships: [];
+      };
+      profile_stats: {
+        Row: ProfileStats;
+        Insert: Partial<ProfileStats> & { profile_id: string };
+        Update: Partial<ProfileStats>;
         Relationships: [];
       };
     };
