@@ -2,6 +2,54 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Executive summary (audit of 2026-07-29 — see `docs/ESTADO-PROYECTO-v0.6.0.md`)
+
+Chamby is ~72% of the way to MVP v1.0. The full marketplace loop works end to end
+(publish → search → apply → shortlist → hire → work → complete → rate, with realtime
+chat and in-app notifications). Overall quality score: **6.8/10** — strong product
+design and code organisation, two serious gaps: the authorisation layer and the total
+absence of automated verification.
+
+**Read this before touching authorisation, ratings, or `profiles`:**
+
+- 🔴 **RLS `profiles_update_own` (`0001_init.sql:225`) has no per-column `WITH CHECK`.**
+  Any user can `update profiles set role='admin'` from the browser with the public anon
+  key and take over the platform (it also makes admin suspension self-reversible, since
+  `is_active` lives on the same row). In Postgres, an UPDATE policy without `WITH CHECK`
+  reuses `USING` — owning the row means owning *every column of it*, including the one
+  that grants privileges.
+- 🔴 **`updateApplicationStatus` (`lib/actions/jobs.ts:261`) validates the enum but not
+  the caller.** Combined with the `applications_update` policy (which permits
+  `auth.uid() = worker_id`), a worker can set their own application to `aceptado` and
+  self-hire — the `security definer` trigger does the rest. `hireWorker()` in
+  `lib/actions/applications.ts` is the safe path; prefer it and retire the old one.
+- 🔴 **`ratings_insert_participant` (`0001_init.sql:297`) validates who rates, never who
+  is rated,** and `submitRating` doesn't check `rated_id` or require `status='completado'`.
+  Anyone who owns a job can write ratings against any profile in the platform.
+- 🟠 `profiles_select_all using (true)` exposes `phone` to unauthenticated readers —
+  a Ley 29733 (Peruvian data protection) problem, not just a privacy nicety.
+
+**Two features look implemented but are not:**
+
+- **Identity verification does not verify.** No code path anywhere sets
+  `verification_documents.status = 'verified'` — there is no admin review screen. Every
+  document stays `pending` forever, so the "Verificado" badges in the UI are decorative
+  and `trust_score` is capped at 55/100. Don't build on top of them.
+- **`blockConversation` (`lib/actions/chat.ts:219`) is a no-op.** It writes `is_blocked`
+  on the *admin's own* settings row, and nothing in the codebase ever reads `is_blocked`.
+
+**Also worth knowing:** `is_active` is used as a "verified" signal in `lib/compatibility.ts:32`
+and `ApplicantCard`, but it defaults to `true` for everyone — it's a constant, not a signal.
+There is **no test runner and no CI** (no `.github/`); `npm run build` passing is the only
+gate today. Migrations are applied by hand in the Supabase SQL Editor, so no one can state
+with certainty which of the 11 migrations are live. `main` is 5 feature modules behind this
+branch (profile, multi-role, job wizard, job search, hiring) — the repo's own "one branch
+per PR" rule stopped being followed after PR #14.
+
+Version numbers disagree across five files (`beta-config.ts` v0.6.0 · `CHANGELOG.md`
+v0.7.0-beta · `README.md` v0.5.0 · `package.json` 1.0.0 · last tag v0.5.0). `beta-config.ts`
+is what users actually see.
+
 ## Commands
 
 ```bash
@@ -34,9 +82,14 @@ missing if you only read `src/lib/actions/*.ts`. Notably:
 
 - `handle_application_accepted()` — an `AFTER UPDATE` trigger on `job_applications` — fires
   whenever a Server Action sets `status = 'aceptado'`. It atomically sets
-  `jobs.assigned_worker_id`, flips `jobs.status` to `'en_progreso'`, and auto-rejects the
-  job's other pending applications. This happens with `security definer`, so it doesn't
-  depend on the caller's RLS grants for the cascading updates.
+  `jobs.assigned_worker_id`, creates the conversation, and (since `0011_job_assignments.sql`)
+  only flips `jobs.status` to `'en_progreso'` and auto-rejects the other applications once
+  `count(aceptado) >= positions_needed` — multi-vacancy support. `count > positions_needed`
+  raises, rolling the transaction back. This happens with `security definer`, so it doesn't
+  depend on the caller's RLS grants for the cascading updates — which is also why the missing
+  caller check in `updateApplicationStatus` is exploitable (see the executive summary).
+  **The current definition lives in `0011`, not `0001` — always read the newest migration
+  that redefines a function.**
 - `handle_new_user()` — creates a `profiles` row from `auth.users` metadata on signup.
 - RLS is enabled on every table; policies gate by `auth.uid()` ownership or
   `current_user_role() = 'admin'`. **Before assuming a business rule is unimplemented,
