@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/actions/auth";
+import type { PayType } from "@/lib/types";
 
 const jobSchema = z.object({
   title: z.string().min(5, "El título debe tener al menos 5 caracteres"),
@@ -64,7 +65,7 @@ if (error) {
 }
 
 const jobStatusSchema = z.enum(["abierto", "en_progreso", "completado", "cancelado"]);
-const applicationStatusSchema = z.enum(["pendiente", "aceptado", "rechazado", "retirado"]);
+const applicationStatusSchema = z.enum(["pendiente", "preseleccionado", "aceptado", "rechazado", "retirado"]);
 
 export async function updateJobStatus(jobId: string, status: string) {
   const parsedStatus = jobStatusSchema.safeParse(status);
@@ -183,12 +184,42 @@ export async function withdrawApplication(applicationId: string): Promise<Action
   return { success: true };
 }
 
-export async function deleteJob(jobId: string) {
+export async function deleteJob(jobId: string): Promise<ActionResult> {
   const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("employer_id, status")
+    .eq("id", jobId)
+    .single();
+
+  const typedJob = job as { employer_id: string; status: string } | null;
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (typedJob.employer_id !== user.id) return { error: "Sin permiso." };
+  if (["en_progreso", "completado"].includes(typedJob.status)) {
+    return { error: "No puedes eliminar un trabajo en progreso o completado." };
+  }
+
+  // Remove associated storage objects before deleting the record
+  const { data: images } = await supabase
+    .from("job_images")
+    .select("storage_path")
+    .eq("job_id", jobId);
+
+  if (images && images.length > 0) {
+    const adminClient = createAdminClient();
+    const paths = (images as { storage_path: string }[]).map((i) => i.storage_path);
+    await adminClient.storage.from("job-images").remove(paths);
+  }
+
   const { error } = await supabase.from("jobs").delete().eq("id", jobId);
+  if (error) return { error: "No se pudo eliminar el trabajo." };
+
   revalidatePath("/dashboard/employer");
   revalidatePath("/jobs");
-  return { error: error?.message };
+  return { success: true };
 }
 
 export async function applyToJob(jobId: string, message: string) {
@@ -198,6 +229,16 @@ export async function applyToJob(jobId: string, message: string) {
   } = await supabase.auth.getUser();
 
   if (!user) return { error: "Debes iniciar sesión para postular." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("status")
+    .eq("id", jobId)
+    .single();
+  const typedJobStatus = job as { status: string } | null;
+  if (!typedJobStatus || typedJobStatus.status !== "abierto") {
+    return { error: "Este trabajo no está disponible para postulaciones." };
+  }
 
   const { error } = await supabase.from("job_applications").insert({
     job_id: jobId,
@@ -222,7 +263,7 @@ export async function updateApplicationStatus(applicationId: string, status: str
   if (!parsedStatus.success) return { error: "Estado inválido." };
 
   const supabase = createClient();
-const { error, data } = await supabase
+  const { error, data } = await supabase
     .from("job_applications")
     .update({ status: parsedStatus.data })
     .eq("id", applicationId)
@@ -237,4 +278,184 @@ const { error, data } = await supabase
     revalidatePath("/dashboard/worker");
   }
   return { error: error?.message };
+}
+
+// ── Wizard actions ─────────────────────────────────────────────────────────────
+
+interface JobWizardData {
+  title: string;
+  description: string;
+  category: string;
+  city: string;
+  district?: string;
+  address?: string;
+  work_date?: string;
+  start_time?: string;
+  estimated_duration?: string;
+  pay_type: PayType;
+  pay_amount?: string;
+  positions_needed: string;
+  urgency: "normal" | "urgente";
+  requirements: string[];
+  isDraft: boolean;
+}
+
+const wizardSchema = z.object({
+  title: z.string().min(5, "El título debe tener al menos 5 caracteres"),
+  description: z.string().min(20, "La descripción debe tener al menos 20 caracteres"),
+  category: z.string().min(1, "Selecciona una categoría"),
+  city: z.string().min(2, "Indica una ciudad"),
+  pay_type: z.enum(["por_hora", "por_dia", "fijo"]),
+  positions_needed: z.coerce.number().int().min(1, "Debe haber al menos 1 vacante"),
+  urgency: z.enum(["normal", "urgente"]).default("normal"),
+});
+
+export async function createJobRecord(
+  data: JobWizardData
+): Promise<{ jobId?: string; error?: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const typedProfile = profile as { role: string } | null;
+  if (!typedProfile || (typedProfile.role !== "employer" && typedProfile.role !== "admin")) {
+    return { error: "Solo los empleadores pueden publicar trabajos." };
+  }
+
+  const parsed = wizardSchema.safeParse(data);
+  if (!parsed.success) {
+    return { error: parsed.error.errors[0]?.message ?? "Datos inválidos" };
+  }
+
+  const { error, data: newJob } = await supabase
+    .from("jobs")
+    .insert({
+      employer_id: user.id,
+      title: data.title,
+      description: data.description,
+      category: data.category,
+      city: data.city,
+      district: data.district || null,
+      address: data.address || null,
+      work_date: data.work_date || null,
+      start_time: data.start_time || null,
+      estimated_duration: data.estimated_duration || null,
+      pay_type: data.pay_type,
+      pay_amount: data.pay_amount ? Number(data.pay_amount) : null,
+      positions_needed: Number(data.positions_needed),
+      urgency: data.urgency,
+      requirements: data.requirements,
+      status: data.isDraft ? "borrador" : "abierto",
+    })
+    .select("id")
+    .single();
+
+  if (error) return { error: "No se pudo guardar el trabajo. Intenta nuevamente." };
+
+  const inserted = newJob as unknown as { id: string };
+  revalidatePath("/jobs");
+  revalidatePath("/dashboard/employer");
+  return { jobId: inserted.id };
+}
+
+export async function getJobImageUploadUrl(
+  jobId: string
+): Promise<{ signedUrl?: string; path?: string; error?: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("employer_id")
+    .eq("id", jobId)
+    .single();
+  const typedJob = job as { employer_id: string } | null;
+  if (!typedJob || typedJob.employer_id !== user.id) return { error: "Sin permiso." };
+
+  const uuid = crypto.randomUUID();
+  const path = `${jobId}/${uuid}.jpg`;
+
+  const adminClient = createAdminClient();
+  const { data, error } = await adminClient.storage
+    .from("job-images")
+    .createSignedUploadUrl(path);
+
+  if (error || !data) return { error: "No se pudo generar la URL de subida." };
+  return { signedUrl: data.signedUrl, path };
+}
+
+export async function saveJobImageRecord(
+  jobId: string,
+  storagePath: string,
+  publicUrl: string,
+  displayOrder: number
+): Promise<{ error?: string }> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("employer_id")
+    .eq("id", jobId)
+    .single();
+  const typedJob = job as { employer_id: string } | null;
+  if (!typedJob || typedJob.employer_id !== user.id) return { error: "Sin permiso." };
+
+  const { error } = await supabase.from("job_images").insert({
+    job_id: jobId,
+    storage_path: storagePath,
+    public_url: publicUrl,
+    display_order: displayOrder,
+  });
+
+  if (error) return { error: "No se pudo guardar la imagen." };
+  revalidatePath(`/jobs/${jobId}`);
+  return {};
+}
+
+export async function deleteJobImage(imageId: string): Promise<ActionResult> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: img } = await supabase
+    .from("job_images")
+    .select("storage_path, job_id")
+    .eq("id", imageId)
+    .single();
+  const typedImg = img as { storage_path: string; job_id: string } | null;
+  if (!typedImg) return { error: "Imagen no encontrada." };
+
+  // Verify the requesting user owns the job
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("employer_id")
+    .eq("id", typedImg.job_id)
+    .single();
+  const typedJob = job as { employer_id: string } | null;
+  if (!typedJob || typedJob.employer_id !== user.id) return { error: "Sin permiso." };
+
+  const adminClient = createAdminClient();
+  await adminClient.storage.from("job-images").remove([typedImg.storage_path]);
+
+  const { error } = await supabase.from("job_images").delete().eq("id", imageId);
+  if (error) return { error: "No se pudo eliminar la imagen." };
+
+  revalidatePath(`/jobs/${typedImg.job_id}`);
+  return { success: true };
 }

@@ -28,11 +28,13 @@ export function Badge({
 
 export function jobStatusTone(status: string): VariantProps<typeof badgeVariants>["tone"] {
   const tones: Record<string, VariantProps<typeof badgeVariants>["tone"]> = {
+    borrador: "warning",
     abierto: "success",
     en_progreso: "info",
     completado: "neutral",
     cancelado: "danger",
     pendiente: "warning",
+    preseleccionado: "info",
     aceptado: "success",
     rechazado: "danger",
     retirado: "neutral",

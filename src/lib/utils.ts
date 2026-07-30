@@ -25,6 +25,7 @@ export function payTypeLabel(payType: string): string {
 
 export function jobStatusLabel(status: string): string {
   const labels: Record<string, string> = {
+    borrador: "Borrador",
     abierto: "Abierto",
     en_progreso: "En progreso",
     completado: "Completado",
@@ -46,11 +47,65 @@ export function jobStatusColor(status: string): string {
 export function applicationStatusLabel(status: string): string {
   const labels: Record<string, string> = {
     pendiente: "Pendiente",
+    preseleccionado: "Preseleccionado",
     aceptado: "Aceptado",
     rechazado: "Rechazado",
     retirado: "Retirado",
   };
   return labels[status] ?? status;
+}
+
+export function assignmentStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    asignado: "Asignado",
+    confirmado: "Confirmado",
+    en_progreso: "En progreso",
+    completado: "Completado",
+    cancelado: "Cancelado",
+  };
+  return labels[status] ?? status;
+}
+
+const CHAMBY_LEVELS = [
+  { min: 20, level: 4, label: "Maestro", color: "text-sun-600 bg-sun-50 border-sun-200" },
+  { min: 10, level: 3, label: "Experto", color: "text-primary-700 bg-primary-50 border-primary-200" },
+  { min: 3, level: 2, label: "Profesional", color: "text-success-700 bg-success-50 border-success-200" },
+  { min: 0, level: 1, label: "Nuevo", color: "text-gray-600 bg-gray-100 border-gray-200" },
+];
+
+export function chambyLevel(completedJobs: number): {
+  level: number;
+  label: string;
+  color: string;
+} {
+  const match = CHAMBY_LEVELS.find((l) => completedJobs >= l.min);
+  return match ?? CHAMBY_LEVELS[CHAMBY_LEVELS.length - 1];
+}
+
+export function workerBadges(
+  isVerified: boolean,
+  completedJobs: number,
+  avgRating: number | null
+): string[] {
+  const badges: string[] = [];
+  if (isVerified) badges.push("Verificado");
+  if (avgRating !== null && avgRating >= 4.5) badges.push("Top Rated");
+  if (completedJobs >= 10) badges.push("Veterano");
+  else if (completedJobs >= 3) badges.push("Experimentado");
+  else if (completedJobs === 0) badges.push("Nuevo");
+  return badges;
+}
+
+export function timeAgo(dateString: string): string {
+  const diffMs = Date.now() - new Date(dateString).getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "hace un momento";
+  if (mins < 60) return `hace ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `hace ${days} d`;
+  return formatDate(dateString);
 }
 
 export function formatDate(dateString: string): string {

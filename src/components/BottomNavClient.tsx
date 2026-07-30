@@ -19,10 +19,11 @@ export function BottomNavClient({ isLoggedIn, role, messagesUnreadCount = 0 }: B
   const profileHref = isLoggedIn ? (role === "admin" ? "/admin" : "/dashboard") : "/login";
   // Un invitado que quiere publicar vuelve al formulario justo después de registrarse
   const publishHref = isLoggedIn ? "/jobs/new" : "/register?next=/jobs/new";
+  const searchHref = isLoggedIn && role === "worker" ? "/dashboard/worker/jobs" : "/jobs";
 
   const tabs = [
     { href: "/", label: "Inicio", icon: Home, exact: true, badge: 0 },
-    { href: "/jobs", label: "Buscar", icon: Search, exact: false, badge: 0 },
+    { href: searchHref, label: "Buscar", icon: Search, exact: false, badge: 0 },
     { href: publishHref, label: "Publicar", icon: Plus, center: true, exact: false, badge: 0 },
     { href: "/messages", label: "Mensajes", icon: MessageCircle, exact: false, badge: messagesUnreadCount },
     { href: profileHref, label: "Perfil", icon: User, exact: false, badge: 0 },

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogOut, Plus, Search, ShieldCheck } from "lucide-react";
+import { LogOut, Plus, Search, ShieldCheck, Settings } from "lucide-react";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { logout } from "@/lib/actions/auth";
 import { getUnreadCount } from "@/lib/actions/notifications";
@@ -7,9 +7,10 @@ import { Avatar } from "@/components/ui/Avatar";
 import { LogoLink } from "@/components/brand/Logo";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { BetaBadge } from "@/components/beta/BetaBadge";
+import { RoleSwitcher } from "@/components/roles/RoleSwitcher";
 
 export async function Navbar() {
-  const { user, profile } = await getCurrentUserAndProfile();
+  const { user, profile, userRoles } = await getCurrentUserAndProfile();
   const unreadCount = user ? await getUnreadCount() : 0;
 
   return (
@@ -19,7 +20,6 @@ export async function Navbar() {
           <LogoLink tone="color" withSlogan />
           <BetaBadge />
         </div>
-
 
         {/* En escritorio se muestran los enlaces principales; en móvil viven en el BottomNav */}
         <nav className="hidden items-center gap-1 text-sm font-semibold text-ink-muted sm:flex">
@@ -53,7 +53,27 @@ export async function Navbar() {
         <div className="flex items-center gap-2 sm:gap-3">
           {user && profile ? (
             <>
+              {/* Selector de modo visible en desktop cuando el usuario tiene varios roles */}
+              {userRoles.length > 1 && profile.role !== "admin" && (
+                <div className="hidden sm:block">
+                  <RoleSwitcher
+                    activeRole={profile.role}
+                    availableRoles={userRoles}
+                    variant="nav"
+                  />
+                </div>
+              )}
+
               <NotificationBell userId={user.id} initialUnreadCount={unreadCount} />
+
+              <Link
+                href="/dashboard/settings"
+                className="hidden items-center justify-center rounded-xl p-2 text-ink-muted transition-colors hover:bg-slate-100 hover:text-ink sm:flex"
+                aria-label="Configuración"
+              >
+                <Settings className="h-4 w-4" />
+              </Link>
+
               <Link
                 href="/dashboard"
                 className="hidden items-center gap-2 rounded-2xl py-1.5 pl-1.5 pr-3 transition-colors duration-200 hover:bg-slate-100 sm:flex"
@@ -63,6 +83,7 @@ export async function Navbar() {
                   {profile.full_name.split(" ")[0]}
                 </span>
               </Link>
+
               {/* En móvil, salir sigue accesible arriba (el BottomNav no tiene logout) */}
               <form action={logout}>
                 <button

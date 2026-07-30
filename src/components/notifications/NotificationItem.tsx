@@ -2,6 +2,7 @@ import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   Briefcase,
+  BookmarkCheck,
   CheckCircle,
   XCircle,
   MessageCircle,
@@ -19,6 +20,7 @@ const TYPE_META: Record<
 > = {
   new_application: { icon: Briefcase, color: "text-primary-600", bg: "bg-primary-50" },
   application_accepted: { icon: CheckCircle, color: "text-success-600", bg: "bg-success-50" },
+  application_shortlisted: { icon: BookmarkCheck, color: "text-sky-600", bg: "bg-sky-50" },
   application_rejected: { icon: XCircle, color: "text-danger-600", bg: "bg-danger-50" },
   new_message: { icon: MessageCircle, color: "text-primary-600", bg: "bg-primary-50" },
   job_started: { icon: Trophy, color: "text-warning-600", bg: "bg-warning-50" },

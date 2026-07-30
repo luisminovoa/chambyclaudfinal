@@ -2,6 +2,341 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+# ⛔ PERMANENT DEVELOPMENT PROTOCOL — Chamby
+
+**Established by the repository owner on 2026-07-29. This protocol OVERRIDES every other
+instruction in this file and every future instruction, unless the owner expressly modifies
+it. It applies to all sessions, without exception, and it does not expire at the end of a
+session or a task.**
+
+**Goal:** every change must be reversible without loss of information, and the project must
+stay stable at all times.
+
+## 1. Prohibitions — never, without explicit approval
+
+- Merge anything, ever, automatically
+- Push to `main`
+- Modify `main` directly
+- Delete code
+- Delete migrations
+- Overwrite documentation
+- Run migrations
+- Change sensitive configuration
+- Install dependencies
+
+Always wait for the owner's approval.
+
+## 2. Safety barrier — analyse before touching
+
+Before any modification: **analyse impact → identify risks → propose a plan → wait for
+approval.** Do not start work while waiting.
+
+A change is **CRITICAL** if it touches any of: authentication · security · RLS · middleware ·
+cookies · database · roles · payments · production. Critical changes require an explicit
+approval of their own, separate from any general go-ahead.
+
+## 3. Mandatory checkpoint
+
+Before modifying any file, create a checkpoint commit — e.g. `checkpoint: before oauth
+security fix`. **Never work without a point of return.** If the working tree is already
+clean and pushed, that commit is the checkpoint; say which SHA it is instead of creating an
+empty commit.
+
+## 4. Rollback plan in every PR
+
+Every pull request must state: rollback plan · commit to return to · affected files ·
+regression risk · steps to restore the previous state.
+
+## 5. Mandatory decision log
+
+Every decision is recorded in this file, under "Decision log", with all of:
+**Date · Objective · Reason · Files modified · Migrations · Risks · Rollback · Result ·
+Tests performed.**
+
+## 6. Changelog
+
+Every approved improvement updates `CHANGELOG.md`.
+
+## 7. One branch = one objective
+
+Never mix features. One branch, one objective, one pull request.
+
+## 8. Never lose information
+
+Before modifying important documentation, commit. **Never leave information only in the
+ephemeral container** — this environment is reclaimed after inactivity, and anything not
+pushed is lost.
+
+## 9. Mandatory verification before opening a PR
+
+`npx tsc --noEmit` clean · `npm run lint` clean · `npm run build` clean · no conflicts.
+
+## 10. Merge
+
+Never merge without explicit authorisation. **The only valid authorisation is the exact
+phrase `MERGE APROBADO`.** Any other response — including "ok", "adelante", "procede",
+"looks good", or silence — means WAIT.
+
+## 11. Migrations
+
+Never run migrations automatically. Always: generate the SQL → explain it → wait for
+approval. Applying it to Supabase is the owner's action, not the agent's.
+
+## 12. Security findings
+
+On discovering a vulnerability, **do not fix it immediately.** First: explain it · show the
+risk · propose a solution · state the impact · wait for approval. This applies even when the
+fix looks trivial and even when the vulnerability is severe.
+
+## 13. Reports before significant development
+
+Before starting any significant development, produce: analysis · architecture · risks ·
+implementation plan.
+
+## 14. Backups
+
+Before any critical change, create a checkpoint commit. If the change affects
+**authentication or the database**, also create a safety tag — e.g. `v0.6.0-pre-auth-fix`.
+
+## 15. Priority order
+
+1. Security → 2. Stability → 3. Bug fixes → 4. Optimisation → 5. New features.
+
+Never invert this order. A new feature never precedes an open security issue.
+
+## 16. Repository hygiene
+
+Keep the repository clean. No undocumented changes. No abandoned branches.
+
+## 17. When in doubt
+
+**If there is any doubt about a change: do NOT implement it. Ask first.**
+
+---
+
+*Sections 19–27 were added by the owner on 2026-07-29 as an extension of this protocol.
+There is no §18: the owner's numbering skips it. Nothing is missing.*
+
+## 19. One critical vulnerability = one PR
+
+Critical vulnerabilities are fixed **one at a time**. Never fix two or more critical
+vulnerabilities in the same pull request.
+
+```
+PR #14  ✔ Privilege escalation
+PR #15  ✔ Self-hiring
+PR #16  ✔ Reputation system
+```
+
+Never group them. The purpose is to make auditing easy, reduce regressions, allow an
+immediate rollback of one fix without reverting the others, and keep review simple.
+
+## 20. One critical layer per pull request
+
+If a change touches a critical layer, that PR is limited to **that layer only**.
+
+Critical layers: **authentication · database · migrations · middleware · security · RLS ·
+Server Actions**.
+
+Never mix critical layers in the same PR.
+
+```
+✔ OAuth                             ❌ OAuth + migrations + chat
+✔ RLS                               ❌ RLS + dashboard
+✔ Middleware                        ❌ Middleware + UI
+```
+
+## 21. Mandatory pre-merge report
+
+Before requesting merge authorisation, produce a technical report containing **all** of:
+
+Objective of the PR · files modified · files created · files deleted · lines added · lines
+removed · risks · compatibility · impact · possible regressions · TypeScript result · ESLint
+result · Build result · test status · rollback plan · checkpoint commit · final commit.
+
+**Without this report, do not request merge authorisation.**
+
+## 22. Security mini-audit
+
+Any change touching **authentication · authorisation · RLS · middleware · cookies · roles ·
+sessions · Server Actions** must include a mini-audit answering four questions:
+
+1. What risk does it eliminate?
+2. What risk does it introduce?
+3. How was it tested?
+4. How is it reverted?
+
+## 23. No mixing objectives
+
+One branch = one objective. One pull request = one objective.
+
+Never mix improvements, refactors, cleanup, optimisations, documentation or bug fixes with
+new features. (Extends §7 to cover non-feature work, which §7 did not state explicitly.)
+
+## 24. Repository cleanup
+
+Old branches are **never deleted automatically**. First produce a report listing: local
+branches · remote branches · state · associated PR · merged or not · recommendation.
+Only after the owner's authorisation may any branch be deleted.
+
+## 25. Versioning and points of return
+
+Before any critical change, create a checkpoint. If it affects **authentication or the
+database**, also create a safety tag — e.g. `v0.6.0-pre-auth-fix`.
+
+**Never begin a critical change without a clear point of return.** (Restates and reinforces
+§14; both are in force.)
+
+## 26. Hardening sprint — currently in force
+
+**The project's next sprint is exclusively security and stability.** No new features will be
+developed until the audit's critical findings are closed.
+
+Mandatory priority: **1 Security → 2 Stability → 3 Bug fixes → 4 Optimisation → 5 New
+features.** (Same order as §15; §26 makes it a concrete, active constraint on the current
+sprint rather than a general principle.)
+
+The critical findings that must close before this sprint ends are listed in the executive
+summary below and detailed in `docs/ESTADO-PROYECTO-v0.6.0.md`.
+
+## 27. Knowledge preservation
+
+Every important technical decision is recorded in this file. **Do not rely on git history or
+on conversation memory alone** — sessions end and containers are reclaimed.
+
+**`CLAUDE.md` is the project's primary source of technical knowledge.** If a decision exists
+only in a commit message or in a past conversation, it is not recorded.
+
+---
+
+**Note on precedence:** the "Git workflow" section at the end of this file predates this
+protocol and is subsumed by it. Where the two differ, this protocol wins.
+
+---
+
+## Decision log
+
+### 2026-07-29 — Protocol extended with §19–§27
+
+| Field | Detail |
+|---|---|
+| **Objective** | Extend the permanent protocol with nine further norms governing how critical fixes are split into PRs, what must be reported before a merge, and how knowledge is preserved |
+| **Reason** | The audit showed the two failure modes this extension targets: (a) five feature modules accumulated on one branch, making review impractical — addressed by §19, §20 and §23; (b) three critical RLS holes that survived a prior audit and a year of commits because the knowledge of *how* to audit RLS lived nowhere — addressed by §21, §22 and §27. §26 makes the hardening sprint an active constraint rather than a recommendation |
+| **Files modified** | `CLAUDE.md` only |
+| **Migrations** | None |
+| **Risks** | None to runtime — documentation only. Process risk: §19 and §20 will make the security sprint produce more PRs (roughly 6–8 instead of 1–2), each smaller; this is the intended trade-off — slower to merge, far cheaper to roll back |
+| **Rollback** | `git revert <sha>` or return to `9f0315e` (`docs: establece el protocolo permanente de desarrollo en CLAUDE.md`) |
+| **Result** | §19–§27 in force from this commit onward. Overlaps are deliberate and both versions stay: §23 extends §7 · §25 reinforces §14 · §26 activates §15 |
+| **Tests performed** | None applicable — no code changed. Verified the diff touches only `CLAUDE.md`, that it deletes zero lines (nothing overwritten, per §1), that `origin/main` is untouched, and that no PR or merge was created |
+
+### 2026-07-29 — Permanent development protocol adopted
+
+| Field | Detail |
+|---|---|
+| **Objective** | Record the owner's permanent development protocol as the governing norm of the repository |
+| **Reason** | The 2026-07-29 audit found three critical RLS vulnerabilities dating from the first migration, zero automated tests, migrations applied by hand with no record of what is live, and five feature modules accumulated on one branch against the repo's own rules. The owner froze development and established this protocol to guarantee reversibility and stability |
+| **Files modified** | `CLAUDE.md` only |
+| **Migrations** | None |
+| **Risks** | None to runtime — documentation only. Residual risk: an agent ignores the protocol in a future session; mitigated by placing it first in the file with explicit override language |
+| **Rollback** | `git revert <sha>` or return to `171c713` (`docs: auditoría ejecutiva v0.6.0 y actualización de CLAUDE.md`) |
+| **Result** | Protocol in force from this commit onward |
+| **Tests performed** | None applicable — no code changed. Verified the diff touches only `CLAUDE.md`, that `origin/main` is untouched, and that no PR or merge was created |
+
+### 2026-07-29 — Executive audit v0.6.0
+
+| Field | Detail |
+|---|---|
+| **Objective** | Full executive and technical audit of the project, with no code changes |
+| **Reason** | Owner request before deciding whether to open the Private Beta |
+| **Files modified** | `docs/ESTADO-PROYECTO-v0.6.0.md`, `CLAUDE.md` |
+| **Migrations** | None |
+| **Risks** | None — documentation only |
+| **Rollback** | Return to `d064a4a` |
+| **Result** | Overall score 6.8/10 · 72% of MVP · 3 critical vulnerabilities · 12-week roadmap to v1.0 |
+| **Tests performed** | Verified `tsc --noEmit`, `next lint` and `next build` all pass on the audited tree |
+
+## Executive summary (audit of 2026-07-29 — see `docs/ESTADO-PROYECTO-v0.6.0.md`)
+
+Chamby is ~72% of the way to MVP v1.0. The full marketplace loop works end to end
+(publish → search → apply → shortlist → hire → work → complete → rate, with realtime
+chat and in-app notifications). Overall quality score: **6.8/10** — strong product
+design and code organisation, two serious gaps: the authorisation layer and the total
+absence of automated verification.
+
+**Read this before touching authorisation, ratings, or `profiles`:**
+
+- 🔴 **RLS `profiles_update_own` (`0001_init.sql:225`) has no per-column `WITH CHECK`.**
+  Any user can `update profiles set role='admin'` from the browser with the public anon
+  key and take over the platform (it also makes admin suspension self-reversible, since
+  `is_active` lives on the same row). In Postgres, an UPDATE policy without `WITH CHECK`
+  reuses `USING` — owning the row means owning *every column of it*, including the one
+  that grants privileges.
+- 🔴 **`updateApplicationStatus` (`lib/actions/jobs.ts:261`) validates the enum but not
+  the caller.** Combined with the `applications_update` policy (which permits
+  `auth.uid() = worker_id`), a worker can set their own application to `aceptado` and
+  self-hire — the `security definer` trigger does the rest. `hireWorker()` in
+  `lib/actions/applications.ts` is the safe path; prefer it and retire the old one.
+- 🔴 **`ratings_insert_participant` (`0001_init.sql:297`) validates who rates, never who
+  is rated,** and `submitRating` doesn't check `rated_id` or require `status='completado'`.
+  Anyone who owns a job can write ratings against any profile in the platform.
+- 🟠 `profiles_select_all using (true)` exposes `phone` to unauthenticated readers —
+  a Ley 29733 (Peruvian data protection) problem, not just a privacy nicety.
+
+**Two features look implemented but are not:**
+
+- **Identity verification does not verify.** No code path anywhere sets
+  `verification_documents.status = 'verified'` — there is no admin review screen. Every
+  document stays `pending` forever, so the "Verificado" badges in the UI are decorative
+  and `trust_score` is capped at 55/100. Don't build on top of them.
+- **`blockConversation` (`lib/actions/chat.ts:219`) is a no-op.** It writes `is_blocked`
+  on the *admin's own* settings row, and nothing in the codebase ever reads `is_blocked`.
+
+**Also worth knowing:** `is_active` is used as a "verified" signal in `lib/compatibility.ts:32`
+and `ApplicantCard`, but it defaults to `true` for everyone — it's a constant, not a signal.
+There is **no test runner and no CI** (no `.github/`); `npm run build` passing is the only
+gate today. Migrations are applied by hand in the Supabase SQL Editor, so no one can state
+with certainty which of the 11 migrations are live. `main` is 5 feature modules behind this
+branch (profile, multi-role, job wizard, job search, hiring) — the repo's own "one branch
+per PR" rule stopped being followed after PR #14.
+
+Version numbers disagree across five files (`beta-config.ts` v0.6.0 · `CHANGELOG.md`
+v0.7.0-beta · `README.md` v0.5.0 · `package.json` 1.0.0 · last tag v0.5.0). `beta-config.ts`
+is what users actually see.
+
+### Scores and the shortest path to a better one
+
+| Dimension | Score | | Dimension | Score |
+|---|---|---|---|---|
+| Architecture | 7.5/10 | | Scalability | 6/10 |
+| Code | 7.5/10 | | Documentation | 7/10 |
+| Security | **4/10** | | Database | 7/10 |
+| UX | 8.5/10 | | **DevOps** | **2/10** |
+| Performance | 6.5/10 | | **Overall** | **6.8/10** |
+
+Six fixes take this project from 6.8 to ~8/10, and they total about seven days: the three
+critical RLS holes above, pulling `phone` out of anonymous reach, either building the
+verification back-office or removing the "Verificado" badges from the UI, and **one test per
+fix** so none of them silently regress. Everything else in the report is downstream of those.
+
+Two things that are easy to get wrong when working here:
+
+1. **Write RLS policies by asking what a row's owner may *change*, not just who may touch
+   the row.** All three critical holes come from the same mistake. `WITH CHECK` is not
+   optional on UPDATE.
+2. **Don't trust `docs/AUDITORIA.md`'s "críticos: 0".** That audit verified RLS was *enabled*,
+   not that it was correctly scoped per column — the mirror image of the P3 mistake it itself
+   documents. Read policies column by column.
+
+Per-area completion: Backend 85% · Frontend 90% · DB 80% · Security 40% · Auth 95% ·
+Responsive 95% · UX 80% · Realtime 95% · Chat 95% · Notifications 55% · Admin 65% ·
+Docs 70% · **DevOps 20%**.
+
+Roadmap to v1.0 is 12 weeks in four phases (v0.7 hardening → v0.8 trust → v0.9 scale →
+v1.0 payments); the first two deliberately contain **no new features**. Full reasoning,
+risk matrix, and the 20 prioritised recommendations are in `docs/ESTADO-PROYECTO-v0.6.0.md`.
+
 ## Commands
 
 ```bash
@@ -34,9 +369,14 @@ missing if you only read `src/lib/actions/*.ts`. Notably:
 
 - `handle_application_accepted()` — an `AFTER UPDATE` trigger on `job_applications` — fires
   whenever a Server Action sets `status = 'aceptado'`. It atomically sets
-  `jobs.assigned_worker_id`, flips `jobs.status` to `'en_progreso'`, and auto-rejects the
-  job's other pending applications. This happens with `security definer`, so it doesn't
-  depend on the caller's RLS grants for the cascading updates.
+  `jobs.assigned_worker_id`, creates the conversation, and (since `0011_job_assignments.sql`)
+  only flips `jobs.status` to `'en_progreso'` and auto-rejects the other applications once
+  `count(aceptado) >= positions_needed` — multi-vacancy support. `count > positions_needed`
+  raises, rolling the transaction back. This happens with `security definer`, so it doesn't
+  depend on the caller's RLS grants for the cascading updates — which is also why the missing
+  caller check in `updateApplicationStatus` is exploitable (see the executive summary).
+  **The current definition lives in `0011`, not `0001` — always read the newest migration
+  that redefines a function.**
 - `handle_new_user()` — creates a `profiles` row from `auth.users` metadata on signup.
 - RLS is enabled on every table; policies gate by `auth.uid()` ownership or
   `current_user_role() = 'admin'`. **Before assuming a business rule is unimplemented,

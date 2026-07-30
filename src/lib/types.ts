@@ -1,7 +1,14 @@
 export type UserRole = "worker" | "employer" | "admin";
-export type JobStatus = "abierto" | "en_progreso" | "completado" | "cancelado";
-export type ApplicationStatus = "pendiente" | "aceptado" | "rechazado" | "retirado";
+export type JobStatus = "borrador" | "abierto" | "en_progreso" | "completado" | "cancelado";
+export type JobUrgency = "normal" | "urgente";
+export type ApplicationStatus = "pendiente" | "preseleccionado" | "aceptado" | "rechazado" | "retirado";
 export type PayType = "por_hora" | "por_dia" | "fijo";
+export type AssignmentStatus =
+  | "asignado"
+  | "confirmado"
+  | "en_progreso"
+  | "completado"
+  | "cancelado";
 
 export interface Profile {
   id: string;
@@ -25,7 +32,13 @@ export interface Job {
   description: string;
   category: string;
   city: string;
+  district: string | null;
   address: string | null;
+  work_date: string | null;
+  start_time: string | null;
+  estimated_duration: string | null;
+  urgency: JobUrgency;
+  requirements: string[];
   pay_amount: number | null;
   pay_type: PayType;
   status: JobStatus;
@@ -37,6 +50,15 @@ export interface Job {
   cancelled_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface JobImage {
+  id: string;
+  job_id: string;
+  storage_path: string;
+  public_url: string;
+  display_order: number;
+  created_at: string;
 }
 
 export interface StateHistoryEntry {
@@ -107,11 +129,57 @@ export interface JobApplication {
   updated_at: string;
 }
 
+export interface JobAssignment {
+  id: string;
+  job_id: string;
+  worker_id: string;
+  employer_id: string;
+  application_id: string | null;
+  status: AssignmentStatus;
+  agreed_pay: number | null;
+  notes: string | null;
+  confirmed_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssignmentWithDetails extends JobAssignment {
+  job: Job | null;
+  worker: Pick<Profile, "id" | "full_name" | "avatar_url" | "city" | "category"> | null;
+  employer: Pick<Profile, "id" | "full_name" | "avatar_url" | "city"> | null;
+}
+
+export interface SavedJob {
+  id: string;
+  worker_id: string;
+  job_id: string;
+  created_at: string;
+}
+
+export interface JobListing extends Job {
+  employer: Pick<Profile, "id" | "full_name" | "avatar_url" | "city" | "is_active"> | null;
+  job_images: Array<Pick<JobImage, "id" | "public_url" | "display_order">> | null;
+}
+
+export interface RoleEntry {
+  id: string;
+  user_id: string;
+  role: UserRole;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Rating {
   id: string;
   job_id: string;
   rater_id: string;
   rated_id: string;
+  rated_as_role: UserRole;
   score: number;
   comment: string | null;
   created_at: string;
@@ -127,6 +195,7 @@ export interface RatingSummary {
 export type NotificationType =
   | "new_application"
   | "application_accepted"
+  | "application_shortlisted"
   | "application_rejected"
   | "new_message"
   | "job_started"
@@ -195,6 +264,49 @@ export interface BetaStats {
   avgHireMinutes: number | null;
 }
 
+// ── Perfil Profesional Verificado ─────────────────────────────────────────────
+
+export type DocumentType =
+  | "dni"
+  | "ruc"
+  | "antecedentes_policiales"
+  | "antecedentes_penales"
+  | "certificado"
+  | "licencia"
+  | "carnet"
+  | "otro";
+
+export type DocumentStatus = "pending" | "verified" | "rejected";
+
+export interface ProfilePhoto {
+  id: string;
+  profile_id: string;
+  storage_path: string;
+  public_url: string;
+  is_primary: boolean;
+  display_order: number;
+  created_at: string;
+}
+
+export interface VerificationDocument {
+  id: string;
+  profile_id: string;
+  document_type: DocumentType;
+  storage_path: string;
+  file_name: string;
+  status: DocumentStatus;
+  uploaded_at: string;
+  verified_at: string | null;
+}
+
+export interface ProfileStats {
+  profile_id: string;
+  completion_percentage: number;
+  trust_score: number;
+  badges: string[];
+  updated_at: string;
+}
+
 // Tipos compuestos usados en la UI
 export interface JobWithEmployer extends Job {
   employer: Pick<Profile, "id" | "full_name" | "avatar_url" | "city"> | null;
@@ -234,6 +346,16 @@ export type Database = {
           city: string;
         };
         Update: Partial<Job>;
+        Relationships: [];
+      };
+      job_images: {
+        Row: JobImage;
+        Insert: Partial<JobImage> & {
+          job_id: string;
+          storage_path: string;
+          public_url: string;
+        };
+        Update: Partial<JobImage>;
         Relationships: [];
       };
       job_state_history: {
@@ -290,6 +412,22 @@ export type Database = {
         Update: Partial<JobApplication>;
         Relationships: [];
       };
+      job_assignments: {
+        Row: JobAssignment;
+        Insert: Partial<JobAssignment> & {
+          job_id: string;
+          worker_id: string;
+          employer_id: string;
+        };
+        Update: Partial<JobAssignment>;
+        Relationships: [];
+      };
+      saved_jobs: {
+        Row: SavedJob;
+        Insert: Partial<SavedJob> & { worker_id: string; job_id: string };
+        Update: Partial<SavedJob>;
+        Relationships: [];
+      };
       ratings: {
         Row: Rating;
         Insert: Partial<Rating> & {
@@ -297,8 +435,15 @@ export type Database = {
           rater_id: string;
           rated_id: string;
           score: number;
+          rated_as_role: UserRole;
         };
         Update: Partial<Rating>;
+        Relationships: [];
+      };
+      user_roles: {
+        Row: RoleEntry;
+        Insert: Partial<RoleEntry> & { user_id: string; role: UserRole };
+        Update: Partial<RoleEntry>;
         Relationships: [];
       };
       notifications: {
@@ -324,9 +469,44 @@ export type Database = {
         Update: Partial<BugReport>;
         Relationships: [];
       };
+      profile_photos: {
+        Row: ProfilePhoto;
+        Insert: Partial<ProfilePhoto> & {
+          profile_id: string;
+          storage_path: string;
+          public_url: string;
+        };
+        Update: Partial<ProfilePhoto>;
+        Relationships: [];
+      };
+      verification_documents: {
+        Row: VerificationDocument;
+        Insert: Partial<VerificationDocument> & {
+          profile_id: string;
+          document_type: DocumentType;
+          storage_path: string;
+          file_name: string;
+        };
+        Update: Partial<VerificationDocument>;
+        Relationships: [];
+      };
+      profile_stats: {
+        Row: ProfileStats;
+        Insert: Partial<ProfileStats> & { profile_id: string };
+        Update: Partial<ProfileStats>;
+        Relationships: [];
+      };
     };
     Views: {
       rating_summary: {
+        Row: RatingSummary;
+        Relationships: [];
+      };
+      worker_rating_summary: {
+        Row: RatingSummary;
+        Relationships: [];
+      };
+      employer_rating_summary: {
         Row: RatingSummary;
         Relationships: [];
       };
