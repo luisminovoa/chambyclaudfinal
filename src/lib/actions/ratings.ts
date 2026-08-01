@@ -28,6 +28,34 @@ export async function submitRating({
     return { error: "El comentario no puede superar los 1000 caracteres." };
   }
 
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("status, employer_id, assigned_worker_id")
+    .eq("id", jobId)
+    .single();
+
+  const typedJob = job as {
+    status: string;
+    employer_id: string;
+    assigned_worker_id: string | null;
+  } | null;
+
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (typedJob.status !== "completado") {
+    return { error: "Solo puedes calificar trabajos completados." };
+  }
+
+  const expectedRatedId =
+    user.id === typedJob.employer_id
+      ? typedJob.assigned_worker_id
+      : user.id === typedJob.assigned_worker_id
+        ? typedJob.employer_id
+        : null;
+
+  if (!expectedRatedId || ratedId !== expectedRatedId) {
+    return { error: "Solo puedes calificar a la contraparte de este trabajo." };
+  }
+
   const { error } = await supabase.from("ratings").insert({
     job_id: jobId,
     rater_id: user.id,

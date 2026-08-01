@@ -199,6 +199,18 @@ export async function applyToJob(jobId: string, message: string) {
 
   if (!user) return { error: "Debes iniciar sesión para postular." };
 
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("employer_id")
+    .eq("id", jobId)
+    .single();
+
+  const typedJob = job as { employer_id: string } | null;
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (typedJob.employer_id === user.id) {
+    return { error: "No puedes postular a tu propio trabajo." };
+  }
+
   const { error } = await supabase.from("job_applications").insert({
     job_id: jobId,
     worker_id: user.id,
