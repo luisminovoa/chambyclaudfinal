@@ -66,11 +66,32 @@ if (error) {
 const jobStatusSchema = z.enum(["abierto", "en_progreso", "completado", "cancelado"]);
 const applicationStatusSchema = z.enum(["pendiente", "aceptado", "rechazado", "retirado"]);
 
+const ALLOWED_JOB_TRANSITIONS: Record<string, string[]> = {
+  abierto: ["cancelado"],
+  en_progreso: ["cancelado", "completado"],
+};
+
 export async function updateJobStatus(jobId: string, status: string) {
   const parsedStatus = jobStatusSchema.safeParse(status);
   if (!parsedStatus.success) return { error: "Estado inválido." };
 
   const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("status, employer_id")
+    .eq("id", jobId)
+    .single();
+
+  const typedJob = job as { status: string; employer_id: string } | null;
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (typedJob.employer_id !== user.id) return { error: "Sin permiso." };
+  if (!ALLOWED_JOB_TRANSITIONS[typedJob.status]?.includes(parsedStatus.data)) {
+    return { error: "Esa transición de estado no está permitida." };
+  }
+
   const { error } = await supabase.from("jobs").update({ status: parsedStatus.data }).eq("id", jobId);
   if (!error) {
     revalidatePath(`/jobs/${jobId}`);
@@ -234,7 +255,36 @@ export async function updateApplicationStatus(applicationId: string, status: str
   if (!parsedStatus.success) return { error: "Estado inválido." };
 
   const supabase = createClient();
-const { error, data } = await supabase
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: app } = await supabase
+    .from("job_applications")
+    .select("status, worker_id, job_id")
+    .eq("id", applicationId)
+    .single();
+
+  const typedApp = app as { status: string; worker_id: string; job_id: string } | null;
+  if (!typedApp) return { error: "Postulación no encontrada." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("employer_id")
+    .eq("id", typedApp.job_id)
+    .single();
+
+  const typedJob = job as { employer_id: string } | null;
+  const isWorker = typedApp.worker_id === user.id;
+  const isEmployer = typedJob?.employer_id === user.id;
+
+  const allowed =
+    typedApp.status === "pendiente" &&
+    ((isWorker && parsedStatus.data === "retirado") ||
+      (isEmployer && ["aceptado", "rechazado"].includes(parsedStatus.data)));
+
+  if (!allowed) return { error: "Esa transición de estado no está permitida." };
+
+  const { error, data } = await supabase
     .from("job_applications")
     .update({ status: parsedStatus.data })
     .eq("id", applicationId)
