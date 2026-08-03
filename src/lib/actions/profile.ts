@@ -9,6 +9,7 @@ import type {
   ProfileStats,
   WorkerProfileDetails,
   AvailabilityStatus,
+  WorkerExperience,
 } from "@/lib/types";
 
 const AVAILABILITY_VALUES: AvailabilityStatus[] = [
@@ -376,7 +377,7 @@ export async function computeAndSaveProfileStats(): Promise<
   const { supabase, user } = await getAuth();
   if (!user) return { error: "No autenticado." };
 
-  const [profileRes, photosRes, docsRes, detailsRes] = await Promise.all([
+  const [profileRes, photosRes, docsRes, detailsRes, experienceRes] = await Promise.all([
     supabase.from("profiles").select("bio,category,skills").eq("id", user.id).single(),
     supabase.from("profile_photos").select("is_primary").eq("profile_id", user.id),
     supabase.from("verification_documents").select("document_type,status").eq("profile_id", user.id),
@@ -385,6 +386,10 @@ export async function computeAndSaveProfileStats(): Promise<
       .select("professional_title,years_experience,hourly_rate,daily_rate")
       .eq("profile_id", user.id)
       .maybeSingle(),
+    supabase
+      .from("worker_experience")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", user.id),
   ]);
 
   const profile = profileRes.data as {
@@ -448,23 +453,26 @@ export async function computeAndSaveProfileStats(): Promise<
     badges.push("ruc_active");
   }
 
-  // Certificado verificado = 10%
+  // Certificado verificado = 5%
   const certOk = docs.some(
     (d) => d.document_type === "certificado" && d.status === "verified"
   );
   if (certOk) {
-    score += 10;
+    score += 5;
     badges.push("certified_professional");
   }
 
-  // Antecedentes verificados = 10%
+  // Antecedentes verificados = 5%
   const antecOk = docs.some(
     (d) =>
       (d.document_type === "antecedentes_policiales" ||
         d.document_type === "antecedentes_penales") &&
       d.status === "verified"
   );
-  if (antecOk) score += 10;
+  if (antecOk) score += 5;
+
+  // Experiencia laboral registrada = 10% (al menos 1 experiencia)
+  if ((experienceRes.count ?? 0) >= 1) score += 10;
 
   // Insignia Perfil Destacado
   if (score >= 80) badges.push("top_profile");
@@ -601,4 +609,123 @@ function parseBoundedInt(
   const n = Number(value);
   if (!Number.isInteger(n) || n < min || n > max) return "invalid";
   return n;
+}
+
+// ── Worker experience (Fase 2) ─────────────────────────────────────────────────
+
+export async function getWorkerExperience(): Promise<WorkerExperience[]> {
+  const { supabase, user } = await getAuth();
+  if (!user) return [];
+
+  const { data } = await supabase
+    .from("worker_experience")
+    .select("*")
+    .eq("profile_id", user.id)
+    .order("is_current", { ascending: false })
+    .order("start_date", { ascending: false });
+
+  return (data as WorkerExperience[]) ?? [];
+}
+
+interface ExperienceInput {
+  company: string;
+  job_title: string;
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
+  description: string | null;
+}
+
+function parseExperienceForm(formData: FormData): ExperienceInput | { error: string } {
+  const company = (formData.get("company") as string)?.trim();
+  const job_title = (formData.get("job_title") as string)?.trim();
+  const start_date = (formData.get("start_date") as string) || "";
+  const is_current = formData.get("is_current") === "true";
+  const end_date_raw = (formData.get("end_date") as string) || "";
+  const description = (formData.get("description") as string)?.trim() || null;
+
+  if (!company) return { error: "La empresa es obligatoria." };
+  if (!job_title) return { error: "El cargo es obligatorio." };
+  if (!start_date || Number.isNaN(new Date(start_date).getTime())) {
+    return { error: "La fecha de inicio es obligatoria." };
+  }
+  if (new Date(start_date) > new Date()) {
+    return { error: "La fecha de inicio no puede ser futura." };
+  }
+
+  const end_date = is_current ? null : end_date_raw || null;
+  if (end_date) {
+    if (Number.isNaN(new Date(end_date).getTime())) {
+      return { error: "La fecha de fin no es válida." };
+    }
+    if (new Date(end_date) < new Date(start_date)) {
+      return { error: "La fecha de fin no puede ser anterior a la de inicio." };
+    }
+  }
+  if (description && description.length > 500) {
+    return { error: "La descripción no puede superar 500 caracteres." };
+  }
+
+  return { company, job_title, start_date, end_date, is_current, description };
+}
+
+export async function addWorkerExperience(
+  formData: FormData
+): Promise<ActionResult & { experience?: WorkerExperience }> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "No autenticado." };
+
+  const parsed = parseExperienceForm(formData);
+  if ("error" in parsed) return parsed;
+
+  const { data, error } = await supabase
+    .from("worker_experience")
+    .insert({ profile_id: user.id, ...parsed })
+    .select()
+    .single();
+
+  if (error) return { error: "Error al guardar la experiencia." };
+
+  revalidatePath("/dashboard/worker/profile");
+  return { success: true, experience: data as WorkerExperience };
+}
+
+export async function updateWorkerExperience(
+  experienceId: string,
+  formData: FormData
+): Promise<ActionResult & { experience?: WorkerExperience }> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "No autenticado." };
+
+  const parsed = parseExperienceForm(formData);
+  if ("error" in parsed) return parsed;
+
+  const { data, error } = await supabase
+    .from("worker_experience")
+    .update(parsed)
+    .eq("id", experienceId)
+    .eq("profile_id", user.id)
+    .select()
+    .single();
+
+  if (error) return { error: "Error al actualizar la experiencia." };
+
+  revalidatePath("/dashboard/worker/profile");
+  return { success: true, experience: data as WorkerExperience };
+}
+
+export async function deleteWorkerExperience(experienceId: string): Promise<ActionResult> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "No autenticado." };
+
+  const { error } = await supabase
+    .from("worker_experience")
+    .delete()
+    .eq("id", experienceId)
+    .eq("profile_id", user.id);
+
+  if (error) return { error: "Error al eliminar la experiencia." };
+
+  revalidatePath("/dashboard/worker/profile");
+  return { success: true };
 }

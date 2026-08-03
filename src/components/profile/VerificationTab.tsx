@@ -8,6 +8,7 @@ import type {
   ProfilePhoto,
   VerificationDocument,
   WorkerProfileDetails,
+  WorkerExperience,
 } from "@/lib/types";
 
 const BADGE_CONFIG = {
@@ -51,6 +52,7 @@ interface VerificationTabProps {
   stats: ProfileStats | null;
   photos: ProfilePhoto[];
   documents: VerificationDocument[];
+  experience: WorkerExperience[];
 }
 
 export function VerificationTab({
@@ -59,6 +61,7 @@ export function VerificationTab({
   stats,
   photos,
   documents,
+  experience,
 }: VerificationTabProps) {
   const earnedBadges = stats?.badges ?? [];
   const allBadges = Object.entries(BADGE_CONFIG);
@@ -87,6 +90,7 @@ export function VerificationTab({
     !!workerDetails?.professional_title &&
     workerDetails.years_experience != null &&
     (workerDetails.hourly_rate != null || workerDetails.daily_rate != null);
+  const hasExperience = experience.length >= 1;
 
   const completionItems = [
     { label: "Foto principal", points: 10, done: hasPrimary },
@@ -95,10 +99,11 @@ export function VerificationTab({
     { label: "Especialidad", points: 10, done: hasCategory },
     { label: "3+ habilidades", points: 10, done: hasSkills },
     { label: "Información profesional completa", points: 10, done: hasExtendedInfo },
+    { label: "Experiencia laboral registrada", points: 10, done: hasExperience },
     { label: "DNI verificado", points: 10, done: hasDni },
     { label: "RUC verificado", points: 10, done: hasRuc },
-    { label: "Certificado verificado", points: 10, done: hasCert },
-    { label: "Antecedentes verificados", points: 10, done: hasAntec },
+    { label: "Certificado verificado", points: 5, done: hasCert },
+    { label: "Antecedentes verificados", points: 5, done: hasAntec },
   ];
 
   const percentage = stats?.completion_percentage ?? 0;

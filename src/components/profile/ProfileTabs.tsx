@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { User, Image, FileText, ShieldCheck } from "lucide-react";
+import { User, Image, FileText, ShieldCheck, Briefcase } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { InfoTab } from "@/components/profile/InfoTab";
 import { PhotosTab } from "@/components/profile/PhotosTab";
 import { DocumentsTab } from "@/components/profile/DocumentsTab";
+import { ExperienceTab } from "@/components/profile/ExperienceTab";
 import { VerificationTab } from "@/components/profile/VerificationTab";
 import type {
   Profile,
@@ -13,14 +14,16 @@ import type {
   VerificationDocument,
   ProfileStats,
   WorkerProfileDetails,
+  WorkerExperience,
 } from "@/lib/types";
 
-type TabId = "info" | "photos" | "documents" | "verification";
+type TabId = "info" | "photos" | "documents" | "experience" | "verification";
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "info", label: "Información", icon: User },
   { id: "photos", label: "Fotos", icon: Image },
   { id: "documents", label: "Documentos", icon: FileText },
+  { id: "experience", label: "Experiencia", icon: Briefcase },
   { id: "verification", label: "Verificación", icon: ShieldCheck },
 ];
 
@@ -29,6 +32,7 @@ interface ProfileTabsProps {
   workerDetails: WorkerProfileDetails | null;
   photos: ProfilePhoto[];
   documents: VerificationDocument[];
+  experience: WorkerExperience[];
   stats: ProfileStats | null;
   defaultTab?: TabId;
 }
@@ -38,6 +42,7 @@ export function ProfileTabs({
   workerDetails,
   photos,
   documents,
+  experience,
   stats: initialStats,
   defaultTab = "info",
 }: ProfileTabsProps) {
@@ -99,6 +104,9 @@ export function ProfileTabs({
       {activeTab === "documents" && (
         <DocumentsTab initialDocuments={documents} onStatsChange={handleStatsChange} />
       )}
+      {activeTab === "experience" && (
+        <ExperienceTab initialExperience={experience} onStatsChange={handleStatsChange} />
+      )}
       {activeTab === "verification" && (
         <VerificationTab
           profile={profile}
@@ -106,6 +114,7 @@ export function ProfileTabs({
           stats={currentStats}
           photos={photos}
           documents={documents}
+          experience={experience}
         />
       )}
     </div>

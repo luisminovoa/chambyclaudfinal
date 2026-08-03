@@ -267,6 +267,20 @@ export interface WorkerProfileDetails {
   updated_at: string;
 }
 
+// Experiencia laboral (Fase 2)
+export interface WorkerExperience {
+  id: string;
+  profile_id: string;
+  company: string;
+  job_title: string;
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /**
  * Definición mínima de la base de datos para tipar el cliente de Supabase.
  * Cada tabla/vista incluye `Relationships: []` porque supabase-js exige esa
@@ -417,6 +431,17 @@ export type Database = {
         Row: WorkerProfileDetails;
         Insert: Partial<WorkerProfileDetails> & { profile_id: string };
         Update: Partial<WorkerProfileDetails>;
+        Relationships: [];
+      };
+      worker_experience: {
+        Row: WorkerExperience;
+        Insert: Partial<WorkerExperience> & {
+          profile_id: string;
+          company: string;
+          job_title: string;
+          start_date: string;
+        };
+        Update: Partial<WorkerExperience>;
         Relationships: [];
       };
     };
