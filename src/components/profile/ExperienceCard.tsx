@@ -4,8 +4,9 @@ import { useState, useTransition } from "react";
 import { Briefcase, Pencil, Trash2, Calendar } from "lucide-react";
 import { useToast } from "@/components/ui/Toaster";
 import { updateWorkerExperience, deleteWorkerExperience } from "@/lib/actions/profile";
+import { refreshProfileStats } from "@/lib/profile-stats";
 import { ExperienceForm } from "@/components/profile/ExperienceForm";
-import type { WorkerExperience } from "@/lib/types";
+import type { WorkerExperience, ProfileStats } from "@/lib/types";
 
 function formatMonthYear(dateStr: string) {
   const d = new Date(`${dateStr}T00:00:00`);
@@ -16,7 +17,7 @@ interface ExperienceCardProps {
   experience: WorkerExperience;
   onUpdated: (experience: WorkerExperience) => void;
   onDeleted: (id: string) => void;
-  onStatsChange: () => void;
+  onStatsChange: (stats: ProfileStats) => void;
 }
 
 export function ExperienceCard({
@@ -37,8 +38,8 @@ export function ExperienceCard({
         toast(result.error, "error");
       } else {
         onUpdated(result.experience!);
-        onStatsChange();
         setIsEditing(false);
+        await refreshProfileStats(onStatsChange);
         toast("Experiencia actualizada", "success");
       }
     });
@@ -51,7 +52,7 @@ export function ExperienceCard({
         toast(result.error, "error");
       } else {
         onDeleted(experience.id);
-        onStatsChange();
+        await refreshProfileStats(onStatsChange);
         toast("Experiencia eliminada", "success");
       }
     });

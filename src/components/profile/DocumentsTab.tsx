@@ -19,9 +19,9 @@ import {
   saveVerificationDocument,
   deleteVerificationDocument,
   getDocumentDownloadUrl,
-  computeAndSaveProfileStats,
 } from "@/lib/actions/profile";
-import type { VerificationDocument, DocumentType } from "@/lib/types";
+import { refreshProfileStats } from "@/lib/profile-stats";
+import type { VerificationDocument, DocumentType, ProfileStats } from "@/lib/types";
 
 const DOCUMENT_TYPES: { value: DocumentType; label: string }[] = [
   { value: "dni", label: "DNI" },
@@ -85,7 +85,7 @@ function uploadWithProgress(
 
 interface DocumentsTabProps {
   initialDocuments: VerificationDocument[];
-  onStatsChange: () => void;
+  onStatsChange: (stats: ProfileStats) => void;
 }
 
 export function DocumentsTab({ initialDocuments, onStatsChange }: DocumentsTabProps) {
@@ -143,7 +143,7 @@ export function DocumentsTab({ initialDocuments, onStatsChange }: DocumentsTabPr
 
       setDocs((prev) => [saveRes.document!, ...prev]);
       toast("Documento subido. Será revisado en breve.", "success");
-      computeAndSaveProfileStats().then(onStatsChange);
+      await refreshProfileStats(onStatsChange);
     } catch {
       toast("Error al subir el documento. Inténtalo de nuevo.", "error");
     } finally {
@@ -162,7 +162,7 @@ export function DocumentsTab({ initialDocuments, onStatsChange }: DocumentsTabPr
         setDocs((prev) => prev.filter((d) => d.id !== docId));
         setConfirmDeleteId(null);
         toast("Documento eliminado", "success");
-        computeAndSaveProfileStats().then(onStatsChange);
+        await refreshProfileStats(onStatsChange);
       }
     });
   }

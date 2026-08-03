@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { User, Image, FileText, ShieldCheck, Briefcase } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { InfoTab } from "@/components/profile/InfoTab";
@@ -34,6 +34,7 @@ interface ProfileTabsProps {
   documents: VerificationDocument[];
   experience: WorkerExperience[];
   stats: ProfileStats | null;
+  onStatsChange: (stats: ProfileStats) => void;
   defaultTab?: TabId;
 }
 
@@ -43,20 +44,11 @@ export function ProfileTabs({
   photos,
   documents,
   experience,
-  stats: initialStats,
+  stats,
+  onStatsChange,
   defaultTab = "info",
 }: ProfileTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
-  const [currentStats, setCurrentStats] = useState(initialStats);
-
-  // Called by child tabs after mutations that affect stats
-  const handleStatsChange = useCallback(() => {
-    // Trigger a soft refresh to re-read stats from server via revalidation
-    // Children call computeAndSaveProfileStats() which revalidates the path,
-    // but since we're client-side we pass the new stats optimistically via this callback
-    // In practice, a full page refresh or router.refresh() would show latest stats.
-    // For now, this is a no-op trigger that lets children signal readiness.
-  }, []);
 
   return (
     <div>
@@ -95,23 +87,23 @@ export function ProfileTabs({
         <InfoTab
           profile={profile}
           workerDetails={workerDetails}
-          onStatsChange={handleStatsChange}
+          onStatsChange={onStatsChange}
         />
       )}
       {activeTab === "photos" && (
-        <PhotosTab initialPhotos={photos} onStatsChange={handleStatsChange} />
+        <PhotosTab initialPhotos={photos} onStatsChange={onStatsChange} />
       )}
       {activeTab === "documents" && (
-        <DocumentsTab initialDocuments={documents} onStatsChange={handleStatsChange} />
+        <DocumentsTab initialDocuments={documents} onStatsChange={onStatsChange} />
       )}
       {activeTab === "experience" && (
-        <ExperienceTab initialExperience={experience} onStatsChange={handleStatsChange} />
+        <ExperienceTab initialExperience={experience} onStatsChange={onStatsChange} />
       )}
       {activeTab === "verification" && (
         <VerificationTab
           profile={profile}
           workerDetails={workerDetails}
-          stats={currentStats}
+          stats={stats}
           photos={photos}
           documents={documents}
           experience={experience}

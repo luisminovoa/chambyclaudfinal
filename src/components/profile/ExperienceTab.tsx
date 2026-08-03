@@ -3,14 +3,15 @@
 import { useState, useTransition } from "react";
 import { Plus, Briefcase } from "lucide-react";
 import { useToast } from "@/components/ui/Toaster";
-import { addWorkerExperience, computeAndSaveProfileStats } from "@/lib/actions/profile";
+import { addWorkerExperience } from "@/lib/actions/profile";
+import { refreshProfileStats } from "@/lib/profile-stats";
 import { ExperienceForm } from "@/components/profile/ExperienceForm";
 import { ExperienceCard } from "@/components/profile/ExperienceCard";
-import type { WorkerExperience } from "@/lib/types";
+import type { WorkerExperience, ProfileStats } from "@/lib/types";
 
 interface ExperienceTabProps {
   initialExperience: WorkerExperience[];
-  onStatsChange: () => void;
+  onStatsChange: (stats: ProfileStats) => void;
 }
 
 export function ExperienceTab({ initialExperience, onStatsChange }: ExperienceTabProps) {
@@ -32,7 +33,7 @@ export function ExperienceTab({ initialExperience, onStatsChange }: ExperienceTa
           })
         );
         setIsAdding(false);
-        computeAndSaveProfileStats().then(onStatsChange);
+        await refreshProfileStats(onStatsChange);
         toast("Experiencia añadida", "success");
       }
     });
@@ -44,7 +45,6 @@ export function ExperienceTab({ initialExperience, onStatsChange }: ExperienceTa
 
   function handleDeleted(id: string) {
     setExperience((prev) => prev.filter((e) => e.id !== id));
-    computeAndSaveProfileStats().then(onStatsChange);
   }
 
   return (

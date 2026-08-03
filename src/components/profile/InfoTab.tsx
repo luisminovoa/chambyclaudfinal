@@ -5,12 +5,9 @@ import { X } from "lucide-react";
 import { useToast } from "@/components/ui/Toaster";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
-import {
-  updateProfile,
-  upsertWorkerProfileDetails,
-  computeAndSaveProfileStats,
-} from "@/lib/actions/profile";
-import type { Profile, WorkerProfileDetails, AvailabilityStatus } from "@/lib/types";
+import { updateProfile, upsertWorkerProfileDetails } from "@/lib/actions/profile";
+import { refreshProfileStats } from "@/lib/profile-stats";
+import type { Profile, WorkerProfileDetails, AvailabilityStatus, ProfileStats } from "@/lib/types";
 
 const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
   { value: "inmediata", label: "Disponibilidad inmediata" },
@@ -41,7 +38,7 @@ const CATEGORIES = [
 interface InfoTabProps {
   profile: Profile;
   workerDetails: WorkerProfileDetails | null;
-  onStatsChange: () => void;
+  onStatsChange: (stats: ProfileStats) => void;
 }
 
 export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps) {
@@ -132,8 +129,7 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
       } else if ("error" in detailsResult) {
         toast(detailsResult.error, "error");
       } else {
-        await computeAndSaveProfileStats();
-        onStatsChange();
+        await refreshProfileStats(onStatsChange);
         toast("Perfil actualizado correctamente", "success");
       }
     });

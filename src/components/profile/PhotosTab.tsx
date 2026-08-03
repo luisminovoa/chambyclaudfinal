@@ -10,9 +10,9 @@ import {
   deleteProfilePhoto,
   setPrimaryPhoto,
   reorderPhotos,
-  computeAndSaveProfileStats,
 } from "@/lib/actions/profile";
-import type { ProfilePhoto } from "@/lib/types";
+import { refreshProfileStats } from "@/lib/profile-stats";
+import type { ProfilePhoto, ProfileStats } from "@/lib/types";
 
 async function compressImage(file: File, maxPx = 1200): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -61,7 +61,7 @@ function uploadWithProgress(
 
 interface PhotosTabProps {
   initialPhotos: ProfilePhoto[];
-  onStatsChange: () => void;
+  onStatsChange: (stats: ProfileStats) => void;
 }
 
 export function PhotosTab({ initialPhotos, onStatsChange }: PhotosTabProps) {
@@ -119,7 +119,7 @@ export function PhotosTab({ initialPhotos, onStatsChange }: PhotosTabProps) {
         isPrimary ? "Foto principal subida exitosamente" : "Foto añadida",
         "success"
       );
-      computeAndSaveProfileStats().then(onStatsChange);
+      await refreshProfileStats(onStatsChange);
     } catch {
       toast("Error al subir la foto. Inténtalo de nuevo.", "error");
     } finally {
@@ -165,7 +165,7 @@ export function PhotosTab({ initialPhotos, onStatsChange }: PhotosTabProps) {
       } else {
         setPhotos((prev) => prev.map((p) => ({ ...p, is_primary: p.id === photoId })));
         toast("Foto principal actualizada", "success");
-        computeAndSaveProfileStats().then(onStatsChange);
+        await refreshProfileStats(onStatsChange);
       }
     });
   }
@@ -179,7 +179,7 @@ export function PhotosTab({ initialPhotos, onStatsChange }: PhotosTabProps) {
         setPhotos((prev) => prev.filter((p) => p.id !== photoId));
         setConfirmDeleteId(null);
         toast("Foto eliminada", "success");
-        computeAndSaveProfileStats().then(onStatsChange);
+        await refreshProfileStats(onStatsChange);
       }
     });
   }
