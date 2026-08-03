@@ -2,7 +2,13 @@
 
 import { ShieldCheck, Building2, Award, Star, CheckCircle2, Circle } from "lucide-react";
 import { ProfileCompletionBar } from "@/components/profile/ProfileCompletionBar";
-import type { Profile, ProfileStats, ProfilePhoto, VerificationDocument } from "@/lib/types";
+import type {
+  Profile,
+  ProfileStats,
+  ProfilePhoto,
+  VerificationDocument,
+  WorkerProfileDetails,
+} from "@/lib/types";
 
 const BADGE_CONFIG = {
   identity_verified: {
@@ -41,6 +47,7 @@ const BADGE_CONFIG = {
 
 interface VerificationTabProps {
   profile: Profile;
+  workerDetails: WorkerProfileDetails | null;
   stats: ProfileStats | null;
   photos: ProfilePhoto[];
   documents: VerificationDocument[];
@@ -48,6 +55,7 @@ interface VerificationTabProps {
 
 export function VerificationTab({
   profile,
+  workerDetails,
   stats,
   photos,
   documents,
@@ -75,14 +83,19 @@ export function VerificationTab({
         d.document_type === "antecedentes_penales") &&
       d.status === "verified"
   );
+  const hasExtendedInfo =
+    !!workerDetails?.professional_title &&
+    workerDetails.years_experience != null &&
+    (workerDetails.hourly_rate != null || workerDetails.daily_rate != null);
 
   const completionItems = [
     { label: "Foto principal", points: 10, done: hasPrimary },
-    { label: "5 o más fotos", points: 15, done: has5Photos },
+    { label: "5 o más fotos", points: 10, done: has5Photos },
     { label: "Descripción (bio)", points: 10, done: hasBio },
     { label: "Especialidad", points: 10, done: hasCategory },
     { label: "3+ habilidades", points: 10, done: hasSkills },
-    { label: "DNI verificado", points: 15, done: hasDni },
+    { label: "Información profesional completa", points: 10, done: hasExtendedInfo },
+    { label: "DNI verificado", points: 10, done: hasDni },
     { label: "RUC verificado", points: 10, done: hasRuc },
     { label: "Certificado verificado", points: 10, done: hasCert },
     { label: "Antecedentes verificados", points: 10, done: hasAntec },

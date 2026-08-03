@@ -7,7 +7,16 @@ import type {
   VerificationDocument,
   DocumentType,
   ProfileStats,
+  WorkerProfileDetails,
+  AvailabilityStatus,
 } from "@/lib/types";
+
+const AVAILABILITY_VALUES: AvailabilityStatus[] = [
+  "inmediata",
+  "una_semana",
+  "un_mes",
+  "no_disponible",
+];
 
 type Ok = { success: true };
 type Err = { error: string };
@@ -367,10 +376,15 @@ export async function computeAndSaveProfileStats(): Promise<
   const { supabase, user } = await getAuth();
   if (!user) return { error: "No autenticado." };
 
-  const [profileRes, photosRes, docsRes] = await Promise.all([
+  const [profileRes, photosRes, docsRes, detailsRes] = await Promise.all([
     supabase.from("profiles").select("bio,category,skills").eq("id", user.id).single(),
     supabase.from("profile_photos").select("is_primary").eq("profile_id", user.id),
     supabase.from("verification_documents").select("document_type,status").eq("profile_id", user.id),
+    supabase
+      .from("worker_profile_details")
+      .select("professional_title,years_experience,hourly_rate,daily_rate")
+      .eq("profile_id", user.id)
+      .maybeSingle(),
   ]);
 
   const profile = profileRes.data as {
@@ -383,6 +397,12 @@ export async function computeAndSaveProfileStats(): Promise<
     document_type: DocumentType;
     status: string;
   }[];
+  const details = detailsRes.data as {
+    professional_title: string | null;
+    years_experience: number | null;
+    hourly_rate: number | null;
+    daily_rate: number | null;
+  } | null;
 
   let score = 0;
   const badges: string[] = [];
@@ -390,8 +410,8 @@ export async function computeAndSaveProfileStats(): Promise<
   // Foto principal = 10%
   if (photos.some((p) => p.is_primary)) score += 10;
 
-  // 5 fotos = 15%
-  if (photos.length >= 5) score += 15;
+  // 5 fotos = 10%
+  if (photos.length >= 5) score += 10;
 
   // Descripción = 10%
   if (profile?.bio) score += 10;
@@ -402,12 +422,20 @@ export async function computeAndSaveProfileStats(): Promise<
   // Habilidades / Experiencia = 10% (3+ skills)
   if ((profile?.skills ?? []).length >= 3) score += 10;
 
-  // DNI verificado = 15%
+  // Información profesional ampliada = 10% (título + años de experiencia
+  // + al menos una tarifa cargada)
+  const hasExtendedInfo =
+    !!details?.professional_title &&
+    details.years_experience != null &&
+    (details.hourly_rate != null || details.daily_rate != null);
+  if (hasExtendedInfo) score += 10;
+
+  // DNI verificado = 10%
   const dniOk = docs.some(
     (d) => d.document_type === "dni" && d.status === "verified"
   );
   if (dniOk) {
-    score += 15;
+    score += 10;
     badges.push("identity_verified");
   }
 
@@ -472,4 +500,105 @@ export async function getProfileStats(): Promise<ProfileStats | null> {
     .single();
 
   return (data as ProfileStats) ?? null;
+}
+
+// ── Worker profile details (Fase 1) ───────────────────────────────────────────
+
+export async function getWorkerProfileDetails(): Promise<WorkerProfileDetails | null> {
+  const { supabase, user } = await getAuth();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from("worker_profile_details")
+    .select("*")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  return (data as WorkerProfileDetails) ?? null;
+}
+
+export async function upsertWorkerProfileDetails(formData: FormData): Promise<ActionResult> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "No autenticado." };
+
+  const professional_title = (formData.get("professional_title") as string)?.trim() || null;
+  const district = (formData.get("district") as string)?.trim() || null;
+  const address = (formData.get("address") as string)?.trim() || null;
+  const birth_date = (formData.get("birth_date") as string) || null;
+  const whatsapp = (formData.get("whatsapp") as string)?.trim() || null;
+  const availabilityRaw = (formData.get("availability") as string) || "inmediata";
+  const languagesRaw = formData.get("languages") as string | null;
+
+  if (professional_title && professional_title.length > 100) {
+    return { error: "El título profesional no puede superar 100 caracteres." };
+  }
+  if (!AVAILABILITY_VALUES.includes(availabilityRaw as AvailabilityStatus)) {
+    return { error: "Disponibilidad inválida." };
+  }
+  if (birth_date && new Date(birth_date) > new Date()) {
+    return { error: "La fecha de nacimiento no puede ser futura." };
+  }
+
+  const hourly_rate = parsePositiveNumber(formData.get("hourly_rate"));
+  const daily_rate = parsePositiveNumber(formData.get("daily_rate"));
+  if (hourly_rate === "invalid" || daily_rate === "invalid") {
+    return { error: "Las tarifas deben ser números positivos." };
+  }
+
+  const years_experience = parseBoundedInt(formData.get("years_experience"), 0, 60);
+  if (years_experience === "invalid") {
+    return { error: "Los años de experiencia deben estar entre 0 y 60." };
+  }
+
+  const work_radius_km = parseBoundedInt(formData.get("work_radius_km"), 0, 500);
+  if (work_radius_km === "invalid") {
+    return { error: "El radio de trabajo debe estar entre 0 y 500 km." };
+  }
+
+  const languages = languagesRaw
+    ? languagesRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 10)
+    : [];
+
+  const { error } = await supabase.from("worker_profile_details").upsert({
+    profile_id: user.id,
+    professional_title,
+    district,
+    address,
+    birth_date,
+    whatsapp,
+    availability: availabilityRaw as AvailabilityStatus,
+    hourly_rate,
+    daily_rate,
+    years_experience,
+    languages,
+    work_radius_km,
+  });
+
+  if (error) return { error: "Error al guardar la información profesional." };
+
+  revalidatePath("/dashboard/worker/profile");
+  revalidatePath("/dashboard/worker");
+  return { success: true };
+}
+
+function parsePositiveNumber(value: FormDataEntryValue | null): number | null | "invalid" {
+  if (!value || value === "") return null;
+  const n = Number(value);
+  if (Number.isNaN(n) || n < 0) return "invalid";
+  return n;
+}
+
+function parseBoundedInt(
+  value: FormDataEntryValue | null,
+  min: number,
+  max: number
+): number | null | "invalid" {
+  if (!value || value === "") return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < min || n > max) return "invalid";
+  return n;
 }

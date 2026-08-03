@@ -247,6 +247,26 @@ export interface ProfileStats {
   updated_at: string;
 }
 
+// Información profesional ampliada (Fase 1)
+export type AvailabilityStatus = "inmediata" | "una_semana" | "un_mes" | "no_disponible";
+
+export interface WorkerProfileDetails {
+  profile_id: string;
+  professional_title: string | null;
+  district: string | null;
+  address: string | null;
+  birth_date: string | null;
+  whatsapp: string | null;
+  availability: AvailabilityStatus;
+  hourly_rate: number | null;
+  daily_rate: number | null;
+  years_experience: number | null;
+  languages: string[];
+  work_radius_km: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /**
  * Definición mínima de la base de datos para tipar el cliente de Supabase.
  * Cada tabla/vista incluye `Relationships: []` porque supabase-js exige esa
@@ -391,6 +411,12 @@ export type Database = {
         Row: ProfileStats;
         Insert: Partial<ProfileStats> & { profile_id: string };
         Update: Partial<ProfileStats>;
+        Relationships: [];
+      };
+      worker_profile_details: {
+        Row: WorkerProfileDetails;
+        Insert: Partial<WorkerProfileDetails> & { profile_id: string };
+        Update: Partial<WorkerProfileDetails>;
         Relationships: [];
       };
     };

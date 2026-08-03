@@ -10,9 +10,15 @@ import {
   getProfilePhotos,
   getVerificationDocuments,
   getProfileStats,
+  getWorkerProfileDetails,
   computeAndSaveProfileStats,
 } from "@/lib/actions/profile";
-import type { ProfilePhoto, VerificationDocument, ProfileStats } from "@/lib/types";
+import type {
+  ProfilePhoto,
+  VerificationDocument,
+  ProfileStats,
+  WorkerProfileDetails,
+} from "@/lib/types";
 
 export default async function WorkerProfilePage() {
   const { user, profile } = await getCurrentUserAndProfile();
@@ -21,10 +27,11 @@ export default async function WorkerProfilePage() {
   // (userRoles) es parte de V4, pendiente y no integrado en esta rama.
   if (!profile || profile.role !== "worker") redirect("/dashboard");
 
-  const [photos, documents, statsRaw] = await Promise.all([
+  const [photos, documents, statsRaw, workerDetails] = await Promise.all([
     getProfilePhotos(),
     getVerificationDocuments(),
     getProfileStats(),
+    getWorkerProfileDetails(),
   ]);
 
   // Compute stats on first visit if they don't exist yet
@@ -94,6 +101,7 @@ export default async function WorkerProfilePage() {
       <Reveal delay={0.1}>
         <ProfileTabs
           profile={profile}
+          workerDetails={workerDetails as WorkerProfileDetails | null}
           photos={photos as ProfilePhoto[]}
           documents={documents as VerificationDocument[]}
           stats={stats}

@@ -12,6 +12,7 @@ import type {
   ProfilePhoto,
   VerificationDocument,
   ProfileStats,
+  WorkerProfileDetails,
 } from "@/lib/types";
 
 type TabId = "info" | "photos" | "documents" | "verification";
@@ -25,6 +26,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 
 interface ProfileTabsProps {
   profile: Profile;
+  workerDetails: WorkerProfileDetails | null;
   photos: ProfilePhoto[];
   documents: VerificationDocument[];
   stats: ProfileStats | null;
@@ -33,6 +35,7 @@ interface ProfileTabsProps {
 
 export function ProfileTabs({
   profile,
+  workerDetails,
   photos,
   documents,
   stats: initialStats,
@@ -84,7 +87,11 @@ export function ProfileTabs({
 
       {/* Tab content */}
       {activeTab === "info" && (
-        <InfoTab profile={profile} onStatsChange={handleStatsChange} />
+        <InfoTab
+          profile={profile}
+          workerDetails={workerDetails}
+          onStatsChange={handleStatsChange}
+        />
       )}
       {activeTab === "photos" && (
         <PhotosTab initialPhotos={photos} onStatsChange={handleStatsChange} />
@@ -95,6 +102,7 @@ export function ProfileTabs({
       {activeTab === "verification" && (
         <VerificationTab
           profile={profile}
+          workerDetails={workerDetails}
           stats={currentStats}
           photos={photos}
           documents={documents}
