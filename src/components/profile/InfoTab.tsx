@@ -1,12 +1,10 @@
 "use client";
 
-import { useState, useTransition, KeyboardEvent } from "react";
-import { X } from "lucide-react";
+import { useState, useTransition } from "react";
 import { useToast } from "@/components/ui/Toaster";
-import { Badge } from "@/components/ui/Badge";
-import { cn } from "@/lib/utils";
 import { updateProfile, upsertWorkerProfileDetails } from "@/lib/actions/profile";
 import { refreshProfileStats } from "@/lib/profile-stats";
+import { SkillsSelector } from "@/components/profile/SkillsSelector";
 import type { Profile, WorkerProfileDetails, AvailabilityStatus, ProfileStats } from "@/lib/types";
 
 const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
@@ -50,7 +48,6 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
   const [city, setCity] = useState(profile.city ?? "");
   const [category, setCategory] = useState(profile.category ?? "");
   const [skills, setSkills] = useState<string[]>(profile.skills ?? []);
-  const [skillInput, setSkillInput] = useState("");
 
   // Información profesional ampliada (Fase 1)
   const [professionalTitle, setProfessionalTitle] = useState(
@@ -76,26 +73,6 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
   const [workRadiusKm, setWorkRadiusKm] = useState(
     workerDetails?.work_radius_km != null ? String(workerDetails.work_radius_km) : ""
   );
-
-  function addSkill(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed || skills.includes(trimmed) || skills.length >= 15) return;
-    setSkills((prev) => [...prev, trimmed]);
-    setSkillInput("");
-  }
-
-  function handleSkillKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addSkill(skillInput);
-    } else if (e.key === "Backspace" && skillInput === "" && skills.length > 0) {
-      setSkills((prev) => prev.slice(0, -1));
-    }
-  }
-
-  function removeSkill(skill: string) {
-    setSkills((prev) => prev.filter((s) => s !== skill));
-  }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -387,46 +364,9 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
       <div className="card p-5 sm:p-6">
         <h3 className="mb-1 text-sm font-bold text-ink">Habilidades</h3>
         <p className="mb-4 text-xs text-ink-muted">
-          Escribe una habilidad y presiona Enter para añadirla. Máximo 15.
+          Busca en el catálogo o escribe una habilidad y presiona Enter para añadirla.
         </p>
-
-        {/* Tags display */}
-        {skills.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {skills.map((skill) => (
-              <span
-                key={skill}
-                className="flex items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-semibold text-primary-700"
-              >
-                {skill}
-                <button
-                  type="button"
-                  onClick={() => removeSkill(skill)}
-                  className="rounded-full hover:text-danger-500"
-                  aria-label={`Eliminar ${skill}`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        <input
-          type="text"
-          className={cn("input w-full", skills.length >= 15 && "opacity-50")}
-          placeholder={
-            skills.length >= 15 ? "Límite alcanzado" : "Ej: Soldadura, Excel, Manejo…"
-          }
-          value={skillInput}
-          onChange={(e) => setSkillInput(e.target.value)}
-          onKeyDown={handleSkillKeyDown}
-          onBlur={() => skillInput && addSkill(skillInput)}
-          disabled={skills.length >= 15}
-        />
-        <p className="mt-1 text-xs text-ink-muted">
-          {skills.length}/15 habilidades · 3 habilidades completan tu sección de experiencia
-        </p>
+        <SkillsSelector value={skills} onChange={setSkills} />
       </div>
 
       <div className="flex justify-end">
