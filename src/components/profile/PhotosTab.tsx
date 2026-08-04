@@ -12,6 +12,7 @@ import {
   reorderPhotos,
 } from "@/lib/actions/profile";
 import { refreshProfileStats } from "@/lib/profile-stats";
+import { uploadWithProgress } from "@/lib/upload-with-progress";
 import type { ProfilePhoto, ProfileStats } from "@/lib/types";
 
 async function compressImage(file: File, maxPx = 1200): Promise<Blob> {
@@ -37,25 +38,6 @@ async function compressImage(file: File, maxPx = 1200): Promise<Blob> {
     };
     img.onerror = () => reject(new Error("load failed"));
     img.src = url;
-  });
-}
-
-function uploadWithProgress(
-  url: string,
-  blob: Blob,
-  onProgress: (pct: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () =>
-      xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`));
-    xhr.onerror = () => reject(new Error("network error"));
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", "image/jpeg");
-    xhr.send(blob);
   });
 }
 
@@ -100,7 +82,7 @@ export function PhotosTab({ initialPhotos, onStatsChange }: PhotosTabProps) {
         return;
       }
 
-      await uploadWithProgress(urlRes.uploadUrl!, compressed, setUploadProgress);
+      await uploadWithProgress(urlRes.uploadUrl!, compressed, "image/jpeg", setUploadProgress);
 
       const isPrimary = photos.length === 0;
       const saveRes = await saveProfilePhoto({

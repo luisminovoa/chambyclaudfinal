@@ -115,6 +115,14 @@ export async function saveProfilePhoto(params: {
   const { supabase, user } = await getAuth();
   if (!user) return { error: "No autenticado." };
 
+  // storagePath debe estar dentro de la propia carpeta del usuario —
+  // sin esto, un llamante que se salte createPhotoUploadUrl() podría
+  // registrar una fila propia apuntando al archivo de otro usuario y
+  // luego borrarlo vía deleteProfilePhoto() (cliente admin de Storage).
+  if (!params.storagePath.startsWith(`${user.id}/`)) {
+    return { error: "Ruta de archivo inválida." };
+  }
+
   const { data: existing } = await supabase
     .from("profile_photos")
     .select("display_order")
@@ -298,6 +306,12 @@ export async function saveVerificationDocument(params: {
   const { supabase, user } = await getAuth();
   if (!user) return { error: "No autenticado." };
 
+  // Mismo resguardo que saveProfilePhoto(): storagePath debe estar
+  // dentro de la propia carpeta del usuario.
+  if (!params.storagePath.startsWith(`${user.id}/`)) {
+    return { error: "Ruta de archivo inválida." };
+  }
+
   const { data, error } = await supabase
     .from("verification_documents")
     .insert({
@@ -479,7 +493,14 @@ export async function computeAndSaveProfileStats(): Promise<
 
   const trust_score = Math.min(100, score + badges.length * 3);
 
-  const { data, error } = await supabase
+  // profile_stats ya no acepta INSERT/UPDATE directo de `authenticated`
+  // (0013_harden_profile_module_rls.sql) — badges como "identity_verified"
+  // representan una verificación calculada por este mismo cálculo, no
+  // algo que el usuario deba poder escribir directamente. Se usa el
+  // cliente admin únicamente para este upsert; el resto de la función
+  // sigue leyendo con el cliente normal, ya acotado por user.id.
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from("profile_stats")
     .upsert({
       profile_id: user.id,

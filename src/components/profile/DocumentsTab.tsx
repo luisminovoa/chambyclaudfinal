@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/ui/Toaster";
 import { Badge } from "@/components/ui/Badge";
-import { cn } from "@/lib/utils";
 import {
   createDocumentUploadUrl,
   saveVerificationDocument,
@@ -21,6 +20,7 @@ import {
   getDocumentDownloadUrl,
 } from "@/lib/actions/profile";
 import { refreshProfileStats } from "@/lib/profile-stats";
+import { uploadWithProgress } from "@/lib/upload-with-progress";
 import type { VerificationDocument, DocumentType, ProfileStats } from "@/lib/types";
 
 const DOCUMENT_TYPES: { value: DocumentType; label: string }[] = [
@@ -61,26 +61,6 @@ function statusLabel(status: string) {
 
 function typeLabel(type: string) {
   return DOCUMENT_TYPES.find((d) => d.value === type)?.label ?? type;
-}
-
-function uploadWithProgress(
-  url: string,
-  blob: Blob | File,
-  contentType: string,
-  onProgress: (pct: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () =>
-      xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`));
-    xhr.onerror = () => reject(new Error("network error"));
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", contentType);
-    xhr.send(blob);
-  });
 }
 
 interface DocumentsTabProps {

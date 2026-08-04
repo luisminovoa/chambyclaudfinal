@@ -2,16 +2,11 @@
 
 import { Progress } from "@/components/ui/Progress";
 import { cn } from "@/lib/utils";
-
-interface CheckItem {
-  label: string;
-  points: number;
-  done: boolean;
-}
+import type { CompletionItem } from "@/lib/profile-completion";
 
 interface ProfileCompletionBarProps {
   percentage: number;
-  items: CheckItem[];
+  items: CompletionItem[];
 }
 
 export function ProfileCompletionBar({
