@@ -205,6 +205,82 @@ export interface ApplicationWithProfiles extends JobApplication {
   job: Job | null;
 }
 
+// Perfil profesional del trabajador (Fase 0)
+export type DocumentType =
+  | "dni"
+  | "ruc"
+  | "antecedentes_policiales"
+  | "antecedentes_penales"
+  | "certificado"
+  | "licencia"
+  | "carnet"
+  | "otro";
+
+export type DocumentStatus = "pending" | "verified" | "rejected";
+
+export interface ProfilePhoto {
+  id: string;
+  profile_id: string;
+  storage_path: string;
+  public_url: string;
+  is_primary: boolean;
+  display_order: number;
+  created_at: string;
+}
+
+export interface VerificationDocument {
+  id: string;
+  profile_id: string;
+  document_type: DocumentType;
+  storage_path: string;
+  file_name: string;
+  status: DocumentStatus;
+  uploaded_at: string;
+  verified_at: string | null;
+}
+
+export interface ProfileStats {
+  profile_id: string;
+  completion_percentage: number;
+  trust_score: number;
+  badges: string[];
+  updated_at: string;
+}
+
+// Información profesional ampliada (Fase 1)
+export type AvailabilityStatus = "inmediata" | "una_semana" | "un_mes" | "no_disponible";
+
+export interface WorkerProfileDetails {
+  profile_id: string;
+  professional_title: string | null;
+  district: string | null;
+  address: string | null;
+  birth_date: string | null;
+  whatsapp: string | null;
+  availability: AvailabilityStatus;
+  hourly_rate: number | null;
+  daily_rate: number | null;
+  years_experience: number | null;
+  languages: string[];
+  work_radius_km: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Experiencia laboral (Fase 2)
+export interface WorkerExperience {
+  id: string;
+  profile_id: string;
+  company: string;
+  job_title: string;
+  start_date: string;
+  end_date: string | null;
+  is_current: boolean;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /**
  * Definición mínima de la base de datos para tipar el cliente de Supabase.
  * Cada tabla/vista incluye `Relationships: []` porque supabase-js exige esa
@@ -322,6 +398,50 @@ export type Database = {
         Row: BugReport;
         Insert: Partial<BugReport> & { route: string; description: string };
         Update: Partial<BugReport>;
+        Relationships: [];
+      };
+      profile_photos: {
+        Row: ProfilePhoto;
+        Insert: Partial<ProfilePhoto> & {
+          profile_id: string;
+          storage_path: string;
+          public_url: string;
+        };
+        Update: Partial<ProfilePhoto>;
+        Relationships: [];
+      };
+      verification_documents: {
+        Row: VerificationDocument;
+        Insert: Partial<VerificationDocument> & {
+          profile_id: string;
+          document_type: DocumentType;
+          storage_path: string;
+          file_name: string;
+        };
+        Update: Partial<VerificationDocument>;
+        Relationships: [];
+      };
+      profile_stats: {
+        Row: ProfileStats;
+        Insert: Partial<ProfileStats> & { profile_id: string };
+        Update: Partial<ProfileStats>;
+        Relationships: [];
+      };
+      worker_profile_details: {
+        Row: WorkerProfileDetails;
+        Insert: Partial<WorkerProfileDetails> & { profile_id: string };
+        Update: Partial<WorkerProfileDetails>;
+        Relationships: [];
+      };
+      worker_experience: {
+        Row: WorkerExperience;
+        Insert: Partial<WorkerExperience> & {
+          profile_id: string;
+          company: string;
+          job_title: string;
+          start_date: string;
+        };
+        Update: Partial<WorkerExperience>;
         Relationships: [];
       };
     };

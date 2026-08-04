@@ -16,6 +16,15 @@ import { StatCard } from "@/components/ui/StatCard";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { DashboardProfileCard } from "@/components/profile/DashboardProfileCard";
+import {
+  getProfileStats,
+  getProfilePhotos,
+  getVerificationDocuments,
+  getWorkerProfileDetails,
+  getWorkerExperience,
+  computeAndSaveProfileStats,
+} from "@/lib/actions/profile";
 import {
   formatCurrency,
   payTypeLabel,
@@ -23,7 +32,16 @@ import {
   applicationStatusLabel,
   formatDate,
 } from "@/lib/utils";
-import type { ApplicationWithProfiles, RatingSummary, Rating } from "@/lib/types";
+import type {
+  ApplicationWithProfiles,
+  RatingSummary,
+  Rating,
+  ProfileStats,
+  ProfilePhoto,
+  VerificationDocument,
+  WorkerProfileDetails,
+  WorkerExperience,
+} from "@/lib/types";
 
 export default async function WorkerDashboardPage() {
   const supabase = createClient();
@@ -33,11 +51,33 @@ export default async function WorkerDashboardPage() {
   if (profile && profile.role === "employer") redirect("/dashboard/employer");
   if (profile && profile.role === "admin") redirect("/admin");
 
-  const { data: applications } = await supabase
-    .from("job_applications")
-    .select("*, job:jobs(*)")
-    .eq("worker_id", user.id)
-    .order("created_at", { ascending: false });
+  const [
+    { data: applications },
+    profilePhotos,
+    verificationDocuments,
+    profileStatsRaw,
+    workerDetails,
+    workerExperience,
+  ] = await Promise.all([
+    supabase
+      .from("job_applications")
+      .select("*, job:jobs(*)")
+      .eq("worker_id", user.id)
+      .order("created_at", { ascending: false }),
+    getProfilePhotos(),
+    getVerificationDocuments(),
+    getProfileStats(),
+    getWorkerProfileDetails(),
+    getWorkerExperience(),
+  ]);
+
+  // Igual que en /dashboard/worker/profile: calcula stats en la primera
+  // visita si todavía no existen (perfil recién creado).
+  let profileStats: ProfileStats | null = profileStatsRaw;
+  if (!profileStats) {
+    const res = await computeAndSaveProfileStats();
+    profileStats = "stats" in res ? (res.stats ?? null) : null;
+  }
 
   const typedApps = (applications as unknown as ApplicationWithProfiles[]) ?? [];
   const activeApps = typedApps.filter(
@@ -66,6 +106,9 @@ export default async function WorkerDashboardPage() {
     .eq("rated_id", user.id)
     .order("created_at", { ascending: false })
     .limit(5);
+
+  const primaryPhoto = (profilePhotos as ProfilePhoto[]).find((p) => p.is_primary);
+  const avatarSrc = primaryPhoto?.public_url ?? profile?.avatar_url ?? null;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
@@ -221,37 +264,20 @@ export default async function WorkerDashboardPage() {
             </section>
           </Reveal>
 
-          <Reveal delay={0.15}>
-            <section className="card p-6" aria-labelledby="mi-perfil">
-              <h2 id="mi-perfil" className="text-base font-bold text-ink">
-                Mi perfil
-              </h2>
-              <dl className="mt-3 space-y-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <dt className="text-ink-muted">Ciudad</dt>
-                  <dd className="font-semibold text-ink">{profile?.city ?? "No especificada"}</dd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <dt className="text-ink-muted">Puesto principal</dt>
-                  <dd className="font-semibold text-ink">{profile?.category ?? "No especificado"}</dd>
-                </div>
-              </dl>
-              {profile?.skills && profile.skills.length > 0 && (
-                <div className="mt-4 border-t border-slate-100 pt-4">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                    Habilidades
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {profile.skills.map((skill) => (
-                      <Badge key={skill} tone="primary">
-                        {skill}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
-          </Reveal>
+          {profile && (
+            <Reveal delay={0.15}>
+              <DashboardProfileCard
+                profile={profile}
+                avatarSrc={avatarSrc}
+                stats={profileStats}
+                photos={profilePhotos as ProfilePhoto[]}
+                documents={verificationDocuments as VerificationDocument[]}
+                workerDetails={workerDetails as WorkerProfileDetails | null}
+                experience={workerExperience as WorkerExperience[]}
+                ratingSummary={ratingSummary}
+              />
+            </Reveal>
+          )}
         </aside>
       </div>
     </div>
