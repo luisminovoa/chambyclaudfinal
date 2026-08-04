@@ -6,6 +6,89 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [v0.9.0-beta] — 2026-08-04
+
+### Fase 5 — Perfil Profesional del Trabajador
+
+Trabajado y verificado por fases (0 a 4), cada una con `tsc`/`lint`/`build` limpios
+antes de avanzar, más una auditoría técnica final antes de abrir el PR
+([#16](https://github.com/luisminovoa/chambyclaudfinal/pull/16), mergeado en `9789778`).
+Reutiliza al máximo lo ya implementado y auditado en la rama
+`claude/fix-rls-role-escalation-v1v4` (PR #15, no mergeada por traer funcionalidad
+multi-rol no aprobada) — solo se portó el módulo de perfil, adaptado al modelo de
+rol único (`profile.role`) de esta rama.
+
+#### Añadido
+
+**Base de datos** (`0010_professional_profile.sql` a `0013_harden_profile_module_rls.sql`)
+- Tabla `profile_photos` — hasta 10 fotos por trabajador; índice único parcial que garantiza una sola foto marcada `is_primary`
+- Tabla `verification_documents` — DNI, RUC, antecedentes policiales/penales, certificados, licencias, carnet, otro; estado `pending` / `verified` / `rejected`
+- Tabla `profile_stats` — `completion_percentage`, `trust_score`, `badges[]` (cache calculado por `computeAndSaveProfileStats()`)
+- Tabla `worker_profile_details` — 1:1 con `profiles`: título profesional, distrito, dirección, fecha de nacimiento, WhatsApp, disponibilidad, tarifa por hora/día, años de experiencia, idiomas, radio de trabajo
+- Tabla `worker_experience` — experiencias laborales múltiples (1:N); constraints de fecha (`end_date >= start_date`, `is_current` implica `end_date` nulo)
+- RLS completo en las 5 tablas (propietario, con bypass admin donde aplica)
+- Buckets de Storage: `profile-images` (público, 5 MB, jpeg/png/webp) y `verification-documents` (privado, 10 MB, + PDF), con políticas RLS de `storage.objects` acotadas por carpeta de usuario
+- Índices: `idx_profile_photos_profile`, `idx_profile_photos_primary` (único parcial), `idx_verification_docs_profile`, `idx_worker_experience_profile`
+
+**Fotos** (`PhotosTab`)
+- Subida vía signed upload URL de Supabase Storage + cliente admin
+- Compresión automática en el navegador (máx. 1200 px, JPEG calidad 0.85) antes de subir
+- Drag & drop para reordenar, marcar como principal, eliminar con confirmación inline
+- Contador X/10, barra de progreso de subida
+
+**Documentos** (`DocumentsTab`)
+- Subida de DNI/RUC/antecedentes/certificados/licencias/carnet/otro (JPG/PNG/WebP/PDF, máx. 10 MB)
+- Badge de estado (pendiente / verificado / rechazado); descarga vía signed URL de 1 hora
+- Estructura lista para verificación por administradores (policy `docs_update_admin`)
+
+**Experiencia laboral** (`ExperienceTab` / `ExperienceCard` / `ExperienceForm`)
+- CRUD completo: agregar, editar (inline) y eliminar
+- Empresa, cargo, fecha inicio/fin, checkbox "trabajo actual", descripción
+- Validación de fechas server-side (inicio no futuro, fin ≥ inicio)
+
+**Habilidades** (`SkillsSelector`)
+- Autocompletado sobre un catálogo curado en código (`src/lib/skills-catalog.ts`, ~45 habilidades) — sin tabla nueva, decisión explícita para esta etapa (ver Deuda técnica)
+- Sigue permitiendo texto libre; `profiles.skills` sin cambios de esquema, perfiles existentes no se ven afectados
+
+**Página de edición** (`/dashboard/worker/profile`)
+- 5 pestañas: Información, Fotos, Documentos, Experiencia, Verificación
+- Barra de completitud (`ProfileCompletionBar`) que se actualiza en vivo tras cualquier acción, sin recargar la página
+- Insignias de confianza: Identidad verificada, RUC activo, Profesional certificado, Perfil destacado
+
+**Dashboard** (`DashboardProfileCard`, reemplaza la card "Mi perfil" anterior)
+- Avatar, nombre, puesto, ciudad, barra de completitud (reutiliza `ProfileCompletionBar`/`profile_stats`, sin lógica duplicada), estado de verificación, conteo de fotos/documentos, años de experiencia, calificación promedio + reseñas, botón "Editar Perfil"
+- Alerta si completitud < 80%; insignia "Perfil destacado" si > 90%
+
+**Server Actions** (`src/lib/actions/profile.ts`, 19 funciones)
+- Perfil base: `updateProfile`
+- Fotos: `getProfilePhotos`, `createPhotoUploadUrl`, `saveProfilePhoto`, `deleteProfilePhoto`, `setPrimaryPhoto`, `reorderPhotos`
+- Documentos: `getVerificationDocuments`, `createDocumentUploadUrl`, `saveVerificationDocument`, `deleteVerificationDocument`, `getDocumentDownloadUrl`
+- Completitud: `computeAndSaveProfileStats`, `getProfileStats`
+- Información ampliada: `getWorkerProfileDetails`, `upsertWorkerProfileDetails`
+- Experiencia: `getWorkerExperience`, `addWorkerExperience`, `updateWorkerExperience`, `deleteWorkerExperience`
+
+**Componentes nuevos**
+`ProfileTabs`, `InfoTab`, `PhotosTab`, `DocumentsTab`, `ExperienceTab`, `ExperienceCard`, `ExperienceForm`, `VerificationTab`, `ProfileCompletionBar`, `SkillsSelector`, `WorkerProfileClient`, `DashboardProfileCard`
+
+#### Corregido
+- La barra de completitud no se actualizaba tras guardar/subir/eliminar sin recargar la página completa (`onStatsChange` no propagaba el nuevo % al estado de React, aunque compilaba sin error) — corregido centralizando el refresco en `refreshProfileStats()` y levantando el estado a `WorkerProfileClient`
+
+#### Seguridad
+Auditoría técnica final (previa al merge) encontró y corrigió 2 vulnerabilidades de RLS heredadas al portar el módulo — mismo patrón que V1-V4 del Sprint de Seguridad (policy `UPDATE`/`INSERT` con `USING` pero sin `WITH CHECK`):
+- **`profile_photos`**: un usuario podía reescribir `storage_path`/`public_url` de una fila propia para apuntar al archivo de **otro** usuario (extraíble de su URL pública) y luego borrarlo vía el cliente admin de Storage (sin RLS) — borrado cruzado de archivos. Cerrado con privilegios de columna (`UPDATE` solo en `is_primary`/`display_order`) + validación de prefijo de ruta en `saveProfilePhoto`/`saveVerificationDocument`.
+- **`profile_stats`**: un usuario podía autoasignarse directamente insignias de confianza (`identity_verified`, `top_profile`) y `trust_score=100` sin verificación real. Cerrado revocando `INSERT`/`UPDATE` directo para `authenticated`; solo el cliente admin (`computeAndSaveProfileStats`) puede escribir esta tabla.
+- Verificado contra Postgres 16 real (`0013_harden_profile_module_rls.sql`): los 3 intentos de explotación quedan rechazados, los flujos legítimos siguen funcionando.
+
+#### Deuda técnica pendiente
+- `SkillsSelector` declara roles ARIA de combobox (`combobox`/`listbox`/`option`) pero no implementa navegación con flechas de teclado entre sugerencias (solo mouse; escribir el nombre completo y Enter sigue funcionando por teclado).
+- Confirmación de borrado duplicada visualmente entre `PhotosTab`, `DocumentsTab` y `ExperienceCard` (patrón similar, no idéntico) — candidato a un componente `ConfirmDeleteButton` compartido en un futuro pase de UI.
+- Catálogo de habilidades vive en código (`skills-catalog.ts`), no en tabla — migrar a `skill_catalog` cuando exista panel de administración para gestionarlo, sin romper perfiles existentes.
+- Sin límite de cantidad en `verification_documents` (fotos sí tienen tope de 10).
+- `ProfileTabs.defaultTab` es una prop opcional que ningún caller usa hoy.
+- V4 (escalada vía `user_roles`/sistema multi-rol) sigue pendiente, sin relación con este módulo — ver `docs/SECURITY_AUDIT_v0.8.md`.
+
+---
+
 ## [v0.7.0-beta] — 2026-07-28
 
 ### Fase 4 — Beta Privada

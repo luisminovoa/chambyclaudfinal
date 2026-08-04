@@ -59,6 +59,38 @@ missing if you only read `src/lib/actions/*.ts`. Notably:
 - `src/lib/types.ts` documents why the hand-written `Database` type needs `Relationships: []`
   on every table/view — supabase-js silently collapses mutations to `never` without it.
 
+### Perfil Profesional del Trabajador (`/dashboard/worker/profile`)
+
+- Five tables added in `0010`-`0013`: `profile_photos`, `verification_documents`,
+  `profile_stats` (cache, see below), `worker_profile_details` (1:1 extended fields —
+  deliberately does **not** split `profiles.full_name` into first/last name; that field is
+  read everywhere in the app), `worker_experience` (1:N). None of them alter `profiles`.
+- **All Storage access goes through `createAdminClient()` + signed URLs** (`src/lib/actions/
+  profile.ts`) — the client never calls `supabase.storage` directly with its own session.
+  This means the `storage.objects` RLS policies in `0010` are a secondary/defense-in-depth
+  layer, not the active gate; the real boundary is `getAuth()` + server-constructed paths
+  (`${user.id}/...`) inside the Server Actions. `saveProfilePhoto`/`saveVerificationDocument`
+  validate that a client-supplied `storagePath` starts with the caller's own `user.id` before
+  trusting it — without that check, a client could register a DB row pointing at another
+  user's file and then delete it via the admin-privileged delete call (see `0013`, fixed after
+  being caught in a pre-merge audit, not by the original design).
+- `profile_photos` and `profile_stats` use **column-level `REVOKE`/`GRANT`** (not just RLS
+  `WITH CHECK`) as the write boundary — `0013_harden_profile_module_rls.sql`. `authenticated`
+  can only `UPDATE (is_primary, display_order)` on `profile_photos` (never `storage_path`/
+  `public_url`/`profile_id`), and has no `INSERT`/`UPDATE` at all on `profile_stats` — only
+  `computeAndSaveProfileStats()` (admin client) may write trust badges/percentage. Same
+  pattern as the RLS Security Sprint (`0007`-`0009`): when a column's value must be trusted
+  (a verified badge, a storage pointer used in a privileged delete), lock the column at the
+  grant level rather than relying on `WITH CHECK` alone.
+- `getProfileCompletionItems()` (`src/lib/profile-completion.ts`) is a **display-only**
+  mirror of the scoring in `computeAndSaveProfileStats()` — used by `VerificationTab` and
+  `DashboardProfileCard` so the breakdown UI isn't duplicated between them, but it does not
+  compute or persist the authoritative score. If you change point weights, change both.
+- Skills autocomplete (`SkillsSelector`) suggests from `src/lib/skills-catalog.ts`, a plain
+  exported array (not a table) — same pattern as `CATEGORIES` in `InfoTab.tsx`. Free-text
+  entry still works; `profiles.skills` is unchanged. Migrating to a `skill_catalog` table is
+  deferred until there's an admin UI to manage it.
+
 ### Auth redirect-after-login
 
 `login`/`register` Server Actions accept a `next` form field and redirect there via
