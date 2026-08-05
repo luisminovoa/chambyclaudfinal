@@ -18,6 +18,17 @@ export interface Profile {
   updated_at: string;
 }
 
+// Sistema multi-rol (ver docs/DISENO-MULTI-ROL.md)
+// profiles.role = modo activo; user_roles = roles que el usuario posee.
+export interface UserRoleRow {
+  id: string;
+  user_id: string;
+  role: UserRole;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Job {
   id: string;
   employer_id: string;
@@ -442,6 +453,12 @@ export type Database = {
           start_date: string;
         };
         Update: Partial<WorkerExperience>;
+        Relationships: [];
+      };
+      user_roles: {
+        Row: UserRoleRow;
+        Insert: Partial<UserRoleRow> & { user_id: string; role: UserRole };
+        Update: Partial<UserRoleRow>;
         Relationships: [];
       };
     };
