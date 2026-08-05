@@ -18,11 +18,12 @@ import type {
 } from "@/lib/types";
 
 export default async function WorkerProfilePage() {
-  const { user, profile } = await getCurrentUserAndProfile();
+  const { user, profile, userRoles } = await getCurrentUserAndProfile();
   if (!user) redirect("/login?next=/dashboard/worker/profile");
-  // main usa el modelo de rol único (profile.role); el sistema multi-rol
-  // (userRoles) es parte de V4, pendiente y no integrado en esta rama.
-  if (!profile || profile.role !== "worker") redirect("/dashboard");
+  // Accesible si el usuario POSEE el rol worker, sin importar el modo
+  // activo (profile.role) — así "Mi Perfil" sigue funcionando aunque el
+  // usuario esté en modo employer (docs/DISENO-MULTI-ROL.md).
+  if (!profile || !userRoles.includes("worker")) redirect("/dashboard");
 
   const [photos, documents, statsRaw, workerDetails, experience] = await Promise.all([
     getProfilePhotos(),

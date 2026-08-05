@@ -3,13 +3,14 @@ import { LogOut, Plus, Search, ShieldCheck } from "lucide-react";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { logout } from "@/lib/actions/auth";
 import { getUnreadCount } from "@/lib/actions/notifications";
-import { Avatar } from "@/components/ui/Avatar";
 import { LogoLink } from "@/components/brand/Logo";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { BetaBadge } from "@/components/beta/BetaBadge";
+import { PublishChambaButton } from "@/components/roles/PublishChambaButton";
+import { UserMenu } from "@/components/roles/UserMenu";
 
 export async function Navbar() {
-  const { user, profile } = await getCurrentUserAndProfile();
+  const { user, profile, userRoles } = await getCurrentUserAndProfile();
   const unreadCount = user ? await getUnreadCount() : 0;
 
   return (
@@ -53,25 +54,19 @@ export async function Navbar() {
         <div className="flex items-center gap-2 sm:gap-3">
           {user && profile ? (
             <>
+              <PublishChambaButton hasEmployerRole={userRoles.includes("employer")} />
               <NotificationBell userId={user.id} initialUnreadCount={unreadCount} />
-              <Link
-                href="/dashboard"
-                className="hidden items-center gap-2 rounded-2xl py-1.5 pl-1.5 pr-3 transition-colors duration-200 hover:bg-slate-100 sm:flex"
-              >
-                <Avatar name={profile.full_name} src={profile.avatar_url} size="sm" />
-                <span className="text-sm font-semibold text-slate-700">
-                  {profile.full_name.split(" ")[0]}
-                </span>
-              </Link>
-              {/* En móvil, salir sigue accesible arriba (el BottomNav no tiene logout) */}
-              <form action={logout}>
+              <UserMenu profile={profile} userRoles={userRoles} />
+              {/* En móvil, salir sigue accesible arriba (el BottomNav no tiene logout);
+                  en desktop ya vive dentro de UserMenu, así que este botón se oculta
+                  ahí para no duplicar el control. */}
+              <form action={logout} className="sm:hidden">
                 <button
                   type="submit"
                   className="btn-ghost !min-h-0 !px-3 !py-2 text-sm"
                   aria-label="Cerrar sesión"
                 >
                   <LogOut className="h-4 w-4" />
-                  <span className="hidden sm:inline">Salir</span>
                 </button>
               </form>
             </>

@@ -5,16 +5,27 @@ import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { Home, Search, Plus, MessageCircle, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useActivateRole } from "@/components/roles/use-activate-role";
 import type { UserRole } from "@/lib/types";
 
 interface BottomNavClientProps {
   isLoggedIn: boolean;
   role: UserRole | null;
+  hasEmployerRole?: boolean;
   messagesUnreadCount?: number;
 }
 
-export function BottomNavClient({ isLoggedIn, role, messagesUnreadCount = 0 }: BottomNavClientProps) {
+export function BottomNavClient({
+  isLoggedIn,
+  role,
+  hasEmployerRole = false,
+  messagesUnreadCount = 0,
+}: BottomNavClientProps) {
   const pathname = usePathname();
+  // Único punto de entrada a "Publicar Chamba" en mobile — no hay menú
+  // hamburguesa en esta app, el tab central del BottomNav ya es
+  // ícono-solo por diseño, así que cumple el mismo requisito.
+  const publish = useActivateRole("employer", hasEmployerRole, "/jobs/new");
 
   const profileHref = isLoggedIn ? (role === "admin" ? "/admin" : "/dashboard") : "/login";
   // Un invitado que quiere publicar vuelve al formulario justo después de registrarse
@@ -40,13 +51,8 @@ export function BottomNavClient({ isLoggedIn, role, messagesUnreadCount = 0 }: B
             : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
 
           if (tab.center) {
-            return (
-              <Link
-                key={tab.label}
-                href={tab.href}
-                aria-label={tab.label}
-                className="relative -top-4 flex flex-1 flex-col items-center gap-1"
-              >
+            const centerContent = (
+              <>
                 <motion.span
                   whileTap={{ scale: 0.9 }}
                   className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-gradient text-white shadow-glow"
@@ -56,6 +62,35 @@ export function BottomNavClient({ isLoggedIn, role, messagesUnreadCount = 0 }: B
                 <span className="text-[11px] font-semibold leading-none text-ink-muted">
                   {tab.label}
                 </span>
+              </>
+            );
+
+            // Logueado: agrega/activa employer y navega — mismo flujo que
+            // el botón del Navbar. Invitado: sin sesión que activar, solo
+            // enlaza al registro (comportamiento sin cambios).
+            if (isLoggedIn) {
+              return (
+                <button
+                  key={tab.label}
+                  type="button"
+                  onClick={publish.activate}
+                  disabled={publish.isPending}
+                  aria-label={tab.label}
+                  className="relative -top-4 flex flex-1 flex-col items-center gap-1 disabled:opacity-70"
+                >
+                  {centerContent}
+                </button>
+              );
+            }
+
+            return (
+              <Link
+                key={tab.label}
+                href={tab.href}
+                aria-label={tab.label}
+                className="relative -top-4 flex flex-1 flex-col items-center gap-1"
+              >
+                {centerContent}
               </Link>
             );
           }
