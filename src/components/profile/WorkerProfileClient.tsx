@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Progress } from "@/components/ui/Progress";
 import { Reveal } from "@/components/ui/Reveal";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
+import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import type {
   Profile,
   ProfilePhoto,
@@ -40,8 +41,7 @@ export function WorkerProfileClient({
   // actualicen ambas de inmediato tras cualquier acción, sin recargar.
   const [stats, setStats] = useState(initialStats);
   const completion = stats?.completion_percentage ?? 0;
-  const primaryTitle =
-    workerDetails?.professional_title || profile.category || "Sin especialidad";
+  const primaryTitle = getWorkerPrimaryTitle(profile, workerDetails);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">

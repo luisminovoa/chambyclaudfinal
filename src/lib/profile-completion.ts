@@ -13,6 +13,20 @@ export interface CompletionItem {
 }
 
 /**
+ * Puesto principal a mostrar en el header del perfil y en la tarjeta "Mi
+ * perfil" del dashboard — única fuente para ambos, evita que uno muestre
+ * professional_title y el otro se quede en profile.category. profile.category
+ * solo se usa como fallback (perfiles creados antes de este campo, o
+ * mientras professional_title está vacío); nunca se prioriza sobre él.
+ */
+export function getWorkerPrimaryTitle(
+  profile: Profile,
+  workerDetails: WorkerProfileDetails | null
+): string {
+  return workerDetails?.professional_title || profile.category || "Sin especialidad";
+}
+
+/**
  * Desglose de completitud para mostrar en ProfileCompletionBar. Refleja
  * los mismos criterios y pesos que computeAndSaveProfileStats()
  * (src/lib/actions/profile.ts) — ese Server Action es la fuente de

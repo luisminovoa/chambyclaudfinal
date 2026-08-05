@@ -3,7 +3,7 @@ import { MapPin, Image as ImageIcon, FileText, Star, Briefcase, ShieldCheck, Spa
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { ProfileCompletionBar } from "@/components/profile/ProfileCompletionBar";
-import { getProfileCompletionItems } from "@/lib/profile-completion";
+import { getProfileCompletionItems, getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import type {
   Profile,
   ProfilePhoto,
@@ -46,8 +46,7 @@ export function DashboardProfileCard({
   ratingSummary,
 }: DashboardProfileCardProps) {
   const completion = stats?.completion_percentage ?? 0;
-  const primaryTitle =
-    workerDetails?.professional_title || profile.category || "Sin especialidad";
+  const primaryTitle = getWorkerPrimaryTitle(profile, workerDetails);
   const completionItems = getProfileCompletionItems(
     profile,
     workerDetails,
