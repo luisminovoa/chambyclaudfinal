@@ -46,6 +46,8 @@ export function DashboardProfileCard({
   ratingSummary,
 }: DashboardProfileCardProps) {
   const completion = stats?.completion_percentage ?? 0;
+  const primaryTitle =
+    workerDetails?.professional_title || profile.category || "Sin especialidad";
   const completionItems = getProfileCompletionItems(
     profile,
     workerDetails,
@@ -73,9 +75,7 @@ export function DashboardProfileCard({
               </Badge>
             )}
           </div>
-          {profile.category && (
-            <p className="truncate text-sm text-ink-muted">{profile.category}</p>
-          )}
+          <p className="truncate text-sm text-ink-muted">{primaryTitle}</p>
           {profile.city && (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-muted">
               <MapPin className="h-3 w-3 shrink-0" />
