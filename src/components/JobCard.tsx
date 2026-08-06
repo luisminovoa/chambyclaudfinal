@@ -6,7 +6,13 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { JobCardActions } from "@/components/JobCardActions";
 
-export function JobCard({ job }: { job: JobWithEmployer }) {
+interface JobCardProps {
+  job: JobWithEmployer;
+  currentUserId?: string | null;
+}
+
+export function JobCard({ job, currentUserId }: JobCardProps) {
+  const isOwner = Boolean(currentUserId) && currentUserId === job.employer_id;
   return (
     <article className="card card-hover group relative flex flex-col p-5">
       <div className="flex items-start justify-between gap-3">
@@ -51,7 +57,7 @@ export function JobCard({ job }: { job: JobWithEmployer }) {
         <p className="text-base font-extrabold tracking-tight text-primary-600">
           {formatCurrency(job.pay_amount)}
         </p>
-        <JobCardActions jobId={job.id} jobTitle={job.title} />
+        <JobCardActions jobId={job.id} jobTitle={job.title} isOwner={isOwner} />
       </div>
     </article>
   );

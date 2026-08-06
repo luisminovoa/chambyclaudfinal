@@ -203,7 +203,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                   {typedJob.address ? ` · ${typedJob.address}` : ""}
                 </p>
               </div>
-              <JobCardActions jobId={typedJob.id} jobTitle={typedJob.title} />
+              <JobCardActions jobId={typedJob.id} jobTitle={typedJob.title} isOwner={isOwner} />
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">

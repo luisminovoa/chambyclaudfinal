@@ -17,7 +17,13 @@ function readSaved(): string[] {
   }
 }
 
-export function JobCardActions({ jobId, jobTitle }: { jobId: string; jobTitle: string }) {
+interface JobCardActionsProps {
+  jobId: string;
+  jobTitle: string;
+  isOwner?: boolean;
+}
+
+export function JobCardActions({ jobId, jobTitle, isOwner = false }: JobCardActionsProps) {
   const [saved, setSaved] = useState(false);
   const toast = useToast();
   const router = useRouter();
@@ -75,12 +81,14 @@ export function JobCardActions({ jobId, jobTitle }: { jobId: string; jobTitle: s
       >
         <Share2 className="h-4 w-4" />
       </motion.button>
-      <button
-        onClick={() => router.push(`/jobs/${jobId}`)}
-        className="btn-primary !min-h-0 !px-4 !py-2 text-xs"
-      >
-        Postular
-      </button>
+      {!isOwner && (
+        <button
+          onClick={() => router.push(`/jobs/${jobId}`)}
+          className="btn-primary !min-h-0 !px-4 !py-2 text-xs"
+        >
+          Postular
+        </button>
+      )}
     </div>
   );
 }
