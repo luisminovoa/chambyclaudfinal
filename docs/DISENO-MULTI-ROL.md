@@ -1,12 +1,25 @@
 # Chamby — Sistema Multi-Rol (Worker + Employer simultáneo)
 ## Documento de Diseño v1.0
 
-**Estado:** Propuesta — pendiente de aprobación
+**Estado:** APROBADO — implementado (Fases 1-4 completas + auditoría técnica final
+cerrada). Ver `docs/SECURITY_AUDIT_v0.9.md` para el detalle de la auditoría pre-merge
+y los hallazgos corregidos. Pendiente únicamente del merge a `main`.
 **Autor:** Claude Code
 **Fecha:** 2026-08-05
 **Prerequisito de:** mejora de navegación "+ Publicar Chamba" (pedida en la
 misma conversación que originó este documento) — esa mejora depende de que
 esto exista primero.
+
+> **Nota post-implementación:** dos desviaciones respecto al diseño original, ambas
+> encontradas en la auditoría técnica final y cerradas antes del merge — no estaban
+> previstas aquí porque no eran visibles hasta implementar: (1) `handle_new_user()`
+> tenía una vulnerabilidad preexistente (desde `0001`/`0006`, no introducida por este
+> diseño) de escalada a `admin` vía metadata de `signUp()` directo, cerrada en la misma
+> migración `0014` ya que esta tocaba esa función de todos modos; (2) se agregó un
+> `CONSTRAINT TRIGGER` en `user_roles` para garantizar al menos un rol activo por
+> usuario — no estaba en el diseño original, necesario porque el candado de columna de
+> §4.3 (`GRANT UPDATE (active)`), tal como se diseñó, no impedía desactivar *todos* los
+> roles de un usuario a la vez.
 
 ---
 

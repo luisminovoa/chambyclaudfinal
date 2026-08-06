@@ -6,6 +6,93 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [v0.10.0-beta] — 2026-08-06
+
+### Sistema Multi-Rol (Worker + Employer simultáneo)
+
+Diseño aprobado en `docs/DISENO-MULTI-ROL.md`, implementado en 4 fases (cada una con
+`tsc`/`lint`/`build` limpios) más una auditoría técnica final antes del merge — ver
+`docs/SECURITY_AUDIT_v0.9.md`.
+
+#### Añadido
+
+**Base de datos** (`supabase/migrations/0014_multi_role.sql`)
+- Tabla `user_roles` — roles que un usuario posee (puede tener `worker` y `employer` a la
+  vez); `profiles.role` sigue siendo el modo activo, sin cambios en ninguna de las ~23
+  policies RLS preexistentes
+- Backfill retroactivo de todos los usuarios existentes en la misma transacción
+- RLS con doble candado: `WITH CHECK` explícito (`role in ('worker','employer')`, nunca
+  `admin`) + `GRANT UPDATE (active)` a nivel de columna — `role`/`user_id` nunca escribibles
+  vía `UPDATE`
+- `CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED` que garantiza al menos un rol
+  activo por usuario, incluso ante `UPDATE` multi-fila o `DELETE` por admin; exceptúa el
+  cascade legítimo de borrado de cuenta
+- `handle_new_user()` actualizado: también registra el rol inicial en `user_roles`
+
+**Server Actions** (`src/lib/actions/roles.ts`)
+- `getUserRoles`, `hasRole`, `getActiveRole`, `enableEmployerRole`, `switchRoleAction`
+
+**Navegación**
+- Botón "+ Publicar Chamba" en el Navbar (estilo `.btn-primary` existente) — agrega el rol
+  employer si falta (conservando worker), activa el modo, y navega a `/jobs/new`
+- `UserMenu` — reemplaza el link directo del avatar a `/dashboard`: Mi Perfil, Panel
+  Trabajador, Panel Empleador, Publicar Chamba, Cerrar sesión
+- Tab central del BottomNav (mobile) cableado al mismo flujo en vez de enlazar directo a
+  `/jobs/new`
+- `BackToWorkerButton` en `/dashboard/employer` — visible en todos los viewports, corrige
+  que un usuario mobile que activaba employer no tenía forma de volver a worker
+- `useActivateRole()` (`src/components/roles/use-activate-role.ts`) — único punto de la
+  lógica "asegurar rol poseído → cambiar modo activo → navegar", reutilizado por los
+  cuatro puntos de entrada de arriba
+
+#### Corregido
+- `getCurrentUserAndProfile()` expone `userRoles: UserRole[]` (aditivo)
+- `/dashboard/worker/profile` ahora es accesible mientras el usuario posea el rol worker,
+  sin importar el modo activo — antes se volvía inalcanzable en modo employer
+
+#### Seguridad
+Auditoría técnica final (`docs/SECURITY_AUDIT_v0.9.md`) cerró V4 (`user_roles` sin
+`WITH CHECK`, heredada del intento no mergeado del PR #15) y encontró una vulnerabilidad
+nueva, preexistente desde `0001`/`0006` pero nunca antes documentada:
+- **V5 — escalada a `admin` vía metadata de `signUp()` directo**: `handle_new_user()`
+  (`security definer`, bypasea RLS) casteaba `raw_user_meta_data.role` sin validar —
+  cualquiera podía llamar a la API de Supabase Auth directamente (anon key pública) con
+  `role: "admin"` y obtener control administrativo total, sin pasar por la validación Zod
+  de `register()`. Cerrada: el trigger ahora solo acepta el literal `"employer"`,
+  cualquier otro valor (incluido `"admin"`) colapsa a `"worker"`.
+- Verificado contra Postgres 16 real: 12 bloques de prueba
+  (`supabase/tests/0014_multi_role.test.sql`), incluida la condición de carrera de doble
+  activación concurrente (sin corrupción, constraint `unique` la previene) y el caso
+  límite de `UPDATE` multi-fila desactivando todos los roles a la vez en un solo statement.
+
+#### Deuda técnica pendiente
+Ver `docs/SECURITY_AUDIT_v0.9.md` §5 para el detalle completo — resumen: mensajes de
+error genéricos en `roles.ts` (no usa el patrón `formatSupabaseError` de `profile.ts`),
+query extra a `user_roles` en call sites que no la usan, código muerto
+(`getActiveRole`/`hasRole`/`user_has_role`), índice redundante `idx_user_roles_user`,
+"Configuración" ausente del menú de usuario (esa página no existe), responsive de tablet
+no verificado en dispositivo real.
+
+---
+
+### Correcciones previas a este sprint
+
+#### Corregido
+- **Guardado del Perfil Profesional**: `updateProfile`/`upsertWorkerProfileDetails` (y 9
+  Server Actions más de `profile.ts`) reemplazaban cualquier error de Postgres por un
+  mensaje genérico sin loguear nada — imposible diagnosticar un fallo real (migración
+  faltante, RLS, campo obligatorio). `src/lib/format-supabase-error.ts` (nuevo) loguea el
+  error completo en consola del servidor y devuelve un mensaje específico según el código
+  Postgres (`42P01` tabla/migración faltante, `42501` RLS, `23502` campo obligatorio,
+  etc.), sin ocultar nunca el texto original.
+- **Encabezado del perfil y tarjeta "Mi Perfil" del dashboard** mostraban `profile.category`
+  en vez de `worker_profile_details.professional_title` — la pestaña Información parecía no
+  sincronizar. Unificado en `getWorkerPrimaryTitle()` (`src/lib/profile-completion.ts`),
+  consumido por ambos componentes, con `profile.category` como fallback si el título
+  profesional está vacío.
+
+---
+
 ## [v0.9.0-beta] — 2026-08-04
 
 ### Fase 5 — Perfil Profesional del Trabajador
