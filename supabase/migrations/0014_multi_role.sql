@@ -122,6 +122,20 @@ $$ language sql stable security definer set search_path = public;
 -- una cuenta nueva. Mismo patrón on conflict do nothing que ya usa
 -- para profiles — un signup duplicado (reintento de OAuth) sigue
 -- siendo inofensivo.
+--
+-- CORRECCIÓN DE AUDITORÍA (bloqueante, preexistente desde 0001/0006):
+-- la versión anterior hacía `(raw_user_meta_data->>'role')::user_role`
+-- — un cast directo del metadata que el propio usuario controla al
+-- llamar a supabase.auth.signUp() (la anon key es pública; nada impide
+-- llamar a POST /auth/v1/signup directamente, saltándose la validación
+-- Zod de register()/src/lib/actions/auth.ts). Con `role: "admin"` en el
+-- metadata, ese cast producía 'admin' sin ninguna verificación —
+-- escalada de privilegios total en el signup, bypaseando RLS por
+-- completo porque este trigger es SECURITY DEFINER. Se reemplaza el
+-- cast por una comparación estricta: el metadata JAMÁS se confía más
+-- allá de "¿pidió literalmente 'employer'?" — cualquier otro valor
+-- (incluido 'admin', ausente, o cualquier texto arbitrario) cae a
+-- 'worker'. No existe ningún valor de entrada que produzca 'admin'.
 -- ------------------------------------------------------------
 create or replace function public.handle_new_user()
 returns trigger as $$
@@ -132,10 +146,10 @@ declare
   v_category   text;
   v_avatar_url text;
 begin
-  v_role := coalesce(
-    (new.raw_user_meta_data->>'role')::user_role,
-    'worker'
-  );
+  v_role := case
+    when new.raw_user_meta_data->>'role' = 'employer' then 'employer'::user_role
+    else 'worker'::user_role
+  end;
   v_full_name := coalesce(
     new.raw_user_meta_data->>'full_name',
     new.raw_user_meta_data->>'name',
@@ -156,3 +170,55 @@ begin
   return new;
 end;
 $$ language plpgsql security definer set search_path = public;
+
+-- ------------------------------------------------------------
+-- CORRECCIÓN DE AUDITORÍA (bloqueante): garantizar al menos un rol
+-- activo por usuario a nivel de base de datos.
+--
+-- El candado de columna (GRANT UPDATE (active)) permite legítimamente
+-- que un usuario desactive un rol — pero nada impedía desactivar TODOS
+-- sus roles a la vez (o borrar, vía admin, la última fila activa),
+-- dejándolo sin ningún rol activo: switchRoleAction() ya no encontraría
+-- ninguna fila que activar y el usuario quedaría bloqueado sin forma de
+-- recuperar acceso. Confirmado en vivo durante la auditoría.
+--
+-- CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED (no un trigger
+-- normal FOR EACH ROW): un UPDATE que desactiva varias filas del mismo
+-- usuario en un solo statement dispara el trigger una vez por fila: si
+-- se evaluara de inmediato, la primera fila podría pasar la validación
+-- viendo que la segunda todavía sigue activa (no se ha tocado todavía
+-- dentro del mismo statement). Al diferir la verificación hasta el
+-- commit, se evalúa el estado final real, sin importar cuántas filas o
+-- statements lo modificaron dentro de la misma transacción.
+--
+-- Excepción necesaria: si el profile ya no existe (cuenta eliminada —
+-- profiles.id referencia auth.users(id) on delete cascade, que a su
+-- vez hace cascade sobre user_roles), la cascada legítimamente deja
+-- cero filas — no debe bloquear el borrado de una cuenta real.
+-- ------------------------------------------------------------
+create or replace function public.prevent_zero_active_roles()
+returns trigger as $$
+declare
+  v_user_id uuid := coalesce(old.user_id, new.user_id);
+begin
+  if not exists (select 1 from public.profiles where id = v_user_id) then
+    return null;
+  end if;
+
+  if not exists (
+    select 1 from public.user_roles
+    where user_id = v_user_id and active = true
+  ) then
+    raise exception 'El usuario debe conservar al menos un rol activo';
+  end if;
+
+  return null;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists trg_user_roles_prevent_zero_active on public.user_roles;
+create constraint trigger trg_user_roles_prevent_zero_active
+  after update or delete on public.user_roles
+  deferrable initially deferred
+  for each row
+  execute function public.prevent_zero_active_roles();

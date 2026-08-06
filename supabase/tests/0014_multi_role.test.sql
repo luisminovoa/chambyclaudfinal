@@ -16,17 +16,21 @@
 --   done
 --   psql -d chamby_multirole -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;"
 --   psql -d chamby_multirole -v ON_ERROR_STOP=1 -f supabase/migrations/0014_multi_role.sql
+--   psql -d chamby_multirole -c "GRANT SELECT, INSERT, DELETE ON public.user_roles TO authenticated;"
 --   psql -d chamby_multirole -f supabase/tests/0014_multi_role.test.sql
 --
--- N1-N3 deben terminar en ERROR o "UPDATE 0"/"INSERT 0" (rechazo).
--- P1-P3 deben terminar en éxito (INSERT/UPDATE/DELETE de 1 fila, o
+-- N1-N6 deben terminar en ERROR o "UPDATE 0"/"INSERT 0" (rechazo).
+-- P1-P6 deben terminar en éxito (INSERT/UPDATE/DELETE de 1+ filas, o
 -- SELECT con las filas esperadas).
 --
 -- Nota: el GRANT ALL ON ALL TABLES del setup (paso previo a aplicar
 -- 0014) le da a `authenticated` privilegios de columna completos sobre
 -- user_roles ANTES de que 0014 corra su propio REVOKE/GRANT — por eso
 -- 0014 debe aplicarse DESPUÉS de ese GRANT ALL, igual que en
--- 0009_fix_v1_role_escalation.test.sql con profiles.
+-- 0009_fix_v1_role_escalation.test.sql con profiles. El GRANT SELECT/
+-- INSERT/DELETE posterior simula el default privilege que Supabase
+-- ya aplica automáticamente a cualquier tabla nueva en producción
+-- (ningún archivo de este repo lo declara explícitamente, ver 0001).
 -- ============================================================
 
 insert into auth.users (id, raw_user_meta_data) values
@@ -36,7 +40,13 @@ insert into auth.users (id, raw_user_meta_data) values
 update public.profiles set role = 'admin' where id = 'e0000000-0000-0000-0000-000000000003';
 
 -- Backfill de 0014 ya debió crear, para cada usuario de arriba, su fila
--- correspondiente en user_roles (worker/worker/admin). Confirmamos el
+-- correspondiente en user_roles. Los tres deben aparecer como 'worker'
+-- — incluido el tercero, aunque su profiles.role ya sea 'admin': ese
+-- valor lo puso el UPDATE directo de arriba (simula una promoción real
+-- vía changeUserRole(), src/lib/actions/admin.ts, ajeno a este PR), no
+-- el signup. handle_new_user() (con el fix de N4 aplicado) nunca
+-- escribe 'admin' en user_roles bajo ninguna circunstancia — ninguna
+-- policy de user_roles lo permitiría de todos modos. Confirmamos el
 -- estado de partida antes de las pruebas:
 select user_id, role, active from public.user_roles order by user_id;
 
@@ -69,6 +79,45 @@ update public.user_roles set active = false
 reset role;
 
 -- ============================================================
+-- N4 (CORRECCIÓN DE AUDITORÍA — bloqueante): un signup con
+--     raw_user_meta_data.role = 'admin' NO debe producir un profile ni
+--     una fila de user_roles con role='admin'. handle_new_user() es
+--     SECURITY DEFINER y bypasea RLS por completo — la única defensa
+--     posible es que el propio trigger nunca confíe en el metadata.
+-- ============================================================
+insert into auth.users (id, raw_user_meta_data)
+  values ('e0000000-0000-0000-0000-000000000010', '{"role":"admin","full_name":"Atacante Signup"}'::jsonb);
+select role from public.profiles where id = 'e0000000-0000-0000-0000-000000000010';
+select role, active from public.user_roles where user_id = 'e0000000-0000-0000-0000-000000000010';
+-- Debe imprimir 'worker' en ambas — nunca 'admin'.
+
+-- ============================================================
+-- N5 (CORRECCIÓN DE AUDITORÍA — bloqueante): un usuario NO puede
+--     desactivar TODOS sus roles a la vez, ni siquiera en un solo
+--     UPDATE multi-fila (el trigger debe evaluar el estado FINAL de
+--     la transacción, no fallar solo por accidente en la primera fila
+--     tocada). Confirmado que el UPDATE se revierte por completo.
+-- ============================================================
+set role authenticated;
+set request.jwt.claim.sub = 'e0000000-0000-0000-0000-000000000002';
+update public.user_roles set active = false where user_id = auth.uid();
+reset role;
+select role, active from public.user_roles where user_id = 'e0000000-0000-0000-0000-000000000002';
+-- Debe seguir en active = t (el UPDATE completo se revirtió).
+
+-- ============================================================
+-- N6 (CORRECCIÓN DE AUDITORÍA — bloqueante): admin NO puede borrar la
+--     última fila activa de otro usuario (el guard también protege el
+--     camino de DELETE por admin, no solo el auto-servicio).
+-- ============================================================
+set role authenticated;
+set request.jwt.claim.sub = 'e0000000-0000-0000-0000-000000000003';
+delete from public.user_roles where user_id = 'e0000000-0000-0000-0000-000000000002';
+reset role;
+select role, active from public.user_roles where user_id = 'e0000000-0000-0000-0000-000000000002';
+-- Debe seguir existiendo la fila worker/active=t.
+
+-- ============================================================
 -- P1: un usuario SÍ puede agregarse el rol 'employer' conservando el
 --     'worker' existente (enableEmployerRole), y alternar `active` de
 --     un rol que ya posee (única columna con GRANT UPDATE)
@@ -90,10 +139,38 @@ select role, active from public.user_roles
 reset role;
 
 -- ============================================================
--- P3: admin real SÍ puede borrar una fila de user_roles (moderación)
+-- P3 (CORRECCIÓN DE AUDITORÍA): un usuario SÍ puede desactivar UNO de
+--     sus roles mientras conserva al menos otro activo (caso legítimo,
+--     debe seguir permitido tras cerrar N5/N6)
+-- ============================================================
+set role authenticated;
+set request.jwt.claim.sub = 'e0000000-0000-0000-0000-000000000001';
+update public.user_roles set active = false where user_id = auth.uid() and role = 'employer';
+reset role;
+select role, active from public.user_roles
+  where user_id = 'e0000000-0000-0000-0000-000000000001' order by role;
+-- worker debe seguir active=t, employer debe quedar active=f.
+
+-- ============================================================
+-- P4: admin real SÍ puede borrar una fila de user_roles que NO es la
+--     última activa del usuario (moderación normal, sin dejarlo sin
+--     ningún rol)
 -- ============================================================
 set role authenticated;
 set request.jwt.claim.sub = 'e0000000-0000-0000-0000-000000000003';
 delete from public.user_roles
-  where user_id = 'e0000000-0000-0000-0000-000000000002' and role = 'worker';
+  where user_id = 'e0000000-0000-0000-0000-000000000001' and role = 'employer';
 reset role;
+select role, active from public.user_roles
+  where user_id = 'e0000000-0000-0000-0000-000000000001';
+-- Solo debe quedar la fila worker.
+
+-- ============================================================
+-- P5 (CORRECCIÓN DE AUDITORÍA): eliminar la cuenta completa (cascade
+--     auth.users -> profiles -> user_roles) NO debe bloquearse por el
+--     guard de "al menos un rol activo" — es una cascada legítima.
+-- ============================================================
+delete from auth.users where id = 'e0000000-0000-0000-0000-000000000002';
+select count(*) from public.user_roles where user_id = 'e0000000-0000-0000-0000-000000000002';
+select count(*) from public.profiles where id = 'e0000000-0000-0000-0000-000000000002';
+-- Ambos conteos deben ser 0, sin ningún ERROR.
