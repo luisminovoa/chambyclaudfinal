@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useNotificationsContext } from "@/lib/realtime/NotificationsProvider";
 import type { Notification } from "@/lib/types";
 
 interface UseNotificationsOptions {
@@ -11,69 +11,57 @@ interface UseNotificationsOptions {
   onNewNotification?: (n: Notification) => void;
 }
 
+/**
+ * Misma forma pública de siempre — { notifications, unreadCount, isConnected,
+ * markRead, markAllRead, prependNotifications } — pero ya no abre su propio
+ * canal Realtime. El canal único vive en <NotificationsProvider> (layout
+ * raíz); este hook solo se suscribe a sus eventos, así que puede llamarse
+ * desde tantos componentes como haga falta (Navbar + página de
+ * notificaciones a la vez) sin volver a chocar con el error
+ * "cannot add `postgres_changes` callbacks... after subscribe()".
+ *
+ * `initialUnreadCount` ya no siembra el contador (eso lo hace el Provider,
+ * una sola vez, en el layout) — se mantiene en la firma para no romper a
+ * los dos call sites existentes, pero queda sin efecto para evitar que dos
+ * instancias se pisen el contador compartido.
+ */
 export function useNotifications({
   userId,
   initialNotifications = [],
-  initialUnreadCount = 0,
   onNewNotification,
 }: UseNotificationsOptions) {
+  const { unreadCount, isConnected, bumpUnread, setUnreadCount, subscribe } =
+    useNotificationsContext();
   const [notifications, setNotifications] = useState<Notification[]>(initialNotifications);
-  const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
-  const [isConnected, setIsConnected] = useState(false);
-  const channelRef = useRef<ReturnType<ReturnType<typeof createClient>["channel"]> | null>(null);
   const onNewRef = useRef(onNewNotification);
   onNewRef.current = onNewNotification;
 
   useEffect(() => {
     if (!userId) return;
+    return subscribe((n) => {
+      setNotifications((prev) => [n, ...prev]);
+      onNewRef.current?.(n);
+    });
+  }, [userId, subscribe]);
 
-    const supabase = createClient();
-    const channel = supabase.channel(`user:${userId}`);
-
-    channel
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "notifications",
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          const n = payload.new as Notification;
-          setNotifications((prev) => [n, ...prev]);
-          setUnreadCount((c) => c + 1);
-          onNewRef.current?.(n);
-        }
-      )
-      .subscribe((status) => {
-        setIsConnected(status === "SUBSCRIBED");
-      });
-
-    channelRef.current = channel;
-
-    return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
-      setIsConnected(false);
-    };
-  }, [userId]);
-
-  const markRead = useCallback((id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) =>
-        n.id === id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n
-      )
-    );
-    setUnreadCount((c) => Math.max(0, c - 1));
-  }, []);
+  const markRead = useCallback(
+    (id: string) => {
+      setNotifications((prev) =>
+        prev.map((n) =>
+          n.id === id ? { ...n, is_read: true, read_at: new Date().toISOString() } : n
+        )
+      );
+      bumpUnread(-1);
+    },
+    [bumpUnread]
+  );
 
   const markAllRead = useCallback(() => {
     setNotifications((prev) =>
       prev.map((n) => ({ ...n, is_read: true, read_at: n.read_at ?? new Date().toISOString() }))
     );
     setUnreadCount(0);
-  }, []);
+  }, [setUnreadCount]);
 
   const prependNotifications = useCallback((items: Notification[]) => {
     setNotifications((prev) => {

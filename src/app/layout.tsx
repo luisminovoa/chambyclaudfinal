@@ -7,6 +7,9 @@ import { BottomNav } from "@/components/BottomNav";
 import { ToastProvider } from "@/components/ui/Toaster";
 import { RegisterSW } from "@/components/RegisterSW";
 import { ReportErrorButtonWrapper } from "@/components/beta/ReportErrorButtonWrapper";
+import { NotificationsProvider } from "@/lib/realtime/NotificationsProvider";
+import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
+import { getUnreadCount } from "@/lib/actions/notifications";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -61,7 +64,12 @@ const organizationJsonLd = {
   description: SITE_DESCRIPTION,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // getCurrentUserAndProfile() está envuelto en React cache() — Navbar ya lo
+  // llama en el mismo request, así que esto no agrega una consulta extra.
+  const { user } = await getCurrentUserAndProfile();
+  const initialUnreadCount = user ? await getUnreadCount() : 0;
+
   return (
     <html lang="es" className={inter.variable}>
       <body className="flex min-h-screen flex-col font-sans antialiased">
@@ -72,13 +80,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Saltar al contenido principal
         </a>
         <ToastProvider>
-          <Navbar />
-          <main id="contenido" className="flex-1 pb-24 sm:pb-0">
-            {children}
-          </main>
-          <Footer />
-          <BottomNav />
-          <ReportErrorButtonWrapper />
+          <NotificationsProvider userId={user?.id ?? null} initialUnreadCount={initialUnreadCount}>
+            <Navbar />
+            <main id="contenido" className="flex-1 pb-24 sm:pb-0">
+              {children}
+            </main>
+            <Footer />
+            <BottomNav />
+            <ReportErrorButtonWrapper />
+          </NotificationsProvider>
         </ToastProvider>
         <RegisterSW />
         <script
