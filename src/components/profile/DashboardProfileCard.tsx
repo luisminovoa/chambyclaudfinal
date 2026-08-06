@@ -3,7 +3,7 @@ import { MapPin, Image as ImageIcon, FileText, Star, Briefcase, ShieldCheck, Spa
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { ProfileCompletionBar } from "@/components/profile/ProfileCompletionBar";
-import { getProfileCompletionItems } from "@/lib/profile-completion";
+import { getProfileCompletionItems, getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import type {
   Profile,
   ProfilePhoto,
@@ -46,6 +46,7 @@ export function DashboardProfileCard({
   ratingSummary,
 }: DashboardProfileCardProps) {
   const completion = stats?.completion_percentage ?? 0;
+  const primaryTitle = getWorkerPrimaryTitle(profile, workerDetails);
   const completionItems = getProfileCompletionItems(
     profile,
     workerDetails,
@@ -73,9 +74,7 @@ export function DashboardProfileCard({
               </Badge>
             )}
           </div>
-          {profile.category && (
-            <p className="truncate text-sm text-ink-muted">{profile.category}</p>
-          )}
+          <p className="truncate text-sm text-ink-muted">{primaryTitle}</p>
           {profile.city && (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-ink-muted">
               <MapPin className="h-3 w-3 shrink-0" />

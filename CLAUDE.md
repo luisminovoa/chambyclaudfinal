@@ -91,6 +91,56 @@ missing if you only read `src/lib/actions/*.ts`. Notably:
   entry still works; `profiles.skills` is unchanged. Migrating to a `skill_catalog` table is
   deferred until there's an admin UI to manage it.
 
+### Sistema Multi-Rol (`user_roles`, `0014`)
+
+- Design doc: `docs/DISENO-MULTI-ROL.md`. `profiles.role` remains the **active mode** —
+  every one of the ~23 pre-existing RLS policies keeps reading `current_user_role()` →
+  `profiles.role` unmodified. `user_roles` (`0014_multi_role.sql`) is a satellite table
+  tracking which roles a user **owns** (can have both `worker` and `employer`
+  simultaneously); `switchRoleAction()` flips `profiles.role` between roles the user
+  already owns in `user_roles`, `enableEmployerRole()` adds `employer` without ever
+  touching the existing `worker` row. Backfilled for every pre-existing user in the same
+  transaction that creates the table.
+- **`enableEmployerRole()` never uses `.upsert()`** — a Postgres `ON CONFLICT DO UPDATE`
+  touches every column in the `SET` clause including `role`/`user_id`, which have no
+  `GRANT UPDATE` (see below); it does an explicit `select` + `insert`/`update` instead.
+- **Column-level `GRANT` on `user_roles`, same pattern as `profile_photos`/`profile_stats`
+  (`0013`)**: `authenticated` can only `UPDATE (active)` — `role` and `user_id` are never
+  writable via `UPDATE` regardless of what any policy says. Closes V4
+  (`docs/SECURITY_AUDIT_v0.8.md`): the prior unmerged attempt (PR #15, commit `fa5b0c9`)
+  had `user_roles_update_own` with `USING` but no `WITH CHECK` — same class of hole as V1.
+- **`handle_new_user()` never trusts `raw_user_meta_data.role` beyond a literal
+  `"employer"` string match** — found in the pre-merge audit of this feature: the anon key
+  is public, so anyone can call Supabase Auth's `signUp` REST endpoint directly with
+  `role: "admin"` in the metadata, bypassing `register()`'s Zod validation entirely; since
+  this trigger is `security definer` it bypasses RLS too. Any value other than the literal
+  string `"employer"` (including `"admin"`, missing, or malformed) collapses to `"worker"`.
+  This bug predated `0014` (present since `0001`/`0006`) but `0014` is what fixed it,
+  since it already had to touch this function to add the `user_roles` insert.
+- **`user_roles` guarantees at least one active role per user at the database level** —
+  a `CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED` (not a plain row trigger: a
+  single multi-row `UPDATE` deactivating several roles at once must be evaluated against
+  the transaction's *final* state, not the first row touched) rejects any `UPDATE`/`DELETE`
+  that would leave a user with zero active roles — covers both self-service and
+  admin-initiated `DELETE`. Explicitly skipped when the `profiles` row no longer exists
+  (account deletion cascades through `profiles → user_roles` legitimately).
+- `getCurrentUserAndProfile()` (`src/lib/get-current-profile.ts`) also returns
+  `userRoles: UserRole[]` — additive, still one cached call per request. `UserMenu`
+  ("Panel Trabajador"/"Panel Empleador"/"Publicar Chamba"/"Cerrar sesión" — no
+  "Configuración", that page doesn't exist and is out of scope) is `hidden sm:block`
+  (desktop only); on mobile the BottomNav's center "+" tab drives the same
+  `useActivateRole()` hook, and `/dashboard/employer` renders `BackToWorkerButton`
+  (page content, not nav chrome, so it's visible on every viewport) whenever the user
+  also owns `worker` — without it, a mobile user who activates employer mode had no way
+  back to worker mode (found in the pre-merge audit).
+- `useActivateRole()` (`src/components/roles/use-activate-role.ts`) is the single
+  implementation of "ensure role owned → switch active mode → navigate", reused by the
+  Navbar button, BottomNav center tab, and all three role-related `UserMenu` items — do
+  not duplicate this logic elsewhere.
+- `/dashboard/worker/profile/page.tsx` gates on `userRoles.includes("worker")`, not
+  `profile.role === "worker"` — otherwise a user's own profile page becomes unreachable
+  the moment they switch to employer mode, even though they still own the worker role.
+
 ### Auth redirect-after-login
 
 `login`/`register` Server Actions accept a `next` form field and redirect there via

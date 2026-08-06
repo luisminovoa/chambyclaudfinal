@@ -1,0 +1,122 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import type { UserRole } from "@/lib/types";
+
+type Ok = { success: true };
+type Err = { error: string };
+type ActionResult = Ok | Err;
+
+async function getAuth() {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return { supabase, user };
+}
+
+/** Roles activos que posee el usuario autenticado (puede ser más de uno). */
+export async function getUserRoles(): Promise<UserRole[]> {
+  const { supabase, user } = await getAuth();
+  if (!user) return [];
+
+  const { data } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id)
+    .eq("active", true);
+
+  return (data ?? []).map((r) => r.role);
+}
+
+/** Comprueba si el usuario autenticado posee un rol activo. */
+export async function hasRole(role: UserRole): Promise<boolean> {
+  const roles = await getUserRoles();
+  return roles.includes(role);
+}
+
+/** Modo activo actual (profiles.role) — cuál dashboard/RLS-gate está usando ahora. */
+export async function getActiveRole(): Promise<UserRole | null> {
+  const { supabase, user } = await getAuth();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  return (data as { role: UserRole } | null)?.role ?? null;
+}
+
+/**
+ * Agrega el rol employer al usuario sin quitarle ningún rol existente.
+ * Si ya lo posee pero está desactivado, lo reactiva. No cambia el modo
+ * activo (profiles.role) — eso lo hace switchRoleAction() por separado.
+ *
+ * No usa .upsert(): el UPDATE de la rama ON CONFLICT tocaría las columnas
+ * `role`/`user_id`, que ya no tienen GRANT UPDATE tras el hardening de
+ * 0014_multi_role.sql (candado de columna contra V4) y el intento fallaría.
+ */
+export async function enableEmployerRole(): Promise<ActionResult> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "No autenticado." };
+
+  const { data: existing, error: selectError } = await supabase
+    .from("user_roles")
+    .select("id, active")
+    .eq("user_id", user.id)
+    .eq("role", "employer")
+    .maybeSingle();
+
+  if (selectError) return { error: "No se pudo verificar el rol de empleador." };
+
+  if (existing) {
+    if (!existing.active) {
+      const { error } = await supabase
+        .from("user_roles")
+        .update({ active: true })
+        .eq("id", existing.id);
+      if (error) return { error: "No se pudo activar el rol de empleador." };
+    }
+  } else {
+    const { error } = await supabase
+      .from("user_roles")
+      .insert({ user_id: user.id, role: "employer" });
+    if (error) return { error: "No se pudo agregar el rol de empleador." };
+  }
+
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
+/**
+ * Cambia el modo activo del usuario (profiles.role). Requiere que el
+ * usuario ya posea el rol destino en user_roles — nunca crea un rol nuevo
+ * (eso es responsabilidad exclusiva de enableEmployerRole()).
+ */
+export async function switchRoleAction(newRole: UserRole): Promise<ActionResult> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "No autenticado." };
+
+  const { data: roleRow } = await supabase
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("role", newRole)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (!roleRow) return { error: "No tienes acceso a ese rol." };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ role: newRole })
+    .eq("id", user.id);
+
+  if (error) return { error: "No se pudo cambiar el modo activo." };
+
+  revalidatePath("/", "layout");
+  return { success: true };
+}

@@ -8,11 +8,12 @@ import { EmployerJobRow } from "@/components/EmployerJobRow";
 import { StatCard } from "@/components/ui/StatCard";
 import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { BackToWorkerButton } from "@/components/roles/BackToWorkerButton";
 import type { Job, RatingSummary } from "@/lib/types";
 
 export default async function EmployerDashboardPage() {
   const supabase = createClient();
-  const { user, profile } = await getCurrentUserAndProfile();
+  const { user, profile, userRoles } = await getCurrentUserAndProfile();
 
   if (!user) redirect("/login");
   if (profile && profile.role === "worker") redirect("/dashboard/worker");
@@ -56,6 +57,11 @@ export default async function EmployerDashboardPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
       <Reveal>
+        {userRoles.includes("worker") && (
+          <div className="mb-4">
+            <BackToWorkerButton />
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">

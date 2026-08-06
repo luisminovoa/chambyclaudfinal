@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { formatSupabaseError, formatUnknownError } from "@/lib/format-supabase-error";
 import type {
   ProfilePhoto,
   VerificationDocument,
@@ -49,12 +50,16 @@ export async function updateProfile(formData: FormData): Promise<ActionResult> {
         .filter(Boolean)
     : [];
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({ bio, phone, city, category, skills })
-    .eq("id", user.id);
+  try {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ bio, phone, city, category, skills })
+      .eq("id", user.id);
 
-  if (error) return { error: "Error al guardar el perfil." };
+    if (error) return { error: formatSupabaseError(error, "updateProfile") };
+  } catch (err) {
+    return { error: formatUnknownError(err, "updateProfile") };
+  }
 
   revalidatePath("/dashboard/worker/profile");
   revalidatePath("/dashboard/worker");
@@ -153,7 +158,7 @@ export async function saveProfilePhoto(params: {
     .select()
     .single();
 
-  if (error) return { error: "Error al guardar la foto." };
+  if (error) return { error: formatSupabaseError(error, "saveProfilePhoto") };
 
   if (params.isPrimary) {
     await supabase
@@ -189,7 +194,7 @@ export async function deleteProfilePhoto(photoId: string): Promise<ActionResult>
     .delete()
     .eq("id", photoId);
 
-  if (error) return { error: "Error al eliminar la foto." };
+  if (error) return { error: formatSupabaseError(error, "deleteProfilePhoto") };
 
   if (p.is_primary) {
     await supabase
@@ -226,7 +231,7 @@ export async function setPrimaryPhoto(photoId: string): Promise<ActionResult> {
     .update({ is_primary: true })
     .eq("id", photoId);
 
-  if (error) return { error: "Error al cambiar la foto principal." };
+  if (error) return { error: formatSupabaseError(error, "setPrimaryPhoto") };
 
   await supabase
     .from("profiles")
@@ -323,7 +328,7 @@ export async function saveVerificationDocument(params: {
     .select()
     .single();
 
-  if (error) return { error: "Error al guardar el documento." };
+  if (error) return { error: formatSupabaseError(error, "saveVerificationDocument") };
 
   revalidatePath("/dashboard/worker/profile");
   return { success: true, document: data as VerificationDocument };
@@ -354,7 +359,7 @@ export async function deleteVerificationDocument(
     .delete()
     .eq("id", documentId);
 
-  if (error) return { error: "Error al eliminar el documento." };
+  if (error) return { error: formatSupabaseError(error, "deleteVerificationDocument") };
 
   revalidatePath("/dashboard/worker/profile");
   return { success: true };
@@ -512,7 +517,7 @@ export async function computeAndSaveProfileStats(): Promise<
     .select()
     .single();
 
-  if (error) return { error: "Error al calcular estadísticas." };
+  if (error) return { error: formatSupabaseError(error, "computeAndSaveProfileStats") };
 
   revalidatePath("/dashboard/worker/profile");
   return { success: true, stats: data as ProfileStats };
@@ -592,22 +597,26 @@ export async function upsertWorkerProfileDetails(formData: FormData): Promise<Ac
         .slice(0, 10)
     : [];
 
-  const { error } = await supabase.from("worker_profile_details").upsert({
-    profile_id: user.id,
-    professional_title,
-    district,
-    address,
-    birth_date,
-    whatsapp,
-    availability: availabilityRaw as AvailabilityStatus,
-    hourly_rate,
-    daily_rate,
-    years_experience,
-    languages,
-    work_radius_km,
-  });
+  try {
+    const { error } = await supabase.from("worker_profile_details").upsert({
+      profile_id: user.id,
+      professional_title,
+      district,
+      address,
+      birth_date,
+      whatsapp,
+      availability: availabilityRaw as AvailabilityStatus,
+      hourly_rate,
+      daily_rate,
+      years_experience,
+      languages,
+      work_radius_km,
+    });
 
-  if (error) return { error: "Error al guardar la información profesional." };
+    if (error) return { error: formatSupabaseError(error, "upsertWorkerProfileDetails") };
+  } catch (err) {
+    return { error: formatUnknownError(err, "upsertWorkerProfileDetails") };
+  }
 
   revalidatePath("/dashboard/worker/profile");
   revalidatePath("/dashboard/worker");
@@ -705,7 +714,7 @@ export async function addWorkerExperience(
     .select()
     .single();
 
-  if (error) return { error: "Error al guardar la experiencia." };
+  if (error) return { error: formatSupabaseError(error, "addWorkerExperience") };
 
   revalidatePath("/dashboard/worker/profile");
   return { success: true, experience: data as WorkerExperience };
@@ -729,7 +738,7 @@ export async function updateWorkerExperience(
     .select()
     .single();
 
-  if (error) return { error: "Error al actualizar la experiencia." };
+  if (error) return { error: formatSupabaseError(error, "updateWorkerExperience") };
 
   revalidatePath("/dashboard/worker/profile");
   return { success: true, experience: data as WorkerExperience };
@@ -745,7 +754,7 @@ export async function deleteWorkerExperience(experienceId: string): Promise<Acti
     .eq("id", experienceId)
     .eq("profile_id", user.id);
 
-  if (error) return { error: "Error al eliminar la experiencia." };
+  if (error) return { error: formatSupabaseError(error, "deleteWorkerExperience") };
 
   revalidatePath("/dashboard/worker/profile");
   return { success: true };

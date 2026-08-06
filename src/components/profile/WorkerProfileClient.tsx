@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Progress } from "@/components/ui/Progress";
 import { Reveal } from "@/components/ui/Reveal";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
+import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import type {
   Profile,
   ProfilePhoto,
@@ -40,6 +41,7 @@ export function WorkerProfileClient({
   // actualicen ambas de inmediato tras cualquier acción, sin recargar.
   const [stats, setStats] = useState(initialStats);
   const completion = stats?.completion_percentage ?? 0;
+  const primaryTitle = getWorkerPrimaryTitle(profile, workerDetails);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
@@ -71,9 +73,7 @@ export function WorkerProfileClient({
               <h1 className="text-xl font-extrabold tracking-tight text-ink">
                 {profile.full_name}
               </h1>
-              {profile.category && (
-                <p className="text-sm text-ink-muted">{profile.category}</p>
-              )}
+              <p className="text-sm text-ink-muted">{primaryTitle}</p>
               {profile.city && (
                 <p className="text-xs text-ink-muted">{profile.city}</p>
               )}
