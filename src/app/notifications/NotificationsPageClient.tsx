@@ -39,7 +39,7 @@ function applyFilter(notifications: Notification[], filter: Filter): Notificatio
 }
 
 function getNavPath(n: Notification): string | null {
-  if (n.type === "new_message" && n.conversation_id) return `/messages/${n.conversation_id}`;
+  if (n.conversation_id) return `/messages/${n.conversation_id}`;
   if (n.job_id) return `/jobs/${n.job_id}`;
   return null;
 }
