@@ -9,8 +9,19 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") ?? "/dashboard";
   const isPasswordRecovery = next === "/reset-password";
 
+  // Preserva `next` en cada redirect de error a /login — antes se perdía
+  // aquí, así que cancelar el consentimiento de Google (o cualquier otro
+  // fallo) mandaba siempre a /dashboard tras reintentar, en vez de volver
+  // a la página desde la que el usuario había iniciado el login.
+  function loginWithError(errorCode: string): NextResponse {
+    const url = new URL(`${origin}/login`);
+    url.searchParams.set("error", errorCode);
+    if (next !== "/dashboard" && !isPasswordRecovery) url.searchParams.set("next", next);
+    return NextResponse.redirect(url);
+  }
+
   if (error) {
-    return NextResponse.redirect(`${origin}/login?error=oauth_cancelled`);
+    return loginWithError("oauth_cancelled");
   }
 
   if (code) {
@@ -36,6 +47,5 @@ export async function GET(request: Request) {
   // El enlace de recuperación de contraseña expira o puede usarse una sola
   // vez — mensaje específico en vez del genérico "oauth_failed", que
   // hablaría de Google sin sentido en este flujo.
-  const errorCode = isPasswordRecovery ? "reset_link_expired" : "oauth_failed";
-  return NextResponse.redirect(`${origin}/login?error=${errorCode}`);
+  return loginWithError(isPasswordRecovery ? "reset_link_expired" : "oauth_failed");
 }

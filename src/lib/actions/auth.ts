@@ -66,7 +66,13 @@ function safeNextPath(value: FormDataEntryValue | null): string | null {
  */
 function getOrigin(): string {
   const h = headers();
-  return h.get("origin") ?? `https://${h.get("host")}`;
+  const host = h.get("host");
+  return (
+    h.get("origin") ??
+    (host ? `https://${host}` : null) ??
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    "https://chambyclaudfinal.netlify.app"
+  );
 }
 
 export async function login(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
