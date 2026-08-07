@@ -46,6 +46,12 @@ export function JobCard({ job, currentUserId }: JobCardProps) {
                 {job.title}
               </Link>
             </h3>
+            <Link
+              href={`/employers/${job.employer_id}`}
+              className="relative z-10 inline-block text-[11px] font-semibold text-primary-600 hover:text-primary-700 hover:underline"
+            >
+              Ver empleador
+            </Link>
           </div>
         </div>
         <Badge tone={jobStatusTone(job.status)} className="shrink-0">

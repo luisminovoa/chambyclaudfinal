@@ -61,6 +61,13 @@ export function formatDate(dateString: string): string {
   }).format(new Date(dateString));
 }
 
+export function formatMemberSince(dateString: string): string {
+  return new Intl.DateTimeFormat("es-PE", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(dateString));
+}
+
 export function initials(name: string): string {
   return name
     .split(" ")

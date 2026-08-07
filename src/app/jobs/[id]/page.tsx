@@ -286,23 +286,31 @@ export default async function JobDetailPage({ params }: { params: { id: string }
             </div>
 
             {/* Perfil del empleador */}
-            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-              <Avatar name={typedJob.employer?.full_name ?? "?"} src={typedJob.employer?.avatar_url} size="lg" />
-              <div>
-                <p className="text-sm font-bold text-ink">{typedJob.employer?.full_name}</p>
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted">
-                  {employerRating ? (
-                    <>
-                      <RatingStars value={Math.round(employerRating.average_score)} readOnly size="sm" />
-                      <span className="font-medium">
-                        {employerRating.average_score} · {employerRating.total_ratings} reseñas
-                      </span>
-                    </>
-                  ) : (
-                    <span>Sin calificaciones aún</span>
-                  )}
+            <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar name={typedJob.employer?.full_name ?? "?"} src={typedJob.employer?.avatar_url} size="lg" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-ink">{typedJob.employer?.full_name}</p>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted">
+                    {employerRating ? (
+                      <>
+                        <RatingStars value={Math.round(employerRating.average_score)} readOnly size="sm" />
+                        <span className="font-medium">
+                          {employerRating.average_score} · {employerRating.total_ratings} reseñas
+                        </span>
+                      </>
+                    ) : (
+                      <span>Sin calificaciones aún</span>
+                    )}
+                  </div>
                 </div>
               </div>
+              <Link
+                href={`/employers/${typedJob.employer_id}`}
+                className="btn-secondary !min-h-0 shrink-0 !rounded-xl !px-3 !py-2 text-xs"
+              >
+                Ver empleador
+              </Link>
             </div>
 
             {/* Trabajador asignado */}

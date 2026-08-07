@@ -87,7 +87,7 @@ export function ApplicantRow({
             className="btn-secondary !min-h-0 !rounded-xl !px-3 !py-2 text-xs"
           >
             <UserCircle2 className="h-3.5 w-3.5" />
-            Ver perfil
+            Ver trabajador
           </Link>
           {status === "pendiente" && canManage && !confirmingAccept ? (
             <>

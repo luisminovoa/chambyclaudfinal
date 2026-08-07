@@ -10,7 +10,7 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { RatingStars } from "@/components/RatingStars";
-import { BADGE_CONFIG } from "@/components/profile/VerificationTab";
+import { VerificationBadges } from "@/components/profile/VerificationBadges";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import type { WorkerPublicProfile } from "@/lib/actions/workers";
 import type { AvailabilityStatus } from "@/lib/types";
@@ -75,27 +75,7 @@ export function WorkerPublicProfileView({ data }: { data: WorkerPublicProfile })
       </div>
 
       {/* Insignias de confianza */}
-      {earnedBadges.length > 0 && (
-        <div className="card p-5">
-          <h2 className="mb-3 text-sm font-bold text-ink">Verificación</h2>
-          <div className="flex flex-wrap gap-2">
-            {earnedBadges.map((key) => {
-              const cfg = BADGE_CONFIG[key as keyof typeof BADGE_CONFIG];
-              if (!cfg) return null;
-              const Icon = cfg.icon;
-              return (
-                <span
-                  key={key}
-                  className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold ${cfg.bg} ${cfg.color} ${cfg.border}`}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {cfg.label}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <VerificationBadges badges={earnedBadges} />
 
       {/* Descripción */}
       {profile.bio && (
