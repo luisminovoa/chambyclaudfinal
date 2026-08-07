@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { MapPin, Wallet, CalendarDays, Users, FileText, ChevronRight, PartyPopper } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
+import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
 import { ApplyForm } from "@/components/ApplyForm";
 import { ApplicantRow } from "@/components/ApplicantRow";
@@ -24,6 +25,7 @@ import type {
   RatingSummary,
   StateHistoryEntry,
   Profile,
+  WorkerProfileDetails,
 } from "@/lib/types";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
@@ -97,6 +99,8 @@ export default async function JobDetailPage({ params }: { params: { id: string }
 
   let applications: ApplicationWithProfiles[] = [];
   let myApplication: ApplicationWithProfiles | null = null;
+  const applicantOccupations = new Map<string, string>();
+  const applicantRatings = new Map<string, RatingSummary>();
 
   if (isOwner) {
     const { data } = await supabase
@@ -105,6 +109,32 @@ export default async function JobDetailPage({ params }: { params: { id: string }
       .eq("job_id", typedJob.id)
       .order("created_at", { ascending: false });
     applications = (data as unknown as ApplicationWithProfiles[]) ?? [];
+
+    const workerIds = applications.map((a) => a.worker_id);
+    if (workerIds.length > 0) {
+      // Ya confirmamos isOwner arriba — relación legítima para leer el
+      // título profesional de estos postulantes (owner-only por RLS,
+      // mismo patrón que getWorkerPublicProfile en src/lib/actions/workers.ts).
+      const admin = createAdminClient();
+      const [detailsRes, ratingsRes] = await Promise.all([
+        admin.from("worker_profile_details").select("*").in("profile_id", workerIds),
+        supabase.from("rating_summary").select("*").in("profile_id", workerIds),
+      ]);
+      const detailsByWorker = new Map(
+        ((detailsRes.data as unknown as WorkerProfileDetails[]) ?? []).map((d) => [d.profile_id, d])
+      );
+      for (const app of applications) {
+        if (app.worker) {
+          applicantOccupations.set(
+            app.worker_id,
+            getWorkerPrimaryTitle(app.worker, detailsByWorker.get(app.worker_id) ?? null)
+          );
+        }
+      }
+      for (const r of (ratingsRes.data as unknown as RatingSummary[]) ?? []) {
+        applicantRatings.set(r.profile_id, r);
+      }
+    }
   } else if (profile?.role === "worker" && user) {
     const { data } = await supabase
       .from("job_applications")
@@ -353,8 +383,11 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                   <ApplicantRow
                     key={app.id}
                     applicationId={app.id}
+                    jobId={typedJob.id}
                     status={app.status}
                     worker={app.worker!}
+                    occupation={applicantOccupations.get(app.worker_id)}
+                    ratingSummary={applicantRatings.get(app.worker_id) ?? null}
                     canManage={typedJob.status === "abierto"}
                   />
                 ))}

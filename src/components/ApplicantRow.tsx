@@ -1,22 +1,34 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, X, MapPin, AlertCircle } from "lucide-react";
+import Link from "next/link";
+import { Check, X, MapPin, AlertCircle, Star, UserCircle2 } from "lucide-react";
 import { updateApplicationStatus } from "@/lib/actions/jobs";
 import { applicationStatusLabel } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toaster";
-import type { Profile } from "@/lib/types";
+import type { Profile, RatingSummary } from "@/lib/types";
 
 interface ApplicantRowProps {
   applicationId: string;
+  jobId: string;
   status: string;
   worker: Profile;
+  occupation?: string | null;
+  ratingSummary?: RatingSummary | null;
   canManage: boolean;
 }
 
-export function ApplicantRow({ applicationId, status, worker, canManage }: ApplicantRowProps) {
+export function ApplicantRow({
+  applicationId,
+  jobId,
+  status,
+  worker,
+  occupation,
+  ratingSummary,
+  canManage,
+}: ApplicantRowProps) {
   const [isPending, startTransition] = useTransition();
   const [confirmingAccept, setConfirmingAccept] = useState(false);
   const toast = useToast();
@@ -47,21 +59,36 @@ export function ApplicantRow({ applicationId, status, worker, canManage }: Appli
 
   return (
     <div className="border-b border-slate-100 py-4 last:border-0">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar name={worker.full_name} src={worker.avatar_url} size="md" />
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-ink">{worker.full_name}</p>
             <p className="flex items-center gap-1 truncate text-xs text-ink-muted">
-              {worker.category ?? "Sin categoría"}
+              {occupation || worker.category || "Sin categoría"}
               <span aria-hidden>·</span>
               <MapPin className="h-3 w-3" />
               {worker.city ?? "Sin ciudad"}
             </p>
+            {ratingSummary ? (
+              <p className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-ink">
+                <Star className="h-3 w-3 fill-current text-warning-500" />
+                {ratingSummary.average_score} · {ratingSummary.total_ratings} reseñas
+              </p>
+            ) : (
+              <p className="mt-0.5 text-[11px] text-ink-muted">Sin calificaciones aún</p>
+            )}
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Link
+            href={`/workers/${worker.id}?job=${jobId}`}
+            className="btn-secondary !min-h-0 !rounded-xl !px-3 !py-2 text-xs"
+          >
+            <UserCircle2 className="h-3.5 w-3.5" />
+            Ver perfil
+          </Link>
           {status === "pendiente" && canManage && !confirmingAccept ? (
             <>
               <button
