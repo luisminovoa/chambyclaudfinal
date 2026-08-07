@@ -31,7 +31,7 @@ export default async function WorkerProfilePage({ params, searchParams }: Worker
             title="No podemos mostrar este perfil"
             description="El trabajador no existe o todavía no tienes acceso a su perfil — solo puedes ver el de trabajadores que postularon a tus publicaciones."
             actionLabel="Volver al panel"
-            actionHref="/dashboard/employer"
+            actionHref="/dashboard"
           />
         </Reveal>
       ) : (

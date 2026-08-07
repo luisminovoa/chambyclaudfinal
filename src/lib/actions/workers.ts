@@ -50,6 +50,24 @@ export async function getWorkerPublicProfile(
   workerId: string,
   jobId?: string
 ): Promise<WorkerPublicProfile | null> {
+  try {
+    return await fetchWorkerPublicProfile(workerId, jobId);
+  } catch (err) {
+    // supabase-js puede lanzar (no solo devolver { error }) ante fallas de
+    // red/timeout antes de llegar a Postgres — ver src/lib/format-supabase-error.ts,
+    // mismo mecanismo que ya se documentó para profile.ts. Sin este catch,
+    // esta página nunca debe mostrar el boundary de error genérico: se
+    // trata como "no disponible" y cae al EmptyState, igual que cualquier
+    // otro caso de no autorizado o no encontrado.
+    console.error("[getWorkerPublicProfile] excepción no capturada:", err);
+    return null;
+  }
+}
+
+async function fetchWorkerPublicProfile(
+  workerId: string,
+  jobId?: string
+): Promise<WorkerPublicProfile | null> {
   const supabase = createClient();
   const {
     data: { user },
