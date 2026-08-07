@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SearchX } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { JobCard } from "@/components/JobCard";
 import { SearchFilters } from "@/components/SearchFilters";
 import { Reveal } from "@/components/ui/Reveal";
@@ -20,6 +21,7 @@ interface JobsPageProps {
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = createClient();
+  const { user, profile } = await getCurrentUserAndProfile();
 
   let query = supabase
     .from("jobs")
@@ -69,7 +71,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {typedJobs.map((job, i) => (
                 <Reveal key={job.id} delay={Math.min(i * 0.04, 0.2)}>
-                  <JobCard job={job} />
+                  <JobCard job={job} currentUserId={user?.id ?? null} viewerRole={profile?.role ?? null} />
                 </Reveal>
               ))}
             </div>

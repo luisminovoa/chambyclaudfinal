@@ -8,19 +8,13 @@ export const metadata: Metadata = {
   description: "Ingresa a tu cuenta de Chamby para buscar chambas o gestionar tus publicaciones.",
 };
 
-const OAUTH_ERRORS: Record<string, string> = {
-  oauth_cancelled: "Cancelaste el inicio de sesión con Google.",
-  oauth_failed:
-    "No se pudo completar el inicio de sesión con Google. Intenta de nuevo.",
-};
-
 export default function LoginPage({
   searchParams,
 }: {
   searchParams: { next?: string; error?: string };
 }) {
-  const oauthError = searchParams.error ? OAUTH_ERRORS[searchParams.error] : undefined;
-
+  // El mapeo código → mensaje vive en LoginForm (única fuente, evita que
+  // esta página y el componente se desincronicen con dos listas de errores).
   return (
     <div className="relative mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-4 py-12 sm:px-6">
       <div
@@ -33,11 +27,13 @@ export default function LoginPage({
           <div className="p-8">
             <LogoCompacto className="h-12 w-12" />
             <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">
-              Bienvenido de vuelta
+              Bienvenido a Chamby
             </h1>
-            <p className="mt-1 text-sm text-ink-muted">Ingresa a tu cuenta de Chamby</p>
+            <p className="mt-1 text-sm text-ink-muted">
+              Encuentra trabajo o contrata personal de forma rápida.
+            </p>
             <div className="mt-6">
-              <LoginForm next={searchParams.next} oauthError={oauthError} />
+              <LoginForm next={searchParams.next} oauthError={searchParams.error} />
             </div>
           </div>
         </div>

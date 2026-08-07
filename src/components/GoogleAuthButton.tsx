@@ -25,13 +25,23 @@ function GoogleIcon() {
   );
 }
 
-export function GoogleAuthButton() {
+interface GoogleAuthButtonProps {
+  /** Ruta interna a la que volver tras completar el login (propagada por /auth/callback). */
+  next?: string;
+  /** CTA principal (login/registro): más alto y con más peso visual. */
+  size?: "default" | "primary";
+}
+
+export function GoogleAuthButton({ next, size = "default" }: GoogleAuthButtonProps) {
   async function handleGoogleLogin() {
     const supabase = createClient();
+    const callbackUrl = new URL(`${window.location.origin}/auth/callback`);
+    if (next) callbackUrl.searchParams.set("next", next);
+
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl.toString(),
       },
     });
   }
@@ -40,7 +50,11 @@ export function GoogleAuthButton() {
     <button
       type="button"
       onClick={handleGoogleLogin}
-      className="btn-secondary w-full !gap-2"
+      className={
+        size === "primary"
+          ? "btn-secondary min-h-[52px] w-full !gap-2.5 !border-slate-300 !text-ink text-base shadow-soft"
+          : "btn-secondary min-h-[48px] w-full !gap-2 !border-slate-300 !text-ink"
+      }
     >
       <GoogleIcon />
       Continuar con Google

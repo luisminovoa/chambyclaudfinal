@@ -52,6 +52,7 @@ export default async function WorkerProfilePage() {
       documents={documents as VerificationDocument[]}
       experience={experience as WorkerExperience[]}
       initialStats={stats}
+      userRoles={userRoles}
     />
   );
 }

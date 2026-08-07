@@ -1,12 +1,30 @@
 import Link from "next/link";
 import { MapPin, Clock, CalendarDays } from "lucide-react";
-import type { JobWithEmployer } from "@/lib/types";
+import type { JobWithEmployer, UserRole } from "@/lib/types";
 import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { JobCardActions } from "@/components/JobCardActions";
+import { canShowApplyButton } from "@/lib/job-apply-access";
 
-export function JobCard({ job }: { job: JobWithEmployer }) {
+interface JobCardProps {
+  job: JobWithEmployer;
+  /**
+   * Requerido (no opcional): un valor ausente colapsaría isOwner a false
+   * silenciosamente y mostraría "Postular" en el trabajo propio del
+   * empleador — exactamente el bug que dejó pasar /app/page.tsx antes de
+   * este fix. Al ser obligatorio, un nuevo call site que lo olvide falla
+   * en build (tsc/lint), no en producción.
+   */
+  currentUserId: string | null;
+  /** Modo activo del usuario — decide si "Postular" se muestra (ver canShowApplyButton). */
+  viewerRole: UserRole | null;
+}
+
+export function JobCard({ job, currentUserId, viewerRole }: JobCardProps) {
+  const isOwner = Boolean(currentUserId) && currentUserId === job.employer_id;
+  const showApply = canShowApplyButton({ viewerRole, isOwner });
+
   return (
     <article className="card card-hover group relative flex flex-col p-5">
       <div className="flex items-start justify-between gap-3">
@@ -23,6 +41,12 @@ export function JobCard({ job }: { job: JobWithEmployer }) {
                 {job.title}
               </Link>
             </h3>
+            <Link
+              href={`/employers/${job.employer_id}`}
+              className="relative z-10 inline-block text-[11px] font-semibold text-primary-600 hover:text-primary-700 hover:underline"
+            >
+              Ver empleador
+            </Link>
           </div>
         </div>
         <Badge tone={jobStatusTone(job.status)} className="shrink-0">
@@ -51,7 +75,7 @@ export function JobCard({ job }: { job: JobWithEmployer }) {
         <p className="text-base font-extrabold tracking-tight text-primary-600">
           {formatCurrency(job.pay_amount)}
         </p>
-        <JobCardActions jobId={job.id} jobTitle={job.title} />
+        <JobCardActions jobId={job.id} jobTitle={job.title} isOwner={isOwner} showApply={showApply} />
       </div>
     </article>
   );

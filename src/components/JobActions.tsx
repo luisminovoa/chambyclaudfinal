@@ -58,14 +58,14 @@ export function JobActions({ jobId, jobStatus }: JobActionsProps) {
                   <button
                     disabled={isPending}
                     onClick={handleComplete}
-                    className="btn-primary !min-h-0 !rounded-xl !px-4 !py-2 text-sm"
+                    className="btn-primary !rounded-xl !px-4 !py-2 text-sm"
                   >
                     Sí, completar
                   </button>
                   <button
                     disabled={isPending}
                     onClick={() => setConfirmingComplete(false)}
-                    className="btn-ghost !min-h-0 !rounded-xl !px-4 !py-2 text-sm"
+                    className="btn-ghost !rounded-xl !px-4 !py-2 text-sm"
                   >
                     Cancelar
                   </button>
@@ -99,14 +99,14 @@ export function JobActions({ jobId, jobStatus }: JobActionsProps) {
                   <button
                     disabled={isPending}
                     onClick={handleCancel}
-                    className="btn-danger !min-h-0 !rounded-xl !px-4 !py-2 text-sm"
+                    className="btn-danger !rounded-xl !px-4 !py-2 text-sm"
                   >
                     Sí, cancelar
                   </button>
                   <button
                     disabled={isPending}
                     onClick={() => setConfirmingCancel(false)}
-                    className="btn-ghost !min-h-0 !rounded-xl !px-4 !py-2 text-sm"
+                    className="btn-ghost !rounded-xl !px-4 !py-2 text-sm"
                   >
                     Volver
                   </button>

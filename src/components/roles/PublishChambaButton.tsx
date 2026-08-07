@@ -24,7 +24,7 @@ export function PublishChambaButton({ hasEmployerRole }: PublishChambaButtonProp
       type="button"
       onClick={activate}
       disabled={isPending}
-      className="btn-primary !min-h-0 gap-1.5 !px-3 !py-2 text-sm disabled:opacity-60"
+      className="btn-primary gap-1.5 !px-3 !py-2 text-sm disabled:opacity-60"
       aria-label="Publicar Chamba"
     >
       <Plus className="h-4 w-4" />

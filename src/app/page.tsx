@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Sparkles, UserPlus, SearchCheck, Star, BadgeCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { JobCard } from "@/components/JobCard";
 import { HeroSearch } from "@/components/HeroSearch";
 import { Reveal } from "@/components/ui/Reveal";
@@ -14,7 +15,8 @@ import type { JobWithEmployer, Profile } from "@/lib/types";
 export default async function HomePage() {
   const supabase = createClient();
 
-  const [{ data: jobs }, { data: employers }] = await Promise.all([
+  const [{ user, profile }, { data: jobs }, { data: employers }] = await Promise.all([
+    getCurrentUserAndProfile(),
     supabase
       .from("jobs")
       .select("*, employer:profiles!jobs_employer_id_fkey(id, full_name, avatar_url, city)")
@@ -139,7 +141,7 @@ export default async function HomePage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {typedJobs.map((job, i) => (
               <Reveal key={job.id} delay={Math.min(i * 0.05, 0.25)}>
-                <JobCard job={job} />
+                <JobCard job={job} currentUserId={user?.id ?? null} viewerRole={profile?.role ?? null} />
               </Reveal>
             ))}
           </div>

@@ -17,7 +17,28 @@ function readSaved(): string[] {
   }
 }
 
-export function JobCardActions({ jobId, jobTitle }: { jobId: string; jobTitle: string }) {
+interface JobCardActionsProps {
+  jobId: string;
+  jobTitle: string;
+  isOwner?: boolean;
+  /** Ya calculado por el caller vía canShowApplyButton() (src/lib/job-apply-access.ts). */
+  showApply?: boolean;
+  /**
+   * Si se pasa, "Postular" hace scroll suave a este id en vez de navegar —
+   * evita el bug reportado en /jobs/[id]: ahí el botón navegaba a la misma
+   * URL en la que ya se está parado, así que visualmente no pasaba nada.
+   * Sin este prop (uso en tarjetas de listado), sigue navegando al detalle.
+   */
+  scrollTargetId?: string;
+}
+
+export function JobCardActions({
+  jobId,
+  jobTitle,
+  isOwner = false,
+  showApply = !isOwner,
+  scrollTargetId,
+}: JobCardActionsProps) {
   const [saved, setSaved] = useState(false);
   const toast = useToast();
   const router = useRouter();
@@ -51,6 +72,14 @@ export function JobCardActions({ jobId, jobTitle }: { jobId: string; jobTitle: s
     }
   }
 
+  function handleApplyClick() {
+    if (scrollTargetId) {
+      document.getElementById(scrollTargetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      router.push(`/jobs/${jobId}`);
+    }
+  }
+
   return (
     <div className="relative z-10 flex items-center gap-1.5">
       <motion.button
@@ -59,7 +88,7 @@ export function JobCardActions({ jobId, jobTitle }: { jobId: string; jobTitle: s
         aria-label={saved ? "Quitar de guardados" : "Guardar empleo"}
         aria-pressed={saved}
         className={cn(
-          "flex h-9 w-9 items-center justify-center rounded-xl transition-colors duration-200",
+          "flex h-11 w-11 items-center justify-center rounded-xl transition-colors duration-200",
           saved
             ? "bg-primary-50 text-primary-600"
             : "text-slate-500 hover:bg-slate-100 hover:text-ink"
@@ -71,16 +100,15 @@ export function JobCardActions({ jobId, jobTitle }: { jobId: string; jobTitle: s
         whileTap={{ scale: 0.85 }}
         onClick={share}
         aria-label="Compartir empleo"
-        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition-colors duration-200 hover:bg-slate-100 hover:text-ink"
+        className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 transition-colors duration-200 hover:bg-slate-100 hover:text-ink"
       >
         <Share2 className="h-4 w-4" />
       </motion.button>
-      <button
-        onClick={() => router.push(`/jobs/${jobId}`)}
-        className="btn-primary !min-h-0 !px-4 !py-2 text-xs"
-      >
-        Postular
-      </button>
+      {showApply && (
+        <button onClick={handleApplyClick} className="btn-primary !px-4 !py-2 text-xs">
+          Postular
+        </button>
+      )}
     </div>
   );
 }

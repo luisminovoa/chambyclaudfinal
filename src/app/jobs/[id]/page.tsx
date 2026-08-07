@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { MapPin, Wallet, CalendarDays, Users, FileText, ChevronRight, PartyPopper } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
+import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
 import { ApplyForm } from "@/components/ApplyForm";
 import { ApplicantRow } from "@/components/ApplicantRow";
@@ -18,12 +19,14 @@ import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { JobCardActions } from "@/components/JobCardActions";
+import { canShowApplyButton } from "@/lib/job-apply-access";
 import type {
   JobWithEmployer,
   ApplicationWithProfiles,
   RatingSummary,
   StateHistoryEntry,
   Profile,
+  WorkerProfileDetails,
 } from "@/lib/types";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
@@ -60,6 +63,11 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   const typedJob = job as unknown as JobWithEmployer;
   const isOwner = user?.id === typedJob.employer_id;
   const isAssignedWorker = user?.id === typedJob.assigned_worker_id;
+  // El botón del header solo debe aparecer si el trabajo sigue abierto —
+  // a diferencia de las tarjetas de listado (que ya solo traen trabajos
+  // "abierto"), esta página muestra cualquier estado.
+  const showApply =
+    canShowApplyButton({ viewerRole: profile?.role ?? null, isOwner }) && typedJob.status === "abierto";
   const jobCompleted = typedJob.status === "completado";
 
   // Fetch em parallel: employer rating, state history, assigned worker profile
@@ -97,6 +105,8 @@ export default async function JobDetailPage({ params }: { params: { id: string }
 
   let applications: ApplicationWithProfiles[] = [];
   let myApplication: ApplicationWithProfiles | null = null;
+  const applicantOccupations = new Map<string, string>();
+  const applicantRatings = new Map<string, RatingSummary>();
 
   if (isOwner) {
     const { data } = await supabase
@@ -105,6 +115,32 @@ export default async function JobDetailPage({ params }: { params: { id: string }
       .eq("job_id", typedJob.id)
       .order("created_at", { ascending: false });
     applications = (data as unknown as ApplicationWithProfiles[]) ?? [];
+
+    const workerIds = applications.map((a) => a.worker_id);
+    if (workerIds.length > 0) {
+      // Ya confirmamos isOwner arriba — relación legítima para leer el
+      // título profesional de estos postulantes (owner-only por RLS,
+      // mismo patrón que getWorkerPublicProfile en src/lib/actions/workers.ts).
+      const admin = createAdminClient();
+      const [detailsRes, ratingsRes] = await Promise.all([
+        admin.from("worker_profile_details").select("*").in("profile_id", workerIds),
+        supabase.from("rating_summary").select("*").in("profile_id", workerIds),
+      ]);
+      const detailsByWorker = new Map(
+        ((detailsRes.data as unknown as WorkerProfileDetails[]) ?? []).map((d) => [d.profile_id, d])
+      );
+      for (const app of applications) {
+        if (app.worker) {
+          applicantOccupations.set(
+            app.worker_id,
+            getWorkerPrimaryTitle(app.worker, detailsByWorker.get(app.worker_id) ?? null)
+          );
+        }
+      }
+      for (const r of (ratingsRes.data as unknown as RatingSummary[]) ?? []) {
+        applicantRatings.set(r.profile_id, r);
+      }
+    }
   } else if (profile?.role === "worker" && user) {
     const { data } = await supabase
       .from("job_applications")
@@ -203,7 +239,13 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                   {typedJob.address ? ` · ${typedJob.address}` : ""}
                 </p>
               </div>
-              <JobCardActions jobId={typedJob.id} jobTitle={typedJob.title} />
+              <JobCardActions
+                jobId={typedJob.id}
+                jobTitle={typedJob.title}
+                isOwner={isOwner}
+                showApply={showApply}
+                scrollTargetId="postular"
+              />
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -246,23 +288,31 @@ export default async function JobDetailPage({ params }: { params: { id: string }
             </div>
 
             {/* Perfil del empleador */}
-            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-              <Avatar name={typedJob.employer?.full_name ?? "?"} src={typedJob.employer?.avatar_url} size="lg" />
-              <div>
-                <p className="text-sm font-bold text-ink">{typedJob.employer?.full_name}</p>
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted">
-                  {employerRating ? (
-                    <>
-                      <RatingStars value={Math.round(employerRating.average_score)} readOnly size="sm" />
-                      <span className="font-medium">
-                        {employerRating.average_score} · {employerRating.total_ratings} reseñas
-                      </span>
-                    </>
-                  ) : (
-                    <span>Sin calificaciones aún</span>
-                  )}
+            <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar name={typedJob.employer?.full_name ?? "?"} src={typedJob.employer?.avatar_url} size="lg" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-ink">{typedJob.employer?.full_name}</p>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted">
+                    {employerRating ? (
+                      <>
+                        <RatingStars value={Math.round(employerRating.average_score)} readOnly size="sm" />
+                        <span className="font-medium">
+                          {employerRating.average_score} · {employerRating.total_ratings} reseñas
+                        </span>
+                      </>
+                    ) : (
+                      <span>Sin calificaciones aún</span>
+                    )}
+                  </div>
                 </div>
               </div>
+              <Link
+                href={`/employers/${typedJob.employer_id}`}
+                className="btn-secondary shrink-0 !rounded-xl !px-3 !py-2 text-xs"
+              >
+                Ver empleador
+              </Link>
             </div>
 
             {/* Trabajador asignado */}
@@ -290,7 +340,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
       {/* Postular (trabajador, trabajo abierto) */}
       {profile?.role === "worker" && typedJob.status === "abierto" && !isOwner && (
         <Reveal delay={0.05}>
-          <div className="card mt-6 p-6">
+          <div id="postular" className="card mt-6 scroll-mt-20 p-6">
             <h2 className="text-base font-bold text-ink">Postular a este trabajo</h2>
             {myApplication ? (
               <div className="mt-4 rounded-2xl bg-primary-50/60 p-4">
@@ -317,7 +367,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
 
       {!user && typedJob.status === "abierto" && (
         <Reveal delay={0.05}>
-          <div className="card mt-6 p-8 text-center">
+          <div id="postular" className="card mt-6 scroll-mt-20 p-8 text-center">
             <p className="text-ink-muted">
               <Link
                 href={`/login?next=${encodeURIComponent(`/jobs/${typedJob.id}`)}`}
@@ -353,8 +403,11 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                   <ApplicantRow
                     key={app.id}
                     applicationId={app.id}
+                    jobId={typedJob.id}
                     status={app.status}
                     worker={app.worker!}
+                    occupation={applicantOccupations.get(app.worker_id)}
+                    ratingSummary={applicantRatings.get(app.worker_id) ?? null}
                     canManage={typedJob.status === "abierto"}
                   />
                 ))}

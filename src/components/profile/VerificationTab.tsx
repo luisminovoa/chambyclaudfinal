@@ -12,7 +12,7 @@ import type {
   WorkerExperience,
 } from "@/lib/types";
 
-const BADGE_CONFIG = {
+export const BADGE_CONFIG = {
   identity_verified: {
     label: "Identidad verificada",
     description: "DNI revisado y aprobado por Chamby",

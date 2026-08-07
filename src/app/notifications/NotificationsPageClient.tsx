@@ -39,7 +39,7 @@ function applyFilter(notifications: Notification[], filter: Filter): Notificatio
 }
 
 function getNavPath(n: Notification): string | null {
-  if (n.type === "new_message" && n.conversation_id) return `/messages/${n.conversation_id}`;
+  if (n.conversation_id) return `/messages/${n.conversation_id}`;
   if (n.job_id) return `/jobs/${n.job_id}`;
   return null;
 }
@@ -190,7 +190,7 @@ export function NotificationsPageClient({
                 type="button"
                 onClick={handleLoadMore}
                 disabled={loading}
-                className="btn-ghost !min-h-0 !px-5 !py-2 text-sm"
+                className="btn-ghost !px-5 !py-2 text-sm"
               >
                 {loading ? "Cargando…" : "Ver más notificaciones"}
               </button>
