@@ -88,7 +88,7 @@ export function JobCardActions({
         aria-label={saved ? "Quitar de guardados" : "Guardar empleo"}
         aria-pressed={saved}
         className={cn(
-          "flex h-9 w-9 items-center justify-center rounded-xl transition-colors duration-200",
+          "flex h-11 w-11 items-center justify-center rounded-xl transition-colors duration-200",
           saved
             ? "bg-primary-50 text-primary-600"
             : "text-slate-500 hover:bg-slate-100 hover:text-ink"
@@ -100,12 +100,12 @@ export function JobCardActions({
         whileTap={{ scale: 0.85 }}
         onClick={share}
         aria-label="Compartir empleo"
-        className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition-colors duration-200 hover:bg-slate-100 hover:text-ink"
+        className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 transition-colors duration-200 hover:bg-slate-100 hover:text-ink"
       >
         <Share2 className="h-4 w-4" />
       </motion.button>
       {showApply && (
-        <button onClick={handleApplyClick} className="btn-primary !min-h-0 !px-4 !py-2 text-xs">
+        <button onClick={handleApplyClick} className="btn-primary !px-4 !py-2 text-xs">
           Postular
         </button>
       )}

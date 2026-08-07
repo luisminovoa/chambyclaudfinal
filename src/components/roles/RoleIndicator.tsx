@@ -56,7 +56,7 @@ export function RoleIndicator({ role, hasWorkerRole, hasEmployerRole }: RoleIndi
       aria-expanded={canSwitch ? open : undefined}
       disabled={isPending}
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-ink-muted transition-colors disabled:opacity-60 sm:px-2.5 sm:text-xs",
+        "flex min-h-[44px] items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-semibold text-ink-muted transition-colors disabled:opacity-60 sm:text-xs",
         canSwitch && "hover:bg-slate-50"
       )}
     >
@@ -86,7 +86,7 @@ export function RoleIndicator({ role, hasWorkerRole, hasEmployerRole }: RoleIndi
                 setOpen(false);
                 (r === "worker" ? toWorker : toEmployer).activate();
               }}
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-ink-muted transition-colors hover:bg-primary-50 hover:text-primary-700 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
+              className="flex min-h-[44px] w-full items-center gap-2 rounded-xl px-3 text-left text-sm font-medium text-ink-muted transition-colors hover:bg-primary-50 hover:text-primary-700 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
             >
               <span className={cn("h-2 w-2 rounded-full", ROLE_META[r].dot)} aria-hidden />
               {ROLE_META[r].label}

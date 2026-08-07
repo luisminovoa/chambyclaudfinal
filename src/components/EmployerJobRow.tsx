@@ -60,7 +60,7 @@ export function EmployerJobRow({ job, applicantsCount }: { job: Job; applicantsC
             <button
               disabled={isPending}
               onClick={() => handleStatusChange("completado")}
-              className="btn-accent !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+              className="btn-accent !rounded-xl !px-3 !py-1.5 text-xs"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
               Completar
@@ -70,7 +70,7 @@ export function EmployerJobRow({ job, applicantsCount }: { job: Job; applicantsC
             <button
               disabled={isPending}
               onClick={() => handleStatusChange("cancelado")}
-              className="btn-ghost !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+              className="btn-ghost !rounded-xl !px-3 !py-1.5 text-xs"
             >
               <XCircle className="h-3.5 w-3.5" />
               Cancelar
@@ -79,7 +79,7 @@ export function EmployerJobRow({ job, applicantsCount }: { job: Job; applicantsC
           <button
             disabled={isPending}
             onClick={() => setConfirmingDelete(true)}
-            className="btn-danger !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+            className="btn-danger !rounded-xl !px-3 !py-1.5 text-xs"
           >
             <Trash2 className="h-3.5 w-3.5" />
             Eliminar
@@ -105,14 +105,14 @@ export function EmployerJobRow({ job, applicantsCount }: { job: Job; applicantsC
               <div className="flex gap-2">
                 <button
                   onClick={() => setConfirmingDelete(false)}
-                  className="btn-ghost !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+                  className="btn-ghost !rounded-xl !px-3 !py-1.5 text-xs"
                 >
                   Conservar
                 </button>
                 <button
                   disabled={isPending}
                   onClick={handleDelete}
-                  className="btn !min-h-0 !rounded-xl bg-danger-500 !px-3 !py-1.5 text-xs text-white hover:bg-danger-600"
+                  className="btn !rounded-xl bg-danger-500 !px-3 !py-1.5 text-xs text-white hover:bg-danger-600"
                 >
                   Sí, eliminar
                 </button>

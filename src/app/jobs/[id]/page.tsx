@@ -309,7 +309,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
               </div>
               <Link
                 href={`/employers/${typedJob.employer_id}`}
-                className="btn-secondary !min-h-0 shrink-0 !rounded-xl !px-3 !py-2 text-xs"
+                className="btn-secondary shrink-0 !rounded-xl !px-3 !py-2 text-xs"
               >
                 Ver empleador
               </Link>

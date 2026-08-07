@@ -38,14 +38,14 @@ export function WithdrawButton({ applicationId }: WithdrawButtonProps) {
             <button
               disabled={isPending}
               onClick={handleWithdraw}
-              className="btn-ghost !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs !text-danger-600 hover:!bg-danger-50"
+              className="btn-ghost !rounded-xl !px-3 !py-1.5 text-xs !text-danger-600 hover:!bg-danger-50"
             >
               Sí, retirar
             </button>
             <button
               disabled={isPending}
               onClick={() => setConfirming(false)}
-              className="btn-ghost !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+              className="btn-ghost !rounded-xl !px-3 !py-1.5 text-xs"
             >
               Cancelar
             </button>
@@ -59,7 +59,7 @@ export function WithdrawButton({ applicationId }: WithdrawButtonProps) {
     <button
       disabled={isPending}
       onClick={() => setConfirming(true)}
-      className="btn-ghost !min-h-0 !rounded-xl !px-3 !py-2 text-xs !text-ink-muted"
+      className="btn-ghost !rounded-xl !px-3 !py-2 text-xs !text-ink-muted"
     >
       <Undo2 className="h-3.5 w-3.5" />
       Retirar postulación

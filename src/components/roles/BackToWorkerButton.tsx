@@ -20,7 +20,7 @@ export function BackToWorkerButton() {
       type="button"
       onClick={activate}
       disabled={isPending}
-      className="btn-secondary !min-h-0 gap-1.5 !px-3 !py-2 text-sm disabled:opacity-60"
+      className="btn-secondary gap-1.5 !px-3 !py-2 text-sm disabled:opacity-60"
     >
       <ArrowLeftRight className="h-4 w-4" />
       Volver a modo Trabajador

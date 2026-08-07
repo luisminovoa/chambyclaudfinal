@@ -73,7 +73,7 @@ export async function Navbar() {
               <form action={logout} className="sm:hidden">
                 <button
                   type="submit"
-                  className="btn-ghost !min-h-0 !px-3 !py-2 text-sm"
+                  className="btn-ghost !px-3 !py-2 text-sm"
                   aria-label="Cerrar sesión"
                 >
                   <LogOut className="h-4 w-4" />
@@ -82,10 +82,10 @@ export async function Navbar() {
             </>
           ) : (
             <>
-              <Link href="/login" className="btn-ghost !min-h-0 !px-3 !py-2 text-sm sm:!px-3.5">
+              <Link href="/login" className="btn-ghost !px-3 !py-2 text-sm sm:!px-3.5">
                 Ingresar
               </Link>
-              <Link href="/register" className="btn-primary !min-h-0 !px-3.5 !py-2 text-sm sm:!px-4">
+              <Link href="/register" className="btn-primary !px-3.5 !py-2 text-sm sm:!px-4">
                 Crear cuenta
               </Link>
             </>

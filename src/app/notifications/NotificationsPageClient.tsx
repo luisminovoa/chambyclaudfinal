@@ -190,7 +190,7 @@ export function NotificationsPageClient({
                 type="button"
                 onClick={handleLoadMore}
                 disabled={loading}
-                className="btn-ghost !min-h-0 !px-5 !py-2 text-sm"
+                className="btn-ghost !px-5 !py-2 text-sm"
               >
                 {loading ? "Cargando…" : "Ver más notificaciones"}
               </button>

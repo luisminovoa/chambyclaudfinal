@@ -84,7 +84,7 @@ export function ApplicantRow({
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Link
             href={`/workers/${worker.id}?job=${jobId}`}
-            className="btn-secondary !min-h-0 !rounded-xl !px-3 !py-2 text-xs"
+            className="btn-secondary !rounded-xl !px-3 !py-2 text-xs"
           >
             <UserCircle2 className="h-3.5 w-3.5" />
             Ver trabajador
@@ -94,7 +94,7 @@ export function ApplicantRow({
               <button
                 disabled={isPending}
                 onClick={() => setConfirmingAccept(true)}
-                className="btn-accent !min-h-0 !rounded-xl !px-3 !py-2 text-xs"
+                className="btn-accent !rounded-xl !px-3 !py-2 text-xs"
               >
                 <Check className="h-3.5 w-3.5" />
                 Aceptar
@@ -102,7 +102,7 @@ export function ApplicantRow({
               <button
                 disabled={isPending}
                 onClick={handleReject}
-                className="btn-danger !min-h-0 !rounded-xl !px-3 !py-2 text-xs"
+                className="btn-danger !rounded-xl !px-3 !py-2 text-xs"
               >
                 <X className="h-3.5 w-3.5" />
                 Rechazar
@@ -127,14 +127,14 @@ export function ApplicantRow({
               <button
                 disabled={isPending}
                 onClick={handleAcceptConfirmed}
-                className="btn-accent !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+                className="btn-accent !rounded-xl !px-3 !py-1.5 text-xs"
               >
                 Confirmar contratación
               </button>
               <button
                 disabled={isPending}
                 onClick={() => setConfirmingAccept(false)}
-                className="btn-ghost !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+                className="btn-ghost !rounded-xl !px-3 !py-1.5 text-xs"
               >
                 Cancelar
               </button>

@@ -55,7 +55,7 @@ export function RegisterForm({ next }: { next?: string }) {
             Te enviamos un enlace de confirmación. Haz clic en él para activar tu cuenta.
           </p>
         </div>
-        <Link href="/login" className="btn-ghost !min-h-0 !px-5 !py-2 text-sm">
+        <Link href="/login" className="btn-ghost !px-5 !py-2 text-sm">
           Ir al login
         </Link>
       </div>

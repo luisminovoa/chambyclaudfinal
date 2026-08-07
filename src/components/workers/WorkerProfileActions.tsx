@@ -156,14 +156,14 @@ export function WorkerProfileActions({
               <button
                 disabled={isPending}
                 onClick={handleAcceptConfirmed}
-                className="btn-accent !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+                className="btn-accent !rounded-xl !px-3 !py-1.5 text-xs"
               >
                 Confirmar contratación
               </button>
               <button
                 disabled={isPending}
                 onClick={() => setConfirmingAccept(false)}
-                className="btn-ghost !min-h-0 !rounded-xl !px-3 !py-1.5 text-xs"
+                className="btn-ghost !rounded-xl !px-3 !py-1.5 text-xs"
               >
                 Cancelar
               </button>
