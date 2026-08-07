@@ -19,6 +19,7 @@ import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { JobCardActions } from "@/components/JobCardActions";
+import { canShowApplyButton } from "@/lib/job-apply-access";
 import type {
   JobWithEmployer,
   ApplicationWithProfiles,
@@ -62,16 +63,11 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   const typedJob = job as unknown as JobWithEmployer;
   const isOwner = user?.id === typedJob.employer_id;
   const isAssignedWorker = user?.id === typedJob.assigned_worker_id;
-  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
-  // en trabajo propio. Server Component: esto imprime en el log del
-  // servidor/función (Vercel/Netlify), NO en la consola del navegador.
-  console.log("[DEBUG isOwner:JobDetailPage]", {
-    pathname: `/jobs/${typedJob.id}`,
-    jobId: typedJob.id,
-    currentUserId: user?.id ?? null,
-    employerId: typedJob.employer_id,
-    isOwner,
-  });
+  // El botón del header solo debe aparecer si el trabajo sigue abierto —
+  // a diferencia de las tarjetas de listado (que ya solo traen trabajos
+  // "abierto"), esta página muestra cualquier estado.
+  const showApply =
+    canShowApplyButton({ viewerRole: profile?.role ?? null, isOwner }) && typedJob.status === "abierto";
   const jobCompleted = typedJob.status === "completado";
 
   // Fetch em parallel: employer rating, state history, assigned worker profile
@@ -243,7 +239,13 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                   {typedJob.address ? ` · ${typedJob.address}` : ""}
                 </p>
               </div>
-              <JobCardActions jobId={typedJob.id} jobTitle={typedJob.title} isOwner={isOwner} />
+              <JobCardActions
+                jobId={typedJob.id}
+                jobTitle={typedJob.title}
+                isOwner={isOwner}
+                showApply={showApply}
+                scrollTargetId="postular"
+              />
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -338,7 +340,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
       {/* Postular (trabajador, trabajo abierto) */}
       {profile?.role === "worker" && typedJob.status === "abierto" && !isOwner && (
         <Reveal delay={0.05}>
-          <div className="card mt-6 p-6">
+          <div id="postular" className="card mt-6 scroll-mt-20 p-6">
             <h2 className="text-base font-bold text-ink">Postular a este trabajo</h2>
             {myApplication ? (
               <div className="mt-4 rounded-2xl bg-primary-50/60 p-4">
@@ -365,7 +367,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
 
       {!user && typedJob.status === "abierto" && (
         <Reveal delay={0.05}>
-          <div className="card mt-6 p-8 text-center">
+          <div id="postular" className="card mt-6 scroll-mt-20 p-8 text-center">
             <p className="text-ink-muted">
               <Link
                 href={`/login?next=${encodeURIComponent(`/jobs/${typedJob.id}`)}`}

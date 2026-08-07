@@ -8,6 +8,7 @@ import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { BetaBadge } from "@/components/beta/BetaBadge";
 import { PublishChambaButton } from "@/components/roles/PublishChambaButton";
 import { UserMenu } from "@/components/roles/UserMenu";
+import { RoleIndicator } from "@/components/roles/RoleIndicator";
 
 export async function Navbar() {
   const { user, profile, userRoles } = await getCurrentUserAndProfile();
@@ -18,7 +19,11 @@ export async function Navbar() {
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
         <div className="flex items-center gap-2">
           <LogoLink tone="color" withSlogan />
-          <BetaBadge />
+          {/* Oculto en móvil: el nuevo RoleIndicator ya ocupa ese espacio
+              en la barra superior y es más prioritario que el badge Beta. */}
+          <span className="hidden sm:inline-flex">
+            <BetaBadge />
+          </span>
         </div>
 
 
@@ -54,6 +59,11 @@ export async function Navbar() {
         <div className="flex items-center gap-2 sm:gap-3">
           {user && profile ? (
             <>
+              <RoleIndicator
+                role={profile.role}
+                hasWorkerRole={userRoles.includes("worker")}
+                hasEmployerRole={userRoles.includes("employer")}
+              />
               <PublishChambaButton hasEmployerRole={userRoles.includes("employer")} />
               <NotificationBell userId={user.id} initialUnreadCount={unreadCount} />
               <UserMenu profile={profile} userRoles={userRoles} />
@@ -72,10 +82,10 @@ export async function Navbar() {
             </>
           ) : (
             <>
-              <Link href="/login" className="btn-ghost hidden !min-h-0 !px-3.5 !py-2 text-sm sm:inline-flex">
+              <Link href="/login" className="btn-ghost !min-h-0 !px-3 !py-2 text-sm sm:!px-3.5">
                 Ingresar
               </Link>
-              <Link href="/register" className="btn-primary !min-h-0 !px-4 !py-2 text-sm">
+              <Link href="/register" className="btn-primary !min-h-0 !px-3.5 !py-2 text-sm sm:!px-4">
                 Crear cuenta
               </Link>
             </>

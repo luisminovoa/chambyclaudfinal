@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Bookmark, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,30 +21,31 @@ interface JobCardActionsProps {
   jobId: string;
   jobTitle: string;
   isOwner?: boolean;
+  /** Ya calculado por el caller vía canShowApplyButton() (src/lib/job-apply-access.ts). */
+  showApply?: boolean;
+  /**
+   * Si se pasa, "Postular" hace scroll suave a este id en vez de navegar —
+   * evita el bug reportado en /jobs/[id]: ahí el botón navegaba a la misma
+   * URL en la que ya se está parado, así que visualmente no pasaba nada.
+   * Sin este prop (uso en tarjetas de listado), sigue navegando al detalle.
+   */
+  scrollTargetId?: string;
 }
 
-export function JobCardActions({ jobId, jobTitle, isOwner = false }: JobCardActionsProps) {
+export function JobCardActions({
+  jobId,
+  jobTitle,
+  isOwner = false,
+  showApply = !isOwner,
+  scrollTargetId,
+}: JobCardActionsProps) {
   const [saved, setSaved] = useState(false);
   const toast = useToast();
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     setSaved(readSaved().includes(jobId));
   }, [jobId]);
-
-  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
-  // en trabajo propio. Client Component: esto imprime en la consola del
-  // NAVEGADOR, en cada render (incluida re-hidratación tras una navegación
-  // servida desde el Router Cache del cliente sin ir al servidor).
-  useEffect(() => {
-    console.log("[DEBUG isOwner:JobCardActions/client]", {
-      pathname,
-      jobId,
-      jobTitle,
-      isOwnerProp: isOwner,
-    });
-  }, [pathname, jobId, jobTitle, isOwner]);
 
   function toggleSave() {
     const current = readSaved();
@@ -68,6 +69,14 @@ export function JobCardActions({ jobId, jobTitle, isOwner = false }: JobCardActi
       }
     } catch {
       // El usuario canceló el diálogo de compartir
+    }
+  }
+
+  function handleApplyClick() {
+    if (scrollTargetId) {
+      document.getElementById(scrollTargetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      router.push(`/jobs/${jobId}`);
     }
   }
 
@@ -95,11 +104,8 @@ export function JobCardActions({ jobId, jobTitle, isOwner = false }: JobCardActi
       >
         <Share2 className="h-4 w-4" />
       </motion.button>
-      {!isOwner && (
-        <button
-          onClick={() => router.push(`/jobs/${jobId}`)}
-          className="btn-primary !min-h-0 !px-4 !py-2 text-xs"
-        >
+      {showApply && (
+        <button onClick={handleApplyClick} className="btn-primary !min-h-0 !px-4 !py-2 text-xs">
           Postular
         </button>
       )}

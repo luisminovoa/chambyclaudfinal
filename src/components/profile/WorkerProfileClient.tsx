@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Progress } from "@/components/ui/Progress";
 import { Reveal } from "@/components/ui/Reveal";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
+import { RoleSwitcherCard } from "@/components/roles/RoleSwitcherCard";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import type {
   Profile,
@@ -15,6 +16,7 @@ import type {
   ProfileStats,
   WorkerProfileDetails,
   WorkerExperience,
+  UserRole,
 } from "@/lib/types";
 
 interface WorkerProfileClientProps {
@@ -25,6 +27,7 @@ interface WorkerProfileClientProps {
   documents: VerificationDocument[];
   experience: WorkerExperience[];
   initialStats: ProfileStats | null;
+  userRoles: UserRole[];
 }
 
 export function WorkerProfileClient({
@@ -35,6 +38,7 @@ export function WorkerProfileClient({
   documents,
   experience,
   initialStats,
+  userRoles,
 }: WorkerProfileClientProps) {
   // Estado de completitud levantado aquí (en vez de dentro de ProfileTabs)
   // para que la barra del header y la de la pestaña Verificación se
@@ -91,6 +95,15 @@ export function WorkerProfileClient({
             </div>
           </div>
         </div>
+      </Reveal>
+
+      {/* Mis roles */}
+      <Reveal delay={0.08}>
+        <RoleSwitcherCard
+          role={profile.role}
+          hasWorkerRole={userRoles.includes("worker")}
+          hasEmployerRole={userRoles.includes("employer")}
+        />
       </Reveal>
 
       {/* Tabs */}

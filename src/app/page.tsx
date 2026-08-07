@@ -15,7 +15,7 @@ import type { JobWithEmployer, Profile } from "@/lib/types";
 export default async function HomePage() {
   const supabase = createClient();
 
-  const [{ user }, { data: jobs }, { data: employers }] = await Promise.all([
+  const [{ user, profile }, { data: jobs }, { data: employers }] = await Promise.all([
     getCurrentUserAndProfile(),
     supabase
       .from("jobs")
@@ -33,14 +33,6 @@ export default async function HomePage() {
   ]);
 
   const typedJobs = (jobs as unknown as JobWithEmployer[]) ?? [];
-  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
-  // en trabajo propio. Server Component: esto imprime en el log del
-  // servidor/función (Vercel/Netlify), NO en la consola del navegador.
-  console.log("[DEBUG currentUserId:HomePage]", {
-    pathname: "/",
-    currentUserId: user?.id ?? null,
-    jobIds: typedJobs.map((j) => j.id),
-  });
   const typedEmployers = (employers as unknown as Profile[]) ?? [];
 
   return (
@@ -149,7 +141,7 @@ export default async function HomePage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {typedJobs.map((job, i) => (
               <Reveal key={job.id} delay={Math.min(i * 0.05, 0.25)}>
-                <JobCard job={job} currentUserId={user?.id ?? null} />
+                <JobCard job={job} currentUserId={user?.id ?? null} viewerRole={profile?.role ?? null} />
               </Reveal>
             ))}
           </div>

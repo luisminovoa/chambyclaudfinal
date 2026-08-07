@@ -21,7 +21,7 @@ interface JobsPageProps {
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = createClient();
-  const { user } = await getCurrentUserAndProfile();
+  const { user, profile } = await getCurrentUserAndProfile();
 
   let query = supabase
     .from("jobs")
@@ -41,14 +41,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   const { data: jobs, error } = await query;
   const typedJobs = (jobs as unknown as JobWithEmployer[]) ?? [];
-  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
-  // en trabajo propio. Server Component: esto imprime en el log del
-  // servidor/función (Vercel/Netlify), NO en la consola del navegador.
-  console.log("[DEBUG currentUserId:JobsPage]", {
-    pathname: "/jobs",
-    currentUserId: user?.id ?? null,
-    jobIds: typedJobs.map((j) => j.id),
-  });
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
@@ -79,7 +71,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {typedJobs.map((job, i) => (
                 <Reveal key={job.id} delay={Math.min(i * 0.04, 0.2)}>
-                  <JobCard job={job} currentUserId={user?.id ?? null} />
+                  <JobCard job={job} currentUserId={user?.id ?? null} viewerRole={profile?.role ?? null} />
                 </Reveal>
               ))}
             </div>

@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { MapPin, Clock, CalendarDays } from "lucide-react";
-import type { JobWithEmployer } from "@/lib/types";
+import type { JobWithEmployer, UserRole } from "@/lib/types";
 import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { JobCardActions } from "@/components/JobCardActions";
+import { canShowApplyButton } from "@/lib/job-apply-access";
 
 interface JobCardProps {
   job: JobWithEmployer;
@@ -16,20 +17,14 @@ interface JobCardProps {
    * en build (tsc/lint), no en producción.
    */
   currentUserId: string | null;
+  /** Modo activo del usuario — decide si "Postular" se muestra (ver canShowApplyButton). */
+  viewerRole: UserRole | null;
 }
 
-export function JobCard({ job, currentUserId }: JobCardProps) {
+export function JobCard({ job, currentUserId, viewerRole }: JobCardProps) {
   const isOwner = Boolean(currentUserId) && currentUserId === job.employer_id;
-  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
-  // en trabajo propio. Server Component: esto imprime en el log del
-  // servidor/función (Vercel/Netlify), NO en la consola del navegador.
-  console.log("[DEBUG isOwner:JobCard]", {
-    jobId: job.id,
-    jobTitle: job.title,
-    currentUserId,
-    employerId: job.employer_id,
-    isOwner,
-  });
+  const showApply = canShowApplyButton({ viewerRole, isOwner });
+
   return (
     <article className="card card-hover group relative flex flex-col p-5">
       <div className="flex items-start justify-between gap-3">
@@ -80,7 +75,7 @@ export function JobCard({ job, currentUserId }: JobCardProps) {
         <p className="text-base font-extrabold tracking-tight text-primary-600">
           {formatCurrency(job.pay_amount)}
         </p>
-        <JobCardActions jobId={job.id} jobTitle={job.title} isOwner={isOwner} />
+        <JobCardActions jobId={job.id} jobTitle={job.title} isOwner={isOwner} showApply={showApply} />
       </div>
     </article>
   );
