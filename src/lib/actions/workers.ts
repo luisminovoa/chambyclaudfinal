@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { canViewWorkerProfile } from "@/lib/worker-profile-access";
 import type {
   Profile,
   WorkerProfileDetails,
@@ -82,11 +83,12 @@ async function fetchWorkerPublicProfile(
   const isAdmin = (viewerProfile as { role: string } | null)?.role === "admin";
   const isSelf = user.id === workerId;
 
-  let authorized = isSelf || isAdmin;
   let application: { id: string; status: string } | null = null;
 
-  if (!authorized) {
-    // ¿Este worker postuló a algún job del usuario actual?
+  // ¿Este worker postuló a algún job del usuario actual? Se consulta siempre
+  // que el viewer no sea el propio worker/admin, para que canViewWorkerProfile()
+  // reciba el dato real en vez de asumir el resultado.
+  if (!isSelf && !isAdmin) {
     const { data: appliedRow } = await supabase
       .from("job_applications")
       .select("id, status, job_id, jobs!inner(employer_id)")
@@ -96,10 +98,16 @@ async function fetchWorkerPublicProfile(
       .maybeSingle();
 
     if (appliedRow) {
-      authorized = true;
       application = { id: (appliedRow as { id: string }).id, status: (appliedRow as { status: string }).status };
     }
   }
+
+  const authorized = canViewWorkerProfile({
+    viewerId: user.id,
+    workerId,
+    viewerIsAdmin: isAdmin,
+    hasApplicationRelationship: application !== null,
+  });
 
   if (!authorized) return null;
 
