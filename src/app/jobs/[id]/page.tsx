@@ -62,6 +62,16 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   const typedJob = job as unknown as JobWithEmployer;
   const isOwner = user?.id === typedJob.employer_id;
   const isAssignedWorker = user?.id === typedJob.assigned_worker_id;
+  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
+  // en trabajo propio. Server Component: esto imprime en el log del
+  // servidor/función (Vercel/Netlify), NO en la consola del navegador.
+  console.log("[DEBUG isOwner:JobDetailPage]", {
+    pathname: `/jobs/${typedJob.id}`,
+    jobId: typedJob.id,
+    currentUserId: user?.id ?? null,
+    employerId: typedJob.employer_id,
+    isOwner,
+  });
   const jobCompleted = typedJob.status === "completado";
 
   // Fetch em parallel: employer rating, state history, assigned worker profile

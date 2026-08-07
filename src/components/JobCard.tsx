@@ -20,6 +20,16 @@ interface JobCardProps {
 
 export function JobCard({ job, currentUserId }: JobCardProps) {
   const isOwner = Boolean(currentUserId) && currentUserId === job.employer_id;
+  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
+  // en trabajo propio. Server Component: esto imprime en el log del
+  // servidor/función (Vercel/Netlify), NO en la consola del navegador.
+  console.log("[DEBUG isOwner:JobCard]", {
+    jobId: job.id,
+    jobTitle: job.title,
+    currentUserId,
+    employerId: job.employer_id,
+    isOwner,
+  });
   return (
     <article className="card card-hover group relative flex flex-col p-5">
       <div className="flex items-start justify-between gap-3">

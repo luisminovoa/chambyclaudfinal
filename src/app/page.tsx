@@ -33,6 +33,14 @@ export default async function HomePage() {
   ]);
 
   const typedJobs = (jobs as unknown as JobWithEmployer[]) ?? [];
+  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
+  // en trabajo propio. Server Component: esto imprime en el log del
+  // servidor/función (Vercel/Netlify), NO en la consola del navegador.
+  console.log("[DEBUG currentUserId:HomePage]", {
+    pathname: "/",
+    currentUserId: user?.id ?? null,
+    jobIds: typedJobs.map((j) => j.id),
+  });
   const typedEmployers = (employers as unknown as Profile[]) ?? [];
 
   return (

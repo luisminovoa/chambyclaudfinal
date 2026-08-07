@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { Bookmark, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -27,10 +27,24 @@ export function JobCardActions({ jobId, jobTitle, isOwner = false }: JobCardActi
   const [saved, setSaved] = useState(false);
   const toast = useToast();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     setSaved(readSaved().includes(jobId));
   }, [jobId]);
+
+  // DEBUG TEMPORAL — quitar tras diagnosticar el bug de "Postular" visible
+  // en trabajo propio. Client Component: esto imprime en la consola del
+  // NAVEGADOR, en cada render (incluida re-hidratación tras una navegación
+  // servida desde el Router Cache del cliente sin ir al servidor).
+  useEffect(() => {
+    console.log("[DEBUG isOwner:JobCardActions/client]", {
+      pathname,
+      jobId,
+      jobTitle,
+      isOwnerProp: isOwner,
+    });
+  }, [pathname, jobId, jobTitle, isOwner]);
 
   function toggleSave() {
     const current = readSaved();
