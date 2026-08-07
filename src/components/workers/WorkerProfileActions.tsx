@@ -1,14 +1,30 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, X, MessageCircle, AlertCircle } from "lucide-react";
+import { ArrowLeft, Check, X, MessageCircle, AlertCircle, Bookmark } from "lucide-react";
 import { updateApplicationStatus } from "@/lib/actions/jobs";
 import { useToast } from "@/components/ui/Toaster";
+import { cn } from "@/lib/utils";
+
+// Mismo patrón que JobCardActions (src/components/JobCardActions.tsx) para
+// "guardar" un trabajo: bookmark client-only en localStorage, sin tabla
+// nueva ni endpoint — no hay lectura entre dispositivos, es una lista
+// local del navegador, igual que "guardar empleo".
+const SAVED_WORKERS_KEY = "chamby:saved-workers";
+
+function readSavedWorkers(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_WORKERS_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
 
 interface WorkerProfileActionsProps {
   jobId: string;
+  workerId: string;
   workerName: string;
   application: { id: string; status: string } | null;
   conversationId: string | null;
@@ -18,6 +34,7 @@ interface WorkerProfileActionsProps {
 
 export function WorkerProfileActions({
   jobId,
+  workerId,
   workerName,
   application,
   conversationId,
@@ -27,6 +44,22 @@ export function WorkerProfileActions({
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
   const [confirmingAccept, setConfirmingAccept] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setSaved(readSavedWorkers().includes(workerId));
+  }, [workerId]);
+
+  function toggleSaveWorker() {
+    const current = readSavedWorkers();
+    const next = current.includes(workerId)
+      ? current.filter((id) => id !== workerId)
+      : [...current, workerId];
+    localStorage.setItem(SAVED_WORKERS_KEY, JSON.stringify(next));
+    const nowSaved = next.includes(workerId);
+    setSaved(nowSaved);
+    toast(nowSaved ? "Trabajador guardado" : "Trabajador eliminado de guardados", "info");
+  }
 
   function handleReject() {
     if (!application) return;
@@ -74,6 +107,19 @@ export function WorkerProfileActions({
           Iniciar chat
         </Link>
       )}
+
+      <button
+        type="button"
+        onClick={toggleSaveWorker}
+        aria-pressed={saved}
+        className={cn(
+          "btn-secondary w-full justify-center",
+          saved && "!bg-primary-50 !text-primary-600"
+        )}
+      >
+        <Bookmark className={cn("h-4 w-4", saved && "fill-current")} />
+        {saved ? "Trabajador guardado" : "Guardar trabajador"}
+      </button>
 
       {canDecide && !confirmingAccept && (
         <div className="flex gap-2">

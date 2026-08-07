@@ -40,6 +40,7 @@ export default async function WorkerProfilePage({ params, searchParams }: Worker
             <Reveal>
               <WorkerProfileActions
                 jobId={data.jobId}
+                workerId={data.profile.id}
                 workerName={data.profile.full_name}
                 application={data.application}
                 conversationId={data.conversationId}

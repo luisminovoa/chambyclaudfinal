@@ -6,12 +6,14 @@ import {
   Clock,
   Wallet,
   Languages,
+  CalendarDays,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { RatingStars } from "@/components/RatingStars";
 import { VerificationBadges } from "@/components/profile/VerificationBadges";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
+import { formatMemberSince } from "@/lib/utils";
 import type { WorkerPublicProfile } from "@/lib/actions/workers";
 import type { AvailabilityStatus } from "@/lib/types";
 
@@ -54,6 +56,10 @@ export function WorkerPublicProfileView({ data }: { data: WorkerPublicProfile })
                 {AVAILABILITY_LABELS[workerDetails.availability]}
               </span>
             )}
+            <span className="flex items-center gap-1">
+              <CalendarDays className="h-3.5 w-3.5 text-primary-500" />
+              En Chamby desde {formatMemberSince(profile.created_at)}
+            </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
             {ratingSummary ? (
@@ -70,6 +76,7 @@ export function WorkerPublicProfileView({ data }: { data: WorkerPublicProfile })
               <CheckCircle2 className="h-3 w-3" />
               {jobsCompleted} {jobsCompleted === 1 ? "trabajo completado" : "trabajos completados"}
             </Badge>
+            {profile.category && <Badge tone="primary">{profile.category}</Badge>}
           </div>
         </div>
       </div>

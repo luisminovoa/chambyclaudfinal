@@ -1,13 +1,14 @@
-import { MapPin, Briefcase, CalendarDays, Star } from "lucide-react";
+import Link from "next/link";
+import { MapPin, Briefcase, CalendarDays, Star, CheckCircle2, Handshake, ChevronRight } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { RatingStars } from "@/components/RatingStars";
 import { VerificationBadges } from "@/components/profile/VerificationBadges";
-import { formatMemberSince } from "@/lib/utils";
+import { formatCurrency, payTypeLabel, formatMemberSince } from "@/lib/utils";
 import type { EmployerPublicProfile } from "@/lib/actions/employers";
 
 export function EmployerPublicProfileView({ data }: { data: EmployerPublicProfile }) {
-  const { profile, stats, ratingSummary, jobsPublished } = data;
+  const { profile, stats, ratingSummary, jobsPublished, jobsCompleted, hires, openJobs } = data;
   const earnedBadges = stats?.badges ?? [];
 
   return (
@@ -44,6 +45,14 @@ export function EmployerPublicProfileView({ data }: { data: EmployerPublicProfil
               <Briefcase className="h-3 w-3" />
               {jobsPublished} {jobsPublished === 1 ? "trabajo publicado" : "trabajos publicados"}
             </Badge>
+            <Badge tone="neutral">
+              <CheckCircle2 className="h-3 w-3" />
+              {jobsCompleted} {jobsCompleted === 1 ? "trabajo completado" : "trabajos completados"}
+            </Badge>
+            <Badge tone="neutral">
+              <Handshake className="h-3 w-3" />
+              {hires} {hires === 1 ? "contratación" : "contrataciones"}
+            </Badge>
           </div>
         </div>
       </div>
@@ -63,6 +72,31 @@ export function EmployerPublicProfileView({ data }: { data: EmployerPublicProfil
         <div className="card p-5 text-center text-sm text-ink-muted">
           <Star className="mx-auto mb-2 h-6 w-6 text-slate-300" />
           Este empleador todavía no completó la descripción de su perfil.
+        </div>
+      )}
+
+      {/* Trabajos disponibles */}
+      {openJobs.length > 0 && (
+        <div className="card p-5">
+          <h2 className="mb-3 text-sm font-bold text-ink">Trabajos disponibles</h2>
+          <div className="divide-y divide-slate-100">
+            {openJobs.map((job) => (
+              <Link
+                key={job.id}
+                href={`/jobs/${job.id}`}
+                className="-mx-1 flex items-center justify-between gap-3 rounded-2xl px-1 py-3 transition-colors hover:bg-slate-50"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-ink">{job.title}</p>
+                  <p className="flex items-center gap-1 text-xs text-ink-muted">
+                    <MapPin className="h-3 w-3" />
+                    {job.city} · {formatCurrency(job.pay_amount)} {payTypeLabel(job.pay_type)}
+                  </p>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-ink-muted" />
+              </Link>
+            ))}
+          </div>
         </div>
       )}
     </div>
