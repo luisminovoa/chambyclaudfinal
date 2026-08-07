@@ -3,7 +3,7 @@
 import { useFormState, useFormStatus } from "react-dom";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, LogIn } from "lucide-react";
+import { AlertCircle, LogIn, Eye, EyeOff } from "lucide-react";
 import { login, type ActionResult } from "@/lib/actions/auth";
 import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 
@@ -38,6 +38,7 @@ export function LoginForm({ next, oauthError }: { next?: string; oauthError?: st
   const [state, formAction] = useFormState(login, initialState);
   // AUTH-007: errores de Supabase OAuth que llegan en el hash de la URL
   const [hashError, setHashError] = useState<string | undefined>();
+  const [showPwd, setShowPwd] = useState(false);
   const registerHref = next ? `/register?next=${encodeURIComponent(next)}` : "/register";
 
   useEffect(() => {
@@ -85,15 +86,25 @@ export function LoginForm({ next, oauthError }: { next?: string; oauthError?: st
         <label htmlFor="password" className="label">
           Contraseña
         </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-          className="input"
-          placeholder="••••••••"
-        />
+        <div className="relative">
+          <input
+            id="password"
+            name="password"
+            type={showPwd ? "text" : "password"}
+            autoComplete="current-password"
+            required
+            className="input pr-11"
+            placeholder="••••••••"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPwd((v) => !v)}
+            aria-label={showPwd ? "Ocultar contraseña" : "Mostrar contraseña"}
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition-colors hover:text-ink"
+          >
+            {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
       <SubmitButton />
 
