@@ -8,7 +8,14 @@ import { JobCardActions } from "@/components/JobCardActions";
 
 interface JobCardProps {
   job: JobWithEmployer;
-  currentUserId?: string | null;
+  /**
+   * Requerido (no opcional): un valor ausente colapsaría isOwner a false
+   * silenciosamente y mostraría "Postular" en el trabajo propio del
+   * empleador — exactamente el bug que dejó pasar /app/page.tsx antes de
+   * este fix. Al ser obligatorio, un nuevo call site que lo olvide falla
+   * en build (tsc/lint), no en producción.
+   */
+  currentUserId: string | null;
 }
 
 export function JobCard({ job, currentUserId }: JobCardProps) {
