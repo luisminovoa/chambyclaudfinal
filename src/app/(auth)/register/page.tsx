@@ -20,7 +20,7 @@ export default function RegisterPage({ searchParams }: { searchParams: { next?: 
           <div className="h-1.5 bg-brand-gradient" aria-hidden />
           <div className="p-8">
             <LogoCompacto className="h-12 w-12" />
-            <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">Crea tu cuenta</h1>
+            <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">Únete a Chamby</h1>
             <p className="mt-1 text-sm text-ink-muted">Únete a Chamby en menos de un minuto</p>
             <div className="mt-6">
               <RegisterForm next={searchParams.next} />

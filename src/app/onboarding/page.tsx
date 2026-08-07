@@ -1,20 +1,23 @@
 import type { Metadata } from "next";
-import { LoginForm } from "@/components/LoginForm";
+import { redirect } from "next/navigation";
+import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
+import { RoleOnboardingForm } from "@/components/onboarding/RoleOnboardingForm";
 import { Reveal } from "@/components/ui/Reveal";
 import { LogoCompacto } from "@/components/brand/Logo";
 
 export const metadata: Metadata = {
-  title: "Ingresar",
-  description: "Ingresa a tu cuenta de Chamby para buscar chambas o gestionar tus publicaciones.",
+  title: "Bienvenido",
+  description: "Cuéntanos qué quieres hacer en Chamby.",
 };
 
-export default function LoginPage({
+export default async function OnboardingPage({
   searchParams,
 }: {
-  searchParams: { next?: string; error?: string };
+  searchParams: { next?: string };
 }) {
-  // El mapeo código → mensaje vive en LoginForm (única fuente, evita que
-  // esta página y el componente se desincronicen con dos listas de errores).
+  const { user, profile } = await getCurrentUserAndProfile();
+  if (!user) redirect("/login");
+
   return (
     <div className="relative mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-4 py-12 sm:px-6">
       <div
@@ -27,13 +30,11 @@ export default function LoginPage({
           <div className="p-8">
             <LogoCompacto className="h-12 w-12" />
             <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-ink">
-              Bienvenido a Chamby
+              {profile?.full_name ? `Hola, ${profile.full_name.split(" ")[0]} 👋` : "¡Bienvenido!"}
             </h1>
-            <p className="mt-1 text-sm text-ink-muted">
-              Encuentra trabajo o contrata personal de forma rápida.
-            </p>
+            <p className="mt-1 text-sm text-ink-muted">¿Qué quieres hacer en Chamby?</p>
             <div className="mt-6">
-              <LoginForm next={searchParams.next} oauthError={searchParams.error} />
+              <RoleOnboardingForm next={searchParams.next} />
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { UserRole } from "@/lib/types";
 
@@ -119,4 +120,54 @@ export async function switchRoleAction(newRole: UserRole): Promise<ActionResult>
 
   revalidatePath("/", "layout");
   return { success: true };
+}
+
+type OnboardingActionResult = { error?: string };
+
+/**
+ * Único paso del asistente breve tras el primer login con Google
+ * (src/app/auth/callback/route.ts detecta cuenta nueva y redirige a
+ * /onboarding). handle_new_user() ya deja al usuario como "worker" por
+ * defecto — esta acción solo agrega/activa "employer" si corresponde y
+ * guarda la ciudad si el usuario la completó. Reutiliza
+ * enableEmployerRole()/switchRoleAction() ya existentes, ningún flujo de
+ * roles nuevo.
+ */
+export async function completeGoogleOnboarding(
+  _prev: OnboardingActionResult,
+  formData: FormData
+): Promise<OnboardingActionResult> {
+  const { supabase, user } = await getAuth();
+  if (!user) return { error: "No autenticado." };
+
+  const intent = formData.get("intent");
+  if (intent !== "worker" && intent !== "employer" && intent !== "both") {
+    return { error: "Selecciona una opción para continuar." };
+  }
+
+  if (intent === "employer" || intent === "both") {
+    const enableResult = await enableEmployerRole();
+    if ("error" in enableResult) return enableResult;
+  }
+
+  // "both" deja el modo activo en worker (default de handle_new_user());
+  // solo "employer" cambia el modo activo de inmediato.
+  if (intent === "employer") {
+    const switchResult = await switchRoleAction("employer");
+    if ("error" in switchResult) return switchResult;
+  }
+
+  const cityValue = formData.get("city");
+  const city = typeof cityValue === "string" && cityValue.trim().length > 0 ? cityValue.trim() : null;
+  if (city) {
+    const { error } = await supabase.from("profiles").update({ city }).eq("id", user.id);
+    if (error) return { error: "No se pudo guardar tu ciudad, pero tu cuenta ya está lista." };
+  }
+
+  revalidatePath("/", "layout");
+
+  const nextValue = formData.get("next");
+  const next =
+    typeof nextValue === "string" && /^\/(?!\/)[^\\]*$/.test(nextValue) ? nextValue : "/dashboard";
+  redirect(next);
 }
