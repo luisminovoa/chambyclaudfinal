@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogOut, Plus, Search, ShieldCheck } from "lucide-react";
+import { LogOut, Plus, Search } from "lucide-react";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { logout } from "@/lib/actions/auth";
 import { getUnreadCount } from "@/lib/actions/notifications";
@@ -69,20 +69,20 @@ export async function Navbar() {
         <div className="flex items-center gap-2 sm:gap-3">
           {user && profile ? (
             <>
-              {profile.role === "admin" ? (
-                <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-ink-muted sm:text-xs">
-                  <ShieldCheck className="h-3.5 w-3.5 text-primary-600" aria-hidden />
-                  Administrador
-                </span>
-              ) : (
-                <>
-                  <RoleIndicator
-                    role={profile.role}
-                    hasWorkerRole={userRoles.includes("worker")}
-                    hasEmployerRole={userRoles.includes("employer")}
-                  />
-                  <PublishChambaButton hasEmployerRole={userRoles.includes("employer")} />
-                </>
+              {/* RoleIndicator ahora cubre los 3 roles (worker/employer/
+                  admin) — antes, en modo admin, se mostraba un badge
+                  estático sin dropdown, así que no había forma de volver
+                  a admin una vez que se cambiaba a Trabajador/Empleador
+                  (bug reportado). "+ Publicar Chamba" solo tiene sentido
+                  fuera de modo admin, igual que antes. */}
+              <RoleIndicator
+                role={profile.role}
+                hasWorkerRole={userRoles.includes("worker")}
+                hasEmployerRole={userRoles.includes("employer")}
+                hasAdminRole={userRoles.includes("admin")}
+              />
+              {profile.role !== "admin" && (
+                <PublishChambaButton hasEmployerRole={userRoles.includes("employer")} />
               )}
               <NotificationBell userId={user.id} initialUnreadCount={unreadCount} />
               <UserMenu profile={profile} userRoles={userRoles} />

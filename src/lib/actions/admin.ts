@@ -33,11 +33,55 @@ export async function toggleUserActive(userId: string, isActive: boolean) {
   return { error: error?.message };
 }
 
+/**
+ * profiles.role sigue siendo la fuente de verdad para autorización
+ * (assertAdmin()/current_user_role() la leen directamente) — pero
+ * switchRoleAction() (src/lib/actions/roles.ts) exige además una fila
+ * ACTIVA en user_roles para el rol destino antes de dejar reactivarlo.
+ * user_roles nunca puede recibir role='admin' desde el cliente
+ * autenticado normal: user_roles_insert_own/update_own (0014_multi_
+ * role.sql) lo bloquean a propósito, para que nadie pueda auto-asignarse
+ * admin. Por eso esta escritura vía createAdminClient() (service role,
+ * sí puede saltarse esas policies) es el único lugar legítimo donde se
+ * crea/activa esa fila — y solo se alcanza pasando primero por
+ * assertAdmin(), nunca por acción directa del cliente.
+ *
+ * Al promover a admin: se agrega/activa la fila 'admin' sin tocar
+ * ninguna fila worker/employer existente — admin es aditivo, nunca
+ * reemplaza el rol operativo que la cuenta ya tenía (0016_document_
+ * verification_admin.sql / bug reportado: "no puedo volver a Admin").
+ * Al degradar a alguien que YA era admin: se desactiva su fila 'admin'
+ * en user_roles, para que switchRoleAction('admin') deje de encontrarla
+ * — si no, el usuario degradado seguiría pudiendo reactivarse admin él
+ * mismo aunque profiles.role ya no lo diga.
+ */
 export async function changeUserRole(userId: string, role: "worker" | "employer" | "admin") {
   const { supabase } = await assertAdmin();
   const { error } = await supabase.from("profiles").update({ role }).eq("id", userId);
+  if (error) return { error: error.message };
+
+  const admin = createAdminClient();
+  if (role === "admin") {
+    const { data: existing } = await admin
+      .from("user_roles")
+      .select("id, active")
+      .eq("user_id", userId)
+      .eq("role", "admin")
+      .maybeSingle();
+
+    if (existing) {
+      if (!(existing as { active: boolean }).active) {
+        await admin.from("user_roles").update({ active: true }).eq("id", (existing as { id: string }).id);
+      }
+    } else {
+      await admin.from("user_roles").insert({ user_id: userId, role: "admin" });
+    }
+  } else {
+    await admin.from("user_roles").update({ active: false }).eq("user_id", userId).eq("role", "admin");
+  }
+
   revalidatePath("/admin/users");
-  return { error: error?.message };
+  return { error: undefined };
 }
 
 export async function adminDeleteJob(jobId: string) {

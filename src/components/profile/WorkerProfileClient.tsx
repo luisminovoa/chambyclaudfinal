@@ -103,6 +103,7 @@ export function WorkerProfileClient({
           role={profile.role}
           hasWorkerRole={userRoles.includes("worker")}
           hasEmployerRole={userRoles.includes("employer")}
+          hasAdminRole={userRoles.includes("admin")}
         />
       </Reveal>
 
