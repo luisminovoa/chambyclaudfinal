@@ -236,4 +236,34 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
     const roles = await getUserRoles();
     expect(roles.sort()).toEqual(["admin", "worker"]);
   });
+
+  it("reproducción exacta reportada: worker=true, employer=true, admin=true, estado inicial profiles.role='admin' — recorre admin->worker->admin->employer->admin->worker->employer->worker sin perder ningún active=true ni devolver 'No tienes acceso a ese rol.'", async () => {
+    state.profileRole = "admin";
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "employer", active: true },
+      { role: "admin", active: true },
+    ];
+
+    const sequence = [
+      "worker",
+      "admin",
+      "employer",
+      "admin",
+      "worker",
+      "employer",
+      "worker",
+    ] as const;
+
+    for (const target of sequence) {
+      const result = await switchRoleAction(target);
+      expect(result).not.toEqual({ error: "No tienes acceso a ese rol." });
+      expect(result).toEqual({ success: true });
+      expect(state.profileRole).toBe(target);
+      // Ninguna fila de user_roles pierde active=true en ningún paso.
+      expect(state.roles.every((r) => r.active)).toBe(true);
+    }
+
+    expect(state.userRolesWrites).toEqual([]);
+  });
 });

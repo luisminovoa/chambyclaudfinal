@@ -15,6 +15,17 @@ import type { UserRole } from "@/lib/types";
  * Único punto de esta lógica: lo reutilizan el botón "+ Publicar Chamba"
  * del Navbar, el tab central del BottomNav y "Panel Trabajador"/
  * "Panel Empleador" del menú de usuario.
+ *
+ * router.refresh() además de router.push(): switchRoleAction() ya hace
+ * revalidatePath("/", "layout") server-side, pero eso invalida la caché
+ * de Next para la próxima vez que se pida esa ruta — no garantiza que la
+ * navegación de router.push() dispare ese refetch en todos los runtimes
+ * (p.ej. detrás de un proxy/CDN como el de Netlify, donde una
+ * navegación "soft" puede reutilizar el Router Cache del cliente si el
+ * refresh no se fuerza explícitamente). router.refresh() vuelve a pedir
+ * los Server Components del árbol actual sin caché, así que el Navbar/
+ * RoleIndicator quedan garantizados a reflejar el profiles.role recién
+ * escrito, sin depender de la propagación de la invalidación.
  */
 export function useActivateRole(
   targetRole: UserRole,
@@ -42,6 +53,7 @@ export function useActivateRole(
       }
 
       router.push(redirectTo);
+      router.refresh();
     });
   }
 
