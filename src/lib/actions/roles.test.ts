@@ -94,59 +94,114 @@ function reset() {
 describe("switchRoleAction — reglas de negocio de roles", () => {
   beforeEach(reset);
 
-  it("1. Worker normal: puede permanecer/activar Worker", async () => {
-    state.roles = [{ role: "worker", active: true }];
+  it("1. worker -> employer (cuenta con ambos activos)", async () => {
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "employer", active: true },
+    ];
+    const result = await switchRoleAction("employer");
+    expect(result).toEqual({ success: true });
+    expect(state.profileRole).toBe("employer");
+  });
+
+  it("2. employer -> worker (cuenta con ambos activos)", async () => {
+    state.profileRole = "employer";
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "employer", active: true },
+    ];
     const result = await switchRoleAction("worker");
     expect(result).toEqual({ success: true });
-    expect(state.profileUpdates).toEqual([{ role: "worker" }]);
-  });
-
-  it("1. Worker normal: NO puede convertirse en Admin (sin fila user_roles admin)", async () => {
-    state.roles = [{ role: "worker", active: true }];
-    const result = await switchRoleAction("admin");
-    expect(result).toEqual({ error: "No tienes acceso a ese rol." });
-    expect(state.profileUpdates).toEqual([]);
     expect(state.profileRole).toBe("worker");
   });
 
-  it("2. Worker + Employer: puede cambiar Worker -> Employer -> Worker", async () => {
+  it("3. worker -> admin cuando la cuenta tiene admin activo en user_roles", async () => {
     state.roles = [
       { role: "worker", active: true },
-      { role: "employer", active: true },
-    ];
-    expect(await switchRoleAction("employer")).toEqual({ success: true });
-    expect(state.profileRole).toBe("employer");
-    expect(await switchRoleAction("worker")).toEqual({ success: true });
-    expect(state.profileRole).toBe("worker");
-  });
-
-  it("3. Admin (con fila admin activa en user_roles): puede recorrer Admin -> Worker -> Employer -> Admin -> Worker -> Employer", async () => {
-    state.profileRole = "admin";
-    state.roles = [
       { role: "admin", active: true },
-      { role: "worker", active: true },
-      { role: "employer", active: true },
     ];
-
-    expect(await switchRoleAction("worker")).toEqual({ success: true });
-    expect(state.profileRole).toBe("worker");
-
-    expect(await switchRoleAction("employer")).toEqual({ success: true });
-    expect(state.profileRole).toBe("employer");
-
-    // El paso crítico del bug reportado: volver a Admin después de haber
-    // cambiado de modo debe funcionar, no solo la primera vez.
-    expect(await switchRoleAction("admin")).toEqual({ success: true });
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ success: true });
     expect(state.profileRole).toBe("admin");
+  });
 
-    expect(await switchRoleAction("worker")).toEqual({ success: true });
+  it("4. employer -> admin cuando la cuenta tiene admin activo en user_roles", async () => {
+    state.profileRole = "employer";
+    state.roles = [
+      { role: "employer", active: true },
+      { role: "admin", active: true },
+    ];
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ success: true });
+    expect(state.profileRole).toBe("admin");
+  });
+
+  it("5. admin -> worker", async () => {
+    state.profileRole = "admin";
+    state.roles = [
+      { role: "admin", active: true },
+      { role: "worker", active: true },
+      { role: "employer", active: true },
+    ];
+    const result = await switchRoleAction("worker");
+    expect(result).toEqual({ success: true });
     expect(state.profileRole).toBe("worker");
+  });
 
-    expect(await switchRoleAction("employer")).toEqual({ success: true });
+  it("6. admin -> employer", async () => {
+    state.profileRole = "admin";
+    state.roles = [
+      { role: "admin", active: true },
+      { role: "worker", active: true },
+      { role: "employer", active: true },
+    ];
+    const result = await switchRoleAction("employer");
+    expect(result).toEqual({ success: true });
     expect(state.profileRole).toBe("employer");
   });
 
-  it("4. Admin + Worker + Employer: cambiar el modo activo repetidamente NUNCA escribe en user_roles (solo en profiles.role)", async () => {
+  it("7. admin -> admin (permanecer en el mismo modo no falla)", async () => {
+    state.profileRole = "admin";
+    state.roles = [{ role: "admin", active: true }];
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ success: true });
+    expect(state.profileRole).toBe("admin");
+  });
+
+  it("8. usuario sin admin activo -> admin debe fallar (no puede auto-asignarse)", async () => {
+    state.profileRole = "worker";
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "employer", active: true },
+    ];
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ error: "No tienes acceso a ese rol." });
+    expect(state.profileRole).toBe("worker");
+  });
+
+  it("9. admin activo permanece activo en user_roles al cambiar a worker (switchRoleAction nunca escribe user_roles)", async () => {
+    state.profileRole = "admin";
+    state.roles = [
+      { role: "admin", active: true },
+      { role: "worker", active: true },
+    ];
+    await switchRoleAction("worker");
+    expect(state.userRolesWrites).toEqual([]);
+    expect(state.roles.find((r) => r.role === "admin")?.active).toBe(true);
+  });
+
+  it("10. admin activo permanece activo en user_roles al cambiar a employer (switchRoleAction nunca escribe user_roles)", async () => {
+    state.profileRole = "admin";
+    state.roles = [
+      { role: "admin", active: true },
+      { role: "employer", active: true },
+    ];
+    await switchRoleAction("employer");
+    expect(state.userRolesWrites).toEqual([]);
+    expect(state.roles.find((r) => r.role === "admin")?.active).toBe(true);
+  });
+
+  it("admin con los 3 roles puede recorrer admin -> worker -> employer -> admin -> worker -> employer sin perder ningún permiso", async () => {
     state.profileRole = "admin";
     state.roles = [
       { role: "admin", active: true },
@@ -154,24 +209,16 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
       { role: "employer", active: true },
     ];
 
-    await switchRoleAction("worker");
-    await switchRoleAction("employer");
-    await switchRoleAction("admin");
-    await switchRoleAction("worker");
+    for (const target of ["worker", "employer", "admin", "worker", "employer"] as const) {
+      const result = await switchRoleAction(target);
+      expect(result).toEqual({ success: true });
+      expect(state.profileRole).toBe(target);
+    }
 
-    // La fila user_roles(role='admin') nunca se toca al cambiar de modo:
-    // el permiso admin persiste independientemente de cuántas veces se
-    // alterne el modo operativo.
+    // Ninguna de esas 5 transiciones tocó user_roles: el permiso admin
+    // (y worker/employer) siguen intactos independientemente de cuántas
+    // veces se alterne el modo operativo.
     expect(state.userRolesWrites).toEqual([]);
-    expect(state.profileUpdates.map((u) => u.role)).toEqual(["worker", "employer", "admin", "worker"]);
-  });
-
-  it("5. Un usuario no-admin no puede auto-asignarse admin llamando switchRoleAction directamente", async () => {
-    state.profileRole = "worker";
-    state.roles = [{ role: "worker", active: true }];
-    const result = await switchRoleAction("admin");
-    expect(result).toEqual({ error: "No tienes acceso a ese rol." });
-    expect(state.profileRole).toBe("worker");
   });
 
   it("switchRoleAction rechaza si no hay usuario autenticado", async () => {
@@ -180,7 +227,7 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
     expect(result).toEqual({ error: "No autenticado." });
   });
 
-  it("getUserRoles refleja las filas activas del usuario, admin incluido", async () => {
+  it("getUserRoles refleja las filas activas del usuario (usa `active`, no `is_active`), admin incluido", async () => {
     state.roles = [
       { role: "admin", active: true },
       { role: "worker", active: true },

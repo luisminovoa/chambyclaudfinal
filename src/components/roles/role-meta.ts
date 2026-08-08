@@ -29,3 +29,15 @@ export const ROLE_META: Record<UserRole, RoleMeta> = {
  * `hasAdminRole` es true; nunca se ofrece como auto-servicio.
  */
 export const ROLE_SWITCH_ORDER: readonly UserRole[] = ["worker", "employer", "admin"];
+
+/**
+ * Roles que la cuenta posee, en el orden fijo de arriba. Única fuente de
+ * "qué debe listar el selector" — antes este mismo filtro
+ * (`ROLE_SWITCH_ORDER.filter((r) => owned[r])`) estaba escrito por
+ * separado en RoleIndicator y RoleSwitcherCard; se extrae aquí para que
+ * ambos selectores queden garantizados a mostrar exactamente los mismos
+ * roles para la misma cuenta, y para poder probarlo sin renderizar React.
+ */
+export function getOwnedRoles(owned: Record<UserRole, boolean>): UserRole[] {
+  return ROLE_SWITCH_ORDER.filter((r) => owned[r]);
+}

@@ -2,7 +2,7 @@
 
 import { CheckCircle2 } from "lucide-react";
 import { useActivateRole } from "@/components/roles/use-activate-role";
-import { ROLE_META, ROLE_SWITCH_ORDER } from "@/components/roles/role-meta";
+import { ROLE_META, getOwnedRoles } from "@/components/roles/role-meta";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/lib/types";
 
@@ -39,7 +39,7 @@ export function RoleSwitcherCard({ role, hasWorkerRole, hasEmployerRole, hasAdmi
     admin: hasAdminRole,
   };
 
-  const ownedRoles = ROLE_SWITCH_ORDER.filter((r) => owned[r]);
+  const ownedRoles = getOwnedRoles(owned);
   const isPending = toWorker.isPending || toEmployer.isPending || toAdmin.isPending;
 
   return (
