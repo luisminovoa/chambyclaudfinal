@@ -3,22 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { LayoutDashboard, Users, Briefcase, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const tabs = [
-  { href: "/admin", label: "Resumen", icon: LayoutDashboard, exact: true },
-  { href: "/admin/users", label: "Usuarios", icon: Users, exact: false },
-  { href: "/admin/jobs", label: "Trabajos", icon: Briefcase, exact: false },
-  { href: "/admin/beta", label: "Beta", icon: FlaskConical, exact: false },
-];
+import { ADMIN_NAV_TABS } from "@/lib/admin-nav";
 
 export function AdminTabs() {
   const pathname = usePathname();
 
   return (
     <nav aria-label="Secciones de administración" className="no-scrollbar flex gap-1 overflow-x-auto">
-      {tabs.map((tab) => {
+      {ADMIN_NAV_TABS.map((tab) => {
         const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
         return (
           <Link

@@ -21,18 +21,14 @@ import {
 } from "@/lib/actions/profile";
 import { refreshProfileStats } from "@/lib/profile-stats";
 import { uploadWithProgress } from "@/lib/upload-with-progress";
+import {
+  DOCUMENT_TYPES,
+  documentTypeLabel as typeLabel,
+  documentStatusLabel as statusLabel,
+  documentStatusTone as statusTone,
+  rejectionReasonLabel,
+} from "@/lib/document-verification";
 import type { VerificationDocument, DocumentType, ProfileStats } from "@/lib/types";
-
-const DOCUMENT_TYPES: { value: DocumentType; label: string }[] = [
-  { value: "dni", label: "DNI" },
-  { value: "ruc", label: "RUC" },
-  { value: "antecedentes_policiales", label: "Antecedentes Policiales" },
-  { value: "antecedentes_penales", label: "Antecedentes Penales" },
-  { value: "certificado", label: "Certificado Profesional" },
-  { value: "licencia", label: "Licencia" },
-  { value: "carnet", label: "Carnet" },
-  { value: "otro", label: "Otro documento" },
-];
 
 function statusIcon(status: string) {
   if (status === "verified")
@@ -40,27 +36,6 @@ function statusIcon(status: string) {
   if (status === "rejected")
     return <XCircle className="h-4 w-4 text-danger-500" />;
   return <Clock className="h-4 w-4 text-warning-500" />;
-}
-
-function statusTone(
-  status: string
-): "success" | "danger" | "warning" {
-  if (status === "verified") return "success";
-  if (status === "rejected") return "danger";
-  return "warning";
-}
-
-function statusLabel(status: string) {
-  const map: Record<string, string> = {
-    pending: "En revisión",
-    verified: "Verificado",
-    rejected: "Rechazado",
-  };
-  return map[status] ?? status;
-}
-
-function typeLabel(type: string) {
-  return DOCUMENT_TYPES.find((d) => d.value === type)?.label ?? type;
 }
 
 interface DocumentsTabProps {
@@ -235,7 +210,8 @@ export function DocumentsTab({ initialDocuments, onStatsChange }: DocumentsTabPr
       ) : (
         <div className="card divide-y divide-slate-100 overflow-hidden">
           {docs.map((doc) => (
-            <div key={doc.id} className="flex items-center gap-3 p-4">
+            <div key={doc.id} className="p-4">
+            <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-50">
                 <FileText className="h-5 w-5 text-slate-400" />
               </div>
@@ -293,6 +269,13 @@ export function DocumentsTab({ initialDocuments, onStatsChange }: DocumentsTabPr
                   </button>
                 )}
               </div>
+            </div>
+            {doc.status === "rejected" && doc.rejection_reason && (
+              <p className="mt-2 rounded-xl bg-danger-50 px-3 py-2 text-xs text-danger-700">
+                <strong>Motivo:</strong> {rejectionReasonLabel(doc.rejection_reason)}
+                {doc.rejection_note ? ` — ${doc.rejection_note}` : ""}
+              </p>
+            )}
             </div>
           ))}
         </div>

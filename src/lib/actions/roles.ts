@@ -96,6 +96,12 @@ export async function enableEmployerRole(): Promise<ActionResult> {
  * Cambia el modo activo del usuario (profiles.role). Requiere que el
  * usuario ya posea el rol destino en user_roles — nunca crea un rol nuevo
  * (eso es responsabilidad exclusiva de enableEmployerRole()).
+ *
+ * La policy RLS `profiles_update_own` (0018_fix_admin_role_switch_rls.sql)
+ * es la que realmente autoriza — o rechaza — el UPDATE hacia 'admin' según
+ * si el usuario posee una fila user_roles(role='admin', active=true); esta
+ * función no necesita replicar esa condición, solo dar el mensaje genérico
+ * si Postgres la rechaza.
  */
 export async function switchRoleAction(newRole: UserRole): Promise<ActionResult> {
   const { supabase, user } = await getAuth();
