@@ -32,13 +32,24 @@ export function AdminVerificationRow({ document }: { document: AdminVerification
         <Badge tone={documentStatusTone(document.status)}>{documentStatusLabel(document.status)}</Badge>
       </td>
       <td className="py-3.5 text-right">
-        <Link
-          href={`/admin/verifications/${document.id}`}
-          className="btn-secondary !rounded-xl !px-3 !py-2 text-xs"
-        >
-          Revisar
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Link>
+        <div className="flex justify-end gap-2">
+          {/* profile_id es el mismo id de profiles que usa /admin/users/[id]
+              (getAdminUserProfile) — mismo perfil que "Usuarios → Ver perfil",
+              no una vista distinta. */}
+          <Link
+            href={`/admin/users/${document.profile_id}`}
+            className="btn-secondary !rounded-xl !px-3 !py-2 text-xs"
+          >
+            Ver perfil
+          </Link>
+          <Link
+            href={`/admin/verifications/${document.id}`}
+            className="btn-secondary !rounded-xl !px-3 !py-2 text-xs"
+          >
+            Revisar
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
       </td>
     </tr>
   );

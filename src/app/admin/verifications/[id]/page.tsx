@@ -54,6 +54,15 @@ export default async function AdminVerificationDetailPage({ params }: Props) {
             </Badge>
           </div>
 
+          {/* profile_id es el mismo id de profiles que usa /admin/users/[id]
+              (getAdminUserProfile) — mismo perfil que "Usuarios → Ver perfil". */}
+          <Link
+            href={`/admin/users/${doc.profile_id}`}
+            className="btn-secondary mt-4 w-full justify-center !rounded-xl text-xs"
+          >
+            Ver perfil completo
+          </Link>
+
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
