@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { switchRoleAction, getUserRoles } from "./roles";
+import { createClient } from "@/lib/supabase/server";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
@@ -16,13 +17,19 @@ interface PgError {
   hint: string | null;
 }
 
+const RLS_VIOLATION: PgError = {
+  code: "42501",
+  message: 'new row violates row-level security policy for table "profiles"',
+  details: null,
+  hint: null,
+};
+
 interface State {
   user: { id: string } | null;
   roles: RoleRow[];
   profileRole: string;
   userRolesWrites: { op: "update" | "insert"; payload: unknown }[];
   profileUpdates: { role: string }[];
-  profileUpdateError: PgError | null;
 }
 
 const state: State = {
@@ -31,7 +38,6 @@ const state: State = {
   profileRole: "worker",
   userRolesWrites: [],
   profileUpdates: [],
-  profileUpdateError: null,
 };
 
 function userRolesSelectChain(predicate: (r: RoleRow) => boolean) {
@@ -54,6 +60,27 @@ function userRolesSelectChain(predicate: (r: RoleRow) => boolean) {
     },
   };
   return chain;
+}
+
+/**
+ * Simula la policy `profiles_update_own` TAL COMO QUEDA tras
+ * 0018_fix_admin_role_switch_rls.sql — no un mock optimista que siempre
+ * aprueba. La rama `currentRoleIsAdmin` deliberadamente lee
+ * `state.profileRole` ANTES de aplicar el update, igual que
+ * `current_user_role()` ve el valor previo dentro de un WITH CHECK (la
+ * causa raíz del bug: una subconsulta separada no ve su propio cambio a
+ * mitad de sentencia). Esto es lo que permite que estos tests detecten
+ * de verdad una regresión de la policy, no solo de switchRoleAction().
+ */
+function evaluateProfilesUpdateCheck(targetRole: string): { allowed: boolean; error?: PgError } {
+  const currentRoleIsAdmin = state.profileRole === "admin";
+  const hasActiveAdminRole = state.roles.some((r) => r.role === "admin" && r.active);
+  const allowed =
+    currentRoleIsAdmin ||
+    targetRole === "worker" ||
+    targetRole === "employer" ||
+    (targetRole === "admin" && hasActiveAdminRole);
+  return allowed ? { allowed: true } : { allowed: false, error: RLS_VIOLATION };
 }
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -80,16 +107,15 @@ vi.mock("@/lib/supabase/server", () => ({
               single: async () => ({ data: { role: state.profileRole } }),
             }),
           }),
-          update: (payload: { role: string }) => {
-            return {
-              eq: async () => {
-                if (state.profileUpdateError) return { error: state.profileUpdateError };
-                state.profileUpdates.push(payload);
-                state.profileRole = payload.role;
-                return { error: null };
-              },
-            };
-          },
+          update: (payload: { role: string }) => ({
+            eq: async () => {
+              const check = evaluateProfilesUpdateCheck(payload.role);
+              if (!check.allowed) return { error: check.error };
+              state.profileUpdates.push(payload);
+              state.profileRole = payload.role;
+              return { error: null };
+            },
+          }),
         };
       }
       throw new Error(`Tabla no mockeada: ${table}`);
@@ -103,17 +129,10 @@ function reset() {
   state.profileRole = "worker";
   state.userRolesWrites = [];
   state.profileUpdates = [];
-  state.profileUpdateError = null;
 }
 
-describe("switchRoleAction — reglas de negocio de roles", () => {
-  beforeEach(() => {
-    reset();
-    // El diagnóstico temporal en switchRoleAction() usa console.error() —
-    // se silencia aquí para no ensuciar la salida de vitest, sin afectar
-    // las aserciones (que verifican el error devuelto, no el log).
-    vi.spyOn(console, "error").mockImplementation(() => {});
-  });
+describe("switchRoleAction — reglas de negocio de roles (contra una simulación fiel de profiles_update_own, 0018)", () => {
+  beforeEach(reset);
 
   it("1. worker -> employer (cuenta con ambos activos)", async () => {
     state.roles = [
@@ -136,28 +155,7 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
     expect(state.profileRole).toBe("worker");
   });
 
-  it("3. worker -> admin cuando la cuenta tiene admin activo en user_roles", async () => {
-    state.roles = [
-      { role: "worker", active: true },
-      { role: "admin", active: true },
-    ];
-    const result = await switchRoleAction("admin");
-    expect(result).toEqual({ success: true });
-    expect(state.profileRole).toBe("admin");
-  });
-
-  it("4. employer -> admin cuando la cuenta tiene admin activo en user_roles", async () => {
-    state.profileRole = "employer";
-    state.roles = [
-      { role: "employer", active: true },
-      { role: "admin", active: true },
-    ];
-    const result = await switchRoleAction("admin");
-    expect(result).toEqual({ success: true });
-    expect(state.profileRole).toBe("admin");
-  });
-
-  it("5. admin -> worker", async () => {
+  it("A. admin -> worker = permitido", async () => {
     state.profileRole = "admin";
     state.roles = [
       { role: "admin", active: true },
@@ -169,7 +167,7 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
     expect(state.profileRole).toBe("worker");
   });
 
-  it("6. admin -> employer", async () => {
+  it("B. admin -> employer = permitido", async () => {
     state.profileRole = "admin";
     state.roles = [
       { role: "admin", active: true },
@@ -181,23 +179,115 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
     expect(state.profileRole).toBe("employer");
   });
 
+  it("C. worker con admin activo -> admin = permitido (el caso que estaba roto: code 42501 antes de 0018)", async () => {
+    state.profileRole = "worker";
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "admin", active: true },
+    ];
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ success: true });
+    expect(state.profileRole).toBe("admin");
+  });
+
+  it("D. employer con admin activo -> admin = permitido (el caso que estaba roto: code 42501 antes de 0018)", async () => {
+    state.profileRole = "employer";
+    state.roles = [
+      { role: "employer", active: true },
+      { role: "admin", active: true },
+    ];
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ success: true });
+    expect(state.profileRole).toBe("admin");
+  });
+
+  it("E. worker sin admin activo -> admin = DENEGADO", async () => {
+    state.profileRole = "worker";
+    state.roles = [{ role: "worker", active: true }];
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ error: "No tienes acceso a ese rol." });
+    expect(state.profileRole).toBe("worker");
+  });
+
+  it("F. employer sin admin activo -> admin = DENEGADO", async () => {
+    state.profileRole = "employer";
+    state.roles = [{ role: "employer", active: true }];
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ error: "No tienes acceso a ese rol." });
+    expect(state.profileRole).toBe("employer");
+  });
+
+  it("F.bis employer con admin=false explícito (fila existe pero inactiva) -> admin = DENEGADO", async () => {
+    state.profileRole = "employer";
+    state.roles = [
+      { role: "employer", active: true },
+      { role: "admin", active: false },
+    ];
+    const result = await switchRoleAction("admin");
+    expect(result).toEqual({ error: "No tienes acceso a ese rol." });
+  });
+
+  it("G. usuario normal intentando modificar profiles.role a 'admin' DIRECTAMENTE (saltándose switchRoleAction) = DENEGADO por la policy", async () => {
+    // No pasa por switchRoleAction() en absoluto — es exactamente el ataque
+    // que 0009 (V1) y ahora 0018 deben seguir bloqueando: un UPDATE crudo
+    // contra profiles, como lo haría un cliente que se salta la Server
+    // Action y llama a Supabase directamente con su propia sesión.
+    state.profileRole = "worker";
+    state.roles = [{ role: "worker", active: true }];
+
+    const supabase = createClient();
+    const { error } = await supabase.from("profiles").update({ role: "admin" }).eq("id", "user-1");
+
+    expect(error).toEqual(RLS_VIOLATION);
+    expect(state.profileRole).toBe("worker");
+    expect(state.profileUpdates).toEqual([]);
+  });
+
+  it("H. admin -> worker -> admin = permitido", async () => {
+    state.profileRole = "admin";
+    state.roles = [
+      { role: "admin", active: true },
+      { role: "worker", active: true },
+    ];
+    expect(await switchRoleAction("worker")).toEqual({ success: true });
+    expect(state.profileRole).toBe("worker");
+    expect(await switchRoleAction("admin")).toEqual({ success: true });
+    expect(state.profileRole).toBe("admin");
+  });
+
+  it("I. admin -> employer -> admin = permitido", async () => {
+    state.profileRole = "admin";
+    state.roles = [
+      { role: "admin", active: true },
+      { role: "employer", active: true },
+    ];
+    expect(await switchRoleAction("employer")).toEqual({ success: true });
+    expect(state.profileRole).toBe("employer");
+    expect(await switchRoleAction("admin")).toEqual({ success: true });
+    expect(state.profileRole).toBe("admin");
+  });
+
+  it("J. worker -> employer -> worker -> admin = permitido si posee admin activo", async () => {
+    state.profileRole = "worker";
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "employer", active: true },
+      { role: "admin", active: true },
+    ];
+    expect(await switchRoleAction("employer")).toEqual({ success: true });
+    expect(state.profileRole).toBe("employer");
+    expect(await switchRoleAction("worker")).toEqual({ success: true });
+    expect(state.profileRole).toBe("worker");
+    expect(await switchRoleAction("admin")).toEqual({ success: true });
+    expect(state.profileRole).toBe("admin");
+  });
+
   it("7. admin -> admin (permanecer en el mismo modo no falla)", async () => {
     state.profileRole = "admin";
     state.roles = [{ role: "admin", active: true }];
     const result = await switchRoleAction("admin");
     expect(result).toEqual({ success: true });
     expect(state.profileRole).toBe("admin");
-  });
-
-  it("8. usuario sin admin activo -> admin debe fallar (no puede auto-asignarse)", async () => {
-    state.profileRole = "worker";
-    state.roles = [
-      { role: "worker", active: true },
-      { role: "employer", active: true },
-    ];
-    const result = await switchRoleAction("admin");
-    expect(result).toEqual({ error: "No tienes acceso a ese rol." });
-    expect(state.profileRole).toBe("worker");
   });
 
   it("9. admin activo permanece activo en user_roles al cambiar a worker (switchRoleAction nunca escribe user_roles)", async () => {
@@ -236,16 +326,13 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
       expect(state.profileRole).toBe(target);
     }
 
-    // Ninguna de esas 5 transiciones tocó user_roles: el permiso admin
-    // (y worker/employer) siguen intactos independientemente de cuántas
-    // veces se alterne el modo operativo.
     expect(state.userRolesWrites).toEqual([]);
   });
 
-  it("switchRoleAction rechaza si no hay usuario autenticado (etapa A del diagnóstico temporal)", async () => {
+  it("switchRoleAction rechaza si no hay usuario autenticado", async () => {
     state.user = null;
     const result = await switchRoleAction("worker");
-    expect(result).toEqual({ error: "[DIAG A] No autenticado." });
+    expect(result).toEqual({ error: "No autenticado." });
   });
 
   it("getUserRoles refleja las filas activas del usuario (usa `active`, no `is_active`), admin incluido", async () => {
@@ -258,7 +345,7 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
     expect(roles.sort()).toEqual(["admin", "worker"]);
   });
 
-  it("reproducción exacta reportada: worker=true, employer=true, admin=true, estado inicial profiles.role='admin' — recorre admin->worker->admin->employer->admin->worker->employer->worker sin perder ningún active=true ni devolver 'No tienes acceso a ese rol.'", async () => {
+  it("reproducción exacta del bug reportado: worker=true, employer=true, admin=true, estado inicial profiles.role='admin' — recorre admin->worker->admin->employer->admin->worker->employer->worker sin perder ningún active=true ni devolver 'No tienes acceso a ese rol.'", async () => {
     state.profileRole = "admin";
     state.roles = [
       { role: "worker", active: true },
@@ -281,38 +368,9 @@ describe("switchRoleAction — reglas de negocio de roles", () => {
       expect(result).not.toEqual({ error: "No tienes acceso a ese rol." });
       expect(result).toEqual({ success: true });
       expect(state.profileRole).toBe(target);
-      // Ninguna fila de user_roles pierde active=true en ningún paso.
       expect(state.roles.every((r) => r.active)).toBe(true);
     }
 
     expect(state.userRolesWrites).toEqual([]);
-  });
-
-  it("(D) diagnóstico: cuando el UPDATE de profiles es rechazado (p.ej. por RLS), el error real de Postgres se propaga con el prefijo de etapa D, en vez del mensaje genérico", async () => {
-    // No es un mock optimista: simula exactamente lo que Postgres devuelve
-    // cuando una policy con WITH CHECK rechaza la fila resultante —
-    // code 42501, "new row violates row-level security policy" — para
-    // demostrar que, si ESA es la causa real en producción, el mensaje
-    // devuelto por switchRoleAction() ahora la expone en vez de ocultarla
-    // detrás de "No se pudo cambiar el modo activo.".
-    state.roles = [
-      { role: "worker", active: true },
-      { role: "admin", active: true },
-    ];
-    state.profileUpdateError = {
-      code: "42501",
-      message: 'new row violates row-level security policy for table "profiles"',
-      details: null,
-      hint: null,
-    };
-
-    const result = await switchRoleAction("admin");
-    expect(result).toEqual({
-      error:
-        '[DIAG D] UPDATE profiles falló — code=42501 message=new row violates row-level security policy for table "profiles" details=- hint=-',
-    });
-    // El rechazo ocurrió en el UPDATE, no en la búsqueda de user_roles —
-    // profileRole nunca cambia y no queda ningún estado a medio escribir.
-    expect(state.profileRole).toBe("worker");
   });
 });

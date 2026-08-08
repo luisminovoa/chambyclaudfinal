@@ -97,85 +97,32 @@ export async function enableEmployerRole(): Promise<ActionResult> {
  * usuario ya posea el rol destino en user_roles — nunca crea un rol nuevo
  * (eso es responsabilidad exclusiva de enableEmployerRole()).
  *
- * ⚠️ DIAGNÓSTICO TEMPORAL (quitar tras confirmar la causa raíz del error
- * "No se pudo cambiar el modo activo."): agrega console.error() server-side
- * con user.id/rol solicitado/filas de user_roles/profile.role actual/
- * código+mensaje+details+hint del error real de Postgres, y devuelve un
- * mensaje de error prefijado con la etapa exacta (A-G) en vez del genérico.
- * No registra contraseñas, tokens, cookies ni claves de Supabase — solo
- * IDs y valores de rol, que ya son visibles para el propio usuario.
+ * La policy RLS `profiles_update_own` (0018_fix_admin_role_switch_rls.sql)
+ * es la que realmente autoriza — o rechaza — el UPDATE hacia 'admin' según
+ * si el usuario posee una fila user_roles(role='admin', active=true); esta
+ * función no necesita replicar esa condición, solo dar el mensaje genérico
+ * si Postgres la rechaza.
  */
 export async function switchRoleAction(newRole: UserRole): Promise<ActionResult> {
   const { supabase, user } = await getAuth();
-  if (!user) {
-    console.error("[DIAG switchRoleAction] (A) auth: sin usuario autenticado");
-    return { error: "[DIAG A] No autenticado." };
-  }
+  if (!user) return { error: "No autenticado." };
 
-  const { data: allRoles, error: allRolesError } = await supabase
+  const { data: roleRow } = await supabase
     .from("user_roles")
-    .select("role, active")
-    .eq("user_id", user.id);
-
-  const { data: currentProfile, error: currentProfileError } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  const { data: roleRow, error: roleLookupError } = await supabase
-    .from("user_roles")
-    .select("id, active")
+    .select("id")
     .eq("user_id", user.id)
     .eq("role", newRole)
     .eq("active", true)
     .maybeSingle();
 
-  console.error("[DIAG switchRoleAction] (B) búsqueda de rol destino", {
-    userId: user.id,
-    requestedRole: newRole,
-    userRolesFound: allRoles,
-    allRolesError: allRolesError
-      ? { code: allRolesError.code, message: allRolesError.message, details: allRolesError.details, hint: allRolesError.hint }
-      : null,
-    currentProfileRole: (currentProfile as { role?: string } | null)?.role ?? null,
-    currentProfileError: currentProfileError
-      ? { code: currentProfileError.code, message: currentProfileError.message, details: currentProfileError.details, hint: currentProfileError.hint }
-      : null,
-    targetRoleRow: roleRow,
-    targetRoleActive: (roleRow as { active?: boolean } | null)?.active ?? null,
-    roleLookupError: roleLookupError
-      ? { code: roleLookupError.code, message: roleLookupError.message, details: roleLookupError.details, hint: roleLookupError.hint }
-      : null,
-  });
-
-  if (roleLookupError) {
-    return {
-      error: `[DIAG B] Falló la búsqueda en user_roles — code=${roleLookupError.code ?? "?"} message=${roleLookupError.message}`,
-    };
-  }
-
-  if (!roleRow) {
-    console.error("[DIAG switchRoleAction] (C) validación: no hay fila user_roles activa para", newRole);
-    return { error: "No tienes acceso a ese rol." };
-  }
+  if (!roleRow) return { error: "No tienes acceso a ese rol." };
 
   const { error } = await supabase
     .from("profiles")
     .update({ role: newRole })
     .eq("id", user.id);
 
-  console.error("[DIAG switchRoleAction] (D) UPDATE profiles", {
-    userId: user.id,
-    requestedRole: newRole,
-    error: error ? { code: error.code, message: error.message, details: error.details, hint: error.hint } : null,
-  });
-
-  if (error) {
-    return {
-      error: `[DIAG D] UPDATE profiles falló — code=${error.code ?? "?"} message=${error.message} details=${error.details ?? "-"} hint=${error.hint ?? "-"}`,
-    };
-  }
+  if (error) return { error: "No se pudo cambiar el modo activo." };
 
   revalidatePath("/", "layout");
   return { success: true };
