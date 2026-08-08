@@ -29,7 +29,8 @@ export default async function AdminUsersPage() {
                 <th className="pb-3 font-semibold">Usuario</th>
                 <th className="pb-3 font-semibold">Rol</th>
                 <th className="pb-3 font-semibold">Registrado</th>
-                <th className="pb-3 text-right font-semibold">Estado</th>
+                <th className="pb-3 font-semibold">Estado</th>
+                <th className="pb-3 text-right font-semibold">Acción</th>
               </tr>
             </thead>
             <tbody>

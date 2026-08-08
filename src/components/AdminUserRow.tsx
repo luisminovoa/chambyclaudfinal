@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toggleUserActive, changeUserRole } from "@/lib/actions/admin";
 import { formatDate, cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
@@ -55,7 +56,7 @@ export function AdminUserRow({ profile }: { profile: Profile }) {
         </select>
       </td>
       <td className="py-3.5 pr-4 text-xs text-ink-muted">{formatDate(profile.created_at)}</td>
-      <td className="py-3.5 text-right">
+      <td className="py-3.5 pr-4">
         <button
           disabled={isPending}
           onClick={handleToggleActive}
@@ -68,6 +69,14 @@ export function AdminUserRow({ profile }: { profile: Profile }) {
         >
           {profile.is_active ? "Activo" : "Suspendido"}
         </button>
+      </td>
+      <td className="py-3.5 text-right">
+        <Link
+          href={`/admin/users/${profile.id}`}
+          className="btn-secondary !rounded-xl !px-3 !py-2 text-xs"
+        >
+          Ver perfil
+        </Link>
       </td>
     </tr>
   );

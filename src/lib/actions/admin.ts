@@ -10,6 +10,12 @@ import type {
   VerificationDocument,
   VerificationDocumentReview,
   Profile,
+  UserRole,
+  WorkerProfileDetails,
+  WorkerExperience,
+  ProfilePhoto,
+  ProfileStats,
+  RatingSummary,
 } from "@/lib/types";
 
 async function assertAdmin() {
@@ -255,4 +261,207 @@ export async function reviewVerificationDocument(
   revalidatePath("/admin/verifications");
   revalidatePath(`/admin/verifications/${documentId}`);
   return { success: true };
+}
+
+// ── Ficha administrativa de usuario (/admin/users/[id]) ─────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface AdminUserDocument extends VerificationDocument {
+  documentUrl: string | null;
+  reviewer: { full_name: string } | null;
+}
+
+export interface AdminUserDocumentReview extends VerificationDocumentReview {
+  reviewer: { full_name: string } | null;
+  document: { document_type: VerificationDocument["document_type"] } | null;
+}
+
+export interface AdminUserActivity {
+  jobsPublished: number;
+  jobsCompletedAsEmployer: number;
+  jobsCompletedAsWorker: number;
+  jobsInProgressAsWorker: number;
+  applicationsSubmitted: number;
+  ratingsReceived: number;
+}
+
+export interface AdminUserProfileDetail {
+  profile: Profile;
+  /** auth.users.email — profiles no almacena email, ver nota en getAdminUserProfile(). */
+  email: string | null;
+  userRoles: UserRole[];
+  workerDetails: WorkerProfileDetails | null;
+  experience: WorkerExperience[];
+  photos: ProfilePhoto[];
+  stats: ProfileStats | null;
+  ratingSummary: RatingSummary | null;
+  documents: AdminUserDocument[];
+  documentReviews: AdminUserDocumentReview[];
+  activity: AdminUserActivity;
+}
+
+/**
+ * Ficha administrativa completa de un usuario (worker o employer) para
+ * /admin/users/[id]. Reutiliza exactamente los mismos datos/tablas que ya
+ * alimentan el perfil propio del trabajador (dashboard/worker/profile) y
+ * los perfiles públicos (getWorkerPublicProfile/getEmployerPublicProfile)
+ * — ninguna tabla ni columna nueva.
+ *
+ * Reparto de cliente por tabla (mismo criterio que getWorkerPublicProfile,
+ * src/lib/actions/workers.ts): las tablas cuya policy SELECT ya incluye
+ * `current_user_role() = 'admin'` (profiles, user_roles, worker_profile_
+ * details, worker_experience, verification_documents,
+ * verification_document_reviews, jobs, job_applications) se leen con el
+ * cliente de sesión normal, ya autorizado por assertAdmin(). Solo
+ * profile_photos y profile_stats (RLS SELECT owner-only, sin excepción
+ * admin — 0010_professional_profile.sql) y el email (vive en auth.users,
+ * no en profiles) requieren createAdminClient() — nunca antes de
+ * assertAdmin(), nunca expuesto al cliente.
+ *
+ * Documentos: misma técnica que getVerificationDocumentDetail() — URL
+ * firmada de 5 minutos generada server-side con el cliente admin, nunca
+ * una URL pública. No se reutiliza getDocumentDownloadUrl() (src/lib/
+ * actions/profile.ts) literalmente porque esa función solo sirve al
+ * propio dueño del documento (`.eq("profile_id", user.id)`) — no puede
+ * servir el documento de OTRO usuario aunque quien llame sea admin. Se
+ * replica el mismo mecanismo de seguridad (signed URL de corta duración,
+ * nunca bucket público), no la función.
+ */
+export async function getAdminUserProfile(profileId: string): Promise<AdminUserProfileDetail | null> {
+  const { supabase } = await assertAdmin();
+
+  if (typeof profileId !== "string" || !UUID_RE.test(profileId)) return null;
+
+  try {
+    return await fetchAdminUserProfile(supabase, profileId);
+  } catch (err) {
+    console.error("[getAdminUserProfile] excepción no capturada:", err);
+    return null;
+  }
+}
+
+async function fetchAdminUserProfile(
+  supabase: ReturnType<typeof createClient>,
+  profileId: string
+): Promise<AdminUserProfileDetail | null> {
+  const { data: profileRow } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  if (!profileRow) return null;
+
+  const admin = createAdminClient();
+
+  const [
+    userRolesRes,
+    workerDetailsRes,
+    experienceRes,
+    photosRes,
+    statsRes,
+    ratingRes,
+    documentsRes,
+    jobsPublishedRes,
+    jobsCompletedEmployerRes,
+    jobsCompletedWorkerRes,
+    jobsInProgressWorkerRes,
+    applicationsRes,
+    authUserRes,
+  ] = await Promise.all([
+    supabase.from("user_roles").select("role").eq("user_id", profileId).eq("active", true),
+    supabase.from("worker_profile_details").select("*").eq("profile_id", profileId).maybeSingle(),
+    supabase
+      .from("worker_experience")
+      .select("*")
+      .eq("profile_id", profileId)
+      .order("is_current", { ascending: false })
+      .order("start_date", { ascending: false }),
+    admin
+      .from("profile_photos")
+      .select("*")
+      .eq("profile_id", profileId)
+      .order("is_primary", { ascending: false })
+      .order("display_order", { ascending: true }),
+    admin.from("profile_stats").select("*").eq("profile_id", profileId).maybeSingle(),
+    supabase.from("rating_summary").select("*").eq("profile_id", profileId).maybeSingle(),
+    supabase
+      .from("verification_documents")
+      .select("*, reviewer:profiles!verification_documents_reviewed_by_fkey(full_name)")
+      .eq("profile_id", profileId)
+      .order("uploaded_at", { ascending: false }),
+    supabase.from("jobs").select("id", { count: "exact", head: true }).eq("employer_id", profileId),
+    supabase
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("employer_id", profileId)
+      .eq("status", "completado"),
+    supabase
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("assigned_worker_id", profileId)
+      .eq("status", "completado"),
+    supabase
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("assigned_worker_id", profileId)
+      .eq("status", "en_progreso"),
+    supabase
+      .from("job_applications")
+      .select("id", { count: "exact", head: true })
+      .eq("worker_id", profileId),
+    // profiles no almacena email — vive en Supabase Auth (auth.users), solo
+    // accesible server-side vía la Admin API con el cliente service-role.
+    admin.auth.admin.getUserById(profileId),
+  ]);
+
+  const documents = (documentsRes.data as unknown as AdminUserDocument[]) ?? [];
+  const documentIds = documents.map((d) => d.id);
+
+  const { data: reviewsData } = documentIds.length
+    ? await supabase
+        .from("verification_document_reviews")
+        .select(
+          "*, reviewer:profiles!verification_document_reviews_reviewed_by_fkey(full_name), document:verification_documents(document_type)"
+        )
+        .in("document_id", documentIds)
+        .order("created_at", { ascending: false })
+    : { data: [] as AdminUserDocumentReview[] };
+
+  // Signed URLs de corta duración, generadas después de confirmar rol
+  // admin — nunca una URL pública permanente. Mismo TTL (5 min) que
+  // getVerificationDocumentDetail().
+  const signedUrls = await Promise.all(
+    documents.map((d) =>
+      admin.storage.from("verification-documents").createSignedUrl(d.storage_path, 300)
+    )
+  );
+  const documentsWithUrls = documents.map((d, i) => ({
+    ...d,
+    documentUrl: signedUrls[i]?.data?.signedUrl ?? null,
+  }));
+
+  const ratingSummary = (ratingRes.data as unknown as RatingSummary | null) ?? null;
+
+  return {
+    profile: profileRow as Profile,
+    email: authUserRes.data.user?.email ?? null,
+    userRoles: ((userRolesRes.data ?? []) as { role: UserRole }[]).map((r) => r.role),
+    workerDetails: (workerDetailsRes.data as WorkerProfileDetails | null) ?? null,
+    experience: (experienceRes.data as WorkerExperience[]) ?? [],
+    photos: (photosRes.data as ProfilePhoto[]) ?? [],
+    stats: (statsRes.data as ProfileStats | null) ?? null,
+    ratingSummary,
+    documents: documentsWithUrls,
+    documentReviews: (reviewsData as unknown as AdminUserDocumentReview[]) ?? [],
+    activity: {
+      jobsPublished: jobsPublishedRes.count ?? 0,
+      jobsCompletedAsEmployer: jobsCompletedEmployerRes.count ?? 0,
+      jobsCompletedAsWorker: jobsCompletedWorkerRes.count ?? 0,
+      jobsInProgressAsWorker: jobsInProgressWorkerRes.count ?? 0,
+      applicationsSubmitted: applicationsRes.count ?? 0,
+      ratingsReceived: ratingSummary?.total_ratings ?? 0,
+    },
+  };
 }
