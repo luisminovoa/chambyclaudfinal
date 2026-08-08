@@ -75,7 +75,7 @@ export function AdminProfileOverview({ data }: { data: AdminUserProfileDetail })
 
             <Field label="Descripción" value={profile.bio} />
 
-            {profile.skills.length > 0 && (
+            {profile.skills && profile.skills.length > 0 && (
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Habilidades</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
