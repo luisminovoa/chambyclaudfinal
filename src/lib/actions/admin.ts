@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { assertAdmin } from "@/lib/actions/assert-admin";
 import { computeAndSaveProfileStats } from "@/lib/actions/profile";
 import { formatSupabaseError } from "@/lib/format-supabase-error";
 import type {
@@ -17,20 +18,6 @@ import type {
   ProfileStats,
   RatingSummary,
 } from "@/lib/types";
-
-async function assertAdmin() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("No autenticado");
-
-  const { data: profileRaw } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  const profile = profileRaw as unknown as { role: string } | null;
-  if (profile?.role !== "admin") throw new Error("No autorizado");
-
-  return { supabase, adminId: user.id };
-}
 
 export async function toggleUserActive(userId: string, isActive: boolean) {
   const { supabase } = await assertAdmin();

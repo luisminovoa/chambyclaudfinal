@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { assertAdmin } from "@/lib/actions/assert-admin";
 import { BETA_CONFIG } from "@/lib/beta-config";
 import type { ActionResult } from "@/lib/actions/auth";
 import type { BugReport, BetaStats } from "@/lib/types";
@@ -36,7 +37,16 @@ export async function submitBugReport(input: BugReportInput): Promise<ActionResu
   return { success: true };
 }
 
+/**
+ * Hallazgo crítico de la auditoría de seguridad: esta función usaba
+ * createAdminClient() (service role, sin RLS) sin ningún chequeo de
+ * sesión/rol — cualquiera que invocara la Server Action directamente
+ * (sin pasar por la UI de /admin/beta) obtenía estadísticas completas
+ * de la plataforma. assertAdmin() (src/lib/actions/assert-admin.ts,
+ * el mismo helper que usa cada función de admin.ts) cierra ese hueco.
+ */
 export async function getBetaStats(): Promise<BetaStats> {
+  await assertAdmin();
   const admin = createAdminClient();
 
   const [
@@ -89,7 +99,9 @@ export async function getBetaStats(): Promise<BetaStats> {
   };
 }
 
+/** Mismo hallazgo/corrección que getBetaStats() — ver comentario ahí. */
 export async function getBugReports(limit = 20): Promise<BugReport[]> {
+  await assertAdmin();
   const admin = createAdminClient();
   const { data } = await admin
     .from("bug_reports")
