@@ -7,9 +7,10 @@ import type { ReportTargetType, ReportReason, ReporterReportView } from "@/lib/t
 
 /**
  * Fase 2: flujo funcional completo de creación/consulta de reportes.
- * El panel admin (Fase 3) sigue viviendo en admin-reports.ts, sin
- * cambios aquí. La subida de evidencia (Fase 3 también) sigue sin
- * implementarse — ver docs/user-reporting-moderation-design.md §19.
+ * El panel admin vive en admin-reports.ts, sin cambios aquí. La
+ * evidencia (Fase 4) vive en report-evidence.ts — submitReport()
+ * devuelve `reportId` únicamente para que el cliente sepa a qué fila
+ * adjuntar los archivos después de crear el reporte, nada más.
  */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -50,7 +51,7 @@ interface SubmitReportInput {
  * función tuviera un bug), esto es además una respuesta de error
  * legible en vez de un error crudo de Postgres.
  */
-export async function submitReport(input: SubmitReportInput): Promise<ActionResult> {
+export async function submitReport(input: SubmitReportInput): Promise<ActionResult & { reportId?: string }> {
   const supabase = createClient();
   const {
     data: { user },
@@ -117,15 +118,19 @@ export async function submitReport(input: SubmitReportInput): Promise<ActionResu
     }
   }
 
-  const { error } = await supabase.from("reports").insert({
-    reporter_id: user.id,
-    target_type: input.targetType,
-    reported_user_id: input.targetType === "user" ? input.reportedUserId : null,
-    reported_job_id: input.targetType === "job" ? input.reportedJobId : null,
-    related_job_id: input.relatedJobId ?? null,
-    reason: input.reason,
-    description: input.description.trim(),
-  });
+  const { data, error } = await supabase
+    .from("reports")
+    .insert({
+      reporter_id: user.id,
+      target_type: input.targetType,
+      reported_user_id: input.targetType === "user" ? input.reportedUserId : null,
+      reported_job_id: input.targetType === "job" ? input.reportedJobId : null,
+      related_job_id: input.relatedJobId ?? null,
+      reason: input.reason,
+      description: input.description.trim(),
+    })
+    .select("id")
+    .single();
 
   if (error) {
     // 23505 = unique_violation: reports_no_duplicate_active (0019) ya
@@ -140,7 +145,10 @@ export async function submitReport(input: SubmitReportInput): Promise<ActionResu
     }
     return { error: "No se pudo enviar el reporte. Intenta de nuevo." };
   }
-  return { success: true };
+  // reportId se usa en el cliente (ReportModal, Fase 4) para adjuntar
+  // evidencia justo después de crear el reporte — nunca se usa para
+  // autorizar nada, solo para saber a qué fila subir los archivos.
+  return { success: true, reportId: (data as { id: string }).id };
 }
 
 /**

@@ -53,10 +53,20 @@ export interface AdminReportListItem extends Report {
   hasEvidence: boolean;
 }
 
+export interface AdminReportEvidenceSummary {
+  id: string;
+  file_name: string;
+  content_type: string;
+  file_size: number | null;
+  created_at: string;
+}
+
 export interface AdminReportDetail extends AdminReportListItem {
   relatedJob: JobSummary | null;
   reviewer: Pick<Profile, "id" | "full_name"> | null;
   moderationActions: (ModerationAction & { admin: Pick<Profile, "id" | "full_name"> | null })[];
+  /** Metadata únicamente — nunca storage_path ni una URL. La lectura del archivo en sí va por getReportEvidenceSignedUrl() (report-evidence.ts), bajo demanda. */
+  evidence: AdminReportEvidenceSummary[];
 }
 
 export interface ReportCounts {
@@ -202,7 +212,7 @@ export async function getReportDetail(reportId: string): Promise<AdminReportDeta
 
   const [enriched] = await enrichReports(supabase, [report]);
 
-  const [relatedJobRes, reviewerRes, actionsRes] = await Promise.all([
+  const [relatedJobRes, reviewerRes, actionsRes, evidenceRes] = await Promise.all([
     report.related_job_id
       ? supabase.from("jobs").select("id, title").eq("id", report.related_job_id).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -214,6 +224,11 @@ export async function getReportDetail(reportId: string): Promise<AdminReportDeta
       .select("*")
       .eq("report_id", reportId)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("report_evidence")
+      .select("id, file_name, content_type, file_size, created_at")
+      .eq("report_id", reportId)
+      .order("created_at", { ascending: true }),
   ]);
 
   const actions = (actionsRes.data as unknown as ModerationAction[]) ?? [];
@@ -228,6 +243,7 @@ export async function getReportDetail(reportId: string): Promise<AdminReportDeta
     relatedJob: (relatedJobRes.data as JobSummary | null) ?? null,
     reviewer: (reviewerRes.data as Pick<Profile, "id" | "full_name"> | null) ?? null,
     moderationActions: actions.map((a) => ({ ...a, admin: adminMap.get(a.admin_id) ?? null })),
+    evidence: (evidenceRes.data as unknown as AdminReportEvidenceSummary[]) ?? [],
   };
 }
 

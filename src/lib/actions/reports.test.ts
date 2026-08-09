@@ -43,9 +43,16 @@ vi.mock("@/lib/supabase/server", () => ({
     from: (table: string) => {
       if (table === "reports") {
         return {
-          insert: async (row: InsertedRow) => {
+          insert: (row: InsertedRow) => {
             state.inserted.push(row);
-            return { error: state.insertError };
+            return {
+              select: () => ({
+                single: async () =>
+                  state.insertError
+                    ? { data: null, error: state.insertError }
+                    : { data: { id: `report-${state.inserted.length}` }, error: null },
+              }),
+            };
           },
         };
       }

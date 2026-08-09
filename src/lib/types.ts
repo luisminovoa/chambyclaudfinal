@@ -145,7 +145,9 @@ export type NotificationType =
   | "new_rating"
   | "reminder"
   | "system"
-  | "admin_alert";
+  | "admin_alert"
+  | "report_status_update"
+  | "moderation_action";
 
 export type NotificationPriority = "low" | "normal" | "high" | "urgent";
 export type NotificationChannel = "in_app" | "push" | "email" | "whatsapp" | "sms";
@@ -269,6 +271,7 @@ export interface ReportEvidence {
   storage_path: string;
   file_name: string;
   content_type: string;
+  file_size: number | null;
   uploaded_by: string;
   created_at: string;
 }

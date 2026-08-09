@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Flag, User, Briefcase, Paperclip, CalendarDays } from "lucide-react";
+import { ArrowLeft, Flag, User, Briefcase, CalendarDays } from "lucide-react";
 import { getReportDetail } from "@/lib/actions/admin-reports";
 import { AdminReportStatusForm } from "@/components/admin/AdminReportStatusForm";
 import { AdminModerationActionForm } from "@/components/admin/AdminModerationActionForm";
 import { AdminModerationHistory } from "@/components/admin/AdminModerationHistory";
+import { AdminEvidenceList } from "@/components/admin/AdminEvidenceList";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Reveal } from "@/components/ui/Reveal";
@@ -75,13 +76,6 @@ export default async function AdminReportDetailPage({ params }: Props) {
             <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Descripción</p>
             <p className="mt-1.5 whitespace-pre-line text-sm text-ink">{report.description}</p>
           </div>
-
-          {report.hasEvidence && (
-            <div className="mt-3 flex items-center gap-1.5 rounded-xl bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700">
-              <Paperclip className="h-3.5 w-3.5" />
-              Evidencia disponible
-            </div>
-          )}
 
           {report.relatedJob && (
             <div className="mt-3 rounded-2xl bg-slate-50 p-4">
@@ -182,6 +176,10 @@ export default async function AdminReportDetailPage({ params }: Props) {
           </div>
         </Reveal>
       )}
+
+      <Reveal delay={0.13} className="mt-6">
+        <AdminEvidenceList evidence={report.evidence} />
+      </Reveal>
 
       <Reveal delay={0.15} className="mt-6">
         <AdminReportStatusForm reportId={report.id} currentStatus={report.status} />

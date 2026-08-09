@@ -10,6 +10,7 @@ import {
   Clock,
   Bell,
   ShieldAlert,
+  Flag,
 } from "lucide-react";
 import type { Notification, NotificationType } from "@/lib/types";
 
@@ -27,6 +28,8 @@ const TYPE_META: Record<
   reminder: { icon: Clock, color: "text-ink-muted", bg: "bg-slate-100" },
   system: { icon: Bell, color: "text-primary-600", bg: "bg-primary-50" },
   admin_alert: { icon: ShieldAlert, color: "text-danger-600", bg: "bg-danger-50" },
+  report_status_update: { icon: Flag, color: "text-primary-600", bg: "bg-primary-50" },
+  moderation_action: { icon: ShieldAlert, color: "text-warning-600", bg: "bg-warning-50" },
 };
 
 const PRIORITY_BORDER: Record<string, string> = {
