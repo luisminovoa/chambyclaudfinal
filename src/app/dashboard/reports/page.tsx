@@ -2,12 +2,16 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { getMyReports } from "@/lib/actions/reports";
-import { REPORT_REASON_LABELS, REPORT_TARGET_TYPE_LABELS } from "@/lib/report-config";
+import {
+  REPORT_REASON_LABELS,
+  REPORT_TARGET_TYPE_LABELS,
+  REPORT_STATUS_LABELS,
+  reportStatusTone,
+} from "@/lib/report-config";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Reveal } from "@/components/ui/Reveal";
 import { formatDate } from "@/lib/utils";
-import type { ReportStatus } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Mis reportes | Chamby" };
 
@@ -23,20 +27,6 @@ export const metadata: Metadata = { title: "Mis reportes | Chamby" };
  * reviewed_by ni ninguna acción interna de moderación: esas columnas
  * no existen en los datos que llegan aquí.
  */
-
-const STATUS_LABELS: Record<ReportStatus, string> = {
-  pending: "Pendiente",
-  under_review: "En revisión",
-  resolved: "Resuelto",
-  dismissed: "Descartado",
-};
-
-const STATUS_TONE: Record<ReportStatus, "warning" | "info" | "success" | "neutral"> = {
-  pending: "warning",
-  under_review: "info",
-  resolved: "success",
-  dismissed: "neutral",
-};
 
 export default async function MyReportsPage() {
   const { user } = await getCurrentUserAndProfile();
@@ -70,7 +60,7 @@ export default async function MyReportsPage() {
                   <span className="text-sm font-bold text-ink">
                     {REPORT_TARGET_TYPE_LABELS[report.target_type]}
                   </span>
-                  <Badge tone={STATUS_TONE[report.status]}>{STATUS_LABELS[report.status]}</Badge>
+                  <Badge tone={reportStatusTone(report.status)}>{REPORT_STATUS_LABELS[report.status]}</Badge>
                 </div>
                 <p className="mt-1 text-xs text-ink-muted">
                   {REPORT_REASON_LABELS[report.reason]} · {formatDate(report.created_at)}

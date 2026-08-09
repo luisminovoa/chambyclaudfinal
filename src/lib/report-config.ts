@@ -1,4 +1,4 @@
-import type { ReportReason, ReportTargetType, UserRole } from "@/lib/types";
+import type { ReportReason, ReportStatus, ReportTargetType, UserRole } from "@/lib/types";
 
 /**
  * Catálogo de motivos de reporte — única fuente de verdad para labels
@@ -81,6 +81,38 @@ export const REPORT_REASONS_JOB: ReportReason[] = [
 export const REPORT_TARGET_TYPE_LABELS: Record<ReportTargetType, string> = {
   user: "Reportar usuario",
   job: "Reportar oferta",
+};
+
+/** Mismo patrón que documentStatusLabel/documentStatusTone (document-verification.ts) — usado por /dashboard/reports y /admin/reports, un solo lugar. */
+export const REPORT_STATUS_LABELS: Record<ReportStatus, string> = {
+  pending: "Pendiente",
+  under_review: "En revisión",
+  resolved: "Resuelto",
+  dismissed: "Descartado",
+};
+
+export function reportStatusTone(status: ReportStatus): "warning" | "info" | "success" | "neutral" {
+  if (status === "pending") return "warning";
+  if (status === "under_review") return "info";
+  if (status === "resolved") return "success";
+  return "neutral";
+}
+
+/**
+ * Transiciones de estado permitidas para el panel admin (Fase 3) —
+ * única fuente compartida entre la validación real del servidor
+ * (admin-reports.ts, "use server", no puede exportar este const
+ * directamente para un componente cliente) y la UI que solo debe
+ * ofrecer botones para transiciones legítimas. Deliberadamente más
+ * estricto que el diseño original (§4 de user-reporting-moderation-
+ * design.md, que permitía pending→resolved directo y reabrir estados
+ * terminales) — instrucción explícita de la Fase 3.
+ */
+export const REPORT_STATUS_TRANSITIONS: Record<ReportStatus, ReportStatus[]> = {
+  pending: ["under_review", "dismissed"],
+  under_review: ["resolved", "dismissed"],
+  resolved: [],
+  dismissed: [],
 };
 
 export interface ReportReasonOption {
