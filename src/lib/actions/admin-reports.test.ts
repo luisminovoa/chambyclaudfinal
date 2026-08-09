@@ -94,6 +94,8 @@ interface State {
   moderationActions: ModerationActionRow[];
   /** Fase 9: simula el error que devolvería Postgres si trg_report_status_transition (0026) rechazara el UPDATE. */
   updateErrorMessage: string | null;
+  /** Fase 10: simula el error que devolvería Postgres si trg_moderation_action_target_coherence (0027) rechazara el INSERT. */
+  moderationActionInsertErrorMessage: string | null;
 }
 
 const state: State = {
@@ -104,6 +106,7 @@ const state: State = {
   reportEvidence: [],
   moderationActions: [],
   updateErrorMessage: null,
+  moderationActionInsertErrorMessage: null,
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -151,6 +154,9 @@ vi.mock("@/lib/supabase/server", () => ({
         return {
           select: () => selectChain(state.moderationActions as unknown as Record<string, unknown>[]),
           insert: async (payload: Omit<ModerationActionRow, "id" | "created_at">) => {
+            if (state.moderationActionInsertErrorMessage) {
+              return { error: { message: state.moderationActionInsertErrorMessage } };
+            }
             state.moderationActions.push({
               id: `ma-${state.moderationActions.length + 1}`,
               created_at: new Date().toISOString(),
@@ -202,6 +208,7 @@ beforeEach(() => {
   state.reportEvidence = [];
   state.moderationActions = [];
   state.updateErrorMessage = null;
+  state.moderationActionInsertErrorMessage = null;
 });
 
 describe("listReports", () => {
@@ -404,6 +411,24 @@ describe("recordModerationAction", () => {
     // La firma de recordModerationAction no acepta targetUserId en absoluto.
     await recordModerationAction(REPORT_ID, "temporary_suspension", "x");
     expect(state.moderationActions[0].target_user_id).toBe(REPORTED_ID);
+  });
+
+  it("Fase 10 — si trg_moderation_action_target_coherence (0027) rechaza el INSERT en la base de datos (defensa en profundidad), el error se traduce a un mensaje amigable sin filtrar detalles internos de Postgres", async () => {
+    // target_user_id ya se deriva del reporte real arriba (línea previa),
+    // así que esto simula específicamente el catch de la Server Action,
+    // no un escenario alcanzable por la validación normal de la app.
+    state.moderationActionInsertErrorMessage =
+      "moderation_action_target_mismatch: target_user_id no coincide con reports.reported_user_id del report_id referenciado";
+    const result = await recordModerationAction(REPORT_ID, "warning_issued");
+    expect(result.error).toBe("No se pudo registrar la acción: el usuario objetivo no corresponde a este reporte.");
+    expect(result.error).not.toMatch(/P0001|trigger|Postgres|moderation_action_target_mismatch/i);
+    expect(state.moderationActions).toHaveLength(0);
+  });
+
+  it("Fase 10 — un error de base de datos NO relacionado con la coherencia de target_user_id sigue devolviendo el mensaje genérico existente", async () => {
+    state.moderationActionInsertErrorMessage = "connection reset by peer";
+    const result = await recordModerationAction(REPORT_ID, "warning_issued");
+    expect(result.error).toBe("No se pudo registrar la acción de moderación.");
   });
 });
 

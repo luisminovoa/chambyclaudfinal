@@ -371,6 +371,16 @@ export async function recordModerationAction(
     metadata: {},
   });
 
-  if (error) return { error: "No se pudo registrar la acción de moderación." };
+  if (error) {
+    // trg_moderation_action_target_coherence (0027, Fase 10) es la
+    // garantía real a nivel de base de datos de que target_user_id
+    // siempre coincide con reports.reported_user_id — targetUserId ya
+    // se deriva del reporte arriba, así que este catch es defensa en
+    // profundidad, no debería alcanzarse en el flujo normal de la app.
+    if (error.message?.includes("moderation_action_target_mismatch")) {
+      return { error: "No se pudo registrar la acción: el usuario objetivo no corresponde a este reporte." };
+    }
+    return { error: "No se pudo registrar la acción de moderación." };
+  }
   return { success: true };
 }
