@@ -4,6 +4,7 @@ import {
   saveReportEvidence,
   deleteReportEvidence,
   getReportEvidenceSignedUrl,
+  getReportEvidence,
 } from "./report-evidence";
 
 /**
@@ -30,6 +31,9 @@ function selectChain(rows: Record<string, unknown>[]) {
   const chain = {
     eq(col: string, val: unknown) {
       filtered = filtered.filter((r) => r[col] === val);
+      return chain;
+    },
+    order() {
       return chain;
     },
     single: async () => ({ data: filtered[0] ?? null, error: filtered[0] ? null : { message: "not found" } }),
@@ -354,5 +358,46 @@ describe("getReportEvidenceSignedUrl", () => {
     await getReportEvidenceSignedUrl("66666666-6666-4666-8666-666666666666");
     await getReportEvidenceSignedUrl("66666666-6666-4666-8666-666666666666");
     expect(state.signedUrlCalls).toHaveLength(2);
+  });
+});
+
+describe("getReportEvidence (Fase 5 — cierre de cobertura IDOR)", () => {
+  beforeEach(() => {
+    state.evidence = [
+      {
+        id: "66666666-6666-4666-8666-666666666666",
+        report_id: REPORT_ID,
+        storage_path: `${REPORTER_ID}/${REPORT_ID}/foto.jpg`,
+        file_name: "foto.jpg",
+        content_type: "image/jpeg",
+        file_size: 1024,
+        uploaded_by: REPORTER_ID,
+        created_at: new Date().toISOString(),
+      },
+    ];
+  });
+
+  it("8/9. el dueño del reporte puede listar su propia evidencia", async () => {
+    const result = await getReportEvidence(REPORT_ID);
+    expect(result).toHaveLength(1);
+    expect(result[0].uploaded_by).toBe(REPORTER_ID);
+  });
+
+  it("8/9. otro usuario nunca ve evidencia ajena, aunque conozca el reportId (scoping por uploaded_by en la propia consulta)", async () => {
+    state.user = { id: OTHER_USER_ID };
+    const result = await getReportEvidence(REPORT_ID);
+    expect(result).toEqual([]);
+  });
+
+  it("el usuario reportado tampoco puede ver la evidencia en su contra vía esta función", async () => {
+    state.user = { id: REPORTED_ID };
+    const result = await getReportEvidence(REPORT_ID);
+    expect(result).toEqual([]);
+  });
+
+  it("usuario no autenticado obtiene lista vacía, no un error crudo", async () => {
+    state.user = null;
+    const result = await getReportEvidence(REPORT_ID);
+    expect(result).toEqual([]);
   });
 });
