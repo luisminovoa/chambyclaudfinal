@@ -361,6 +361,20 @@ describe("updateReportStatus", () => {
     const result = await updateReportStatus(REPORT_ID, "under_review");
     expect(result.error).toBe("No se pudo actualizar el reporte.");
   });
+
+  it("Fase 11 — si reports_update_admin (0028) rechaza el UPDATE por RLS (reviewed_by no coincide con auth.uid(), defensa en profundidad), el mensaje genérico existente ya cubre el caso sin necesitar un mapeo nuevo", async () => {
+    // 0028 es una policy RLS (WITH CHECK), no una excepción con un texto
+    // propio como 0026/0027 — Postgres/PostgREST generan el mensaje de
+    // violación de RLS automáticamente, no un texto que este proyecto
+    // controle o pueda hacer match de forma estable. Por eso NO se
+    // agrega un `if (error.message?.includes(...))` nuevo: el fallback
+    // genérico ya existente es la respuesta correcta y ya evita filtrar
+    // cualquier detalle interno de Postgres.
+    state.updateErrorMessage = 'new row violates row-level security policy for table "reports"';
+    const result = await updateReportStatus(REPORT_ID, "under_review");
+    expect(result.error).toBe("No se pudo actualizar el reporte.");
+    expect(result.error).not.toMatch(/row-level security|policy|reviewed_by/i);
+  });
 });
 
 describe("recordModerationAction", () => {
