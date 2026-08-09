@@ -444,6 +444,19 @@ describe("recordModerationAction", () => {
     const result = await recordModerationAction(REPORT_ID, "warning_issued");
     expect(result.error).toBe("No se pudo registrar la acción de moderación.");
   });
+
+  it("Fase 12 — si moderation_actions_recordable_type (0029) rechaza el INSERT en la base de datos (defensa en profundidad), el error se traduce a un mensaje amigable sin filtrar detalles internos de Postgres", async () => {
+    // actionType ya se valida contra RECORDABLE_ACTION_TYPES arriba en
+    // la función real, así que este escenario (un action_type válido
+    // según la app pero que la DB igual rechaza) solo simula el catch
+    // de defensa en profundidad, no un camino alcanzable hoy.
+    state.moderationActionInsertErrorMessage =
+      'new row for relation "moderation_actions" violates check constraint "moderation_actions_recordable_type"';
+    const result = await recordModerationAction(REPORT_ID, "warning_issued");
+    expect(result.error).toBe("Tipo de acción inválido.");
+    expect(result.error).not.toMatch(/check constraint|relation|moderation_actions_recordable_type/i);
+    expect(state.moderationActions).toHaveLength(0);
+  });
 });
 
 describe("getReportCounts", () => {

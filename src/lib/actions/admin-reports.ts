@@ -380,6 +380,14 @@ export async function recordModerationAction(
     if (error.message?.includes("moderation_action_target_mismatch")) {
       return { error: "No se pudo registrar la acción: el usuario objetivo no corresponde a este reporte." };
     }
+    // moderation_actions_recordable_type (0029, Fase 12) es la garantía
+    // real a nivel de base de datos de que action_type nunca es un
+    // valor fuera de lo que RECORDABLE_ACTION_TYPES (arriba) ya
+    // permite — inalcanzable en el flujo normal (ya se valida en la
+    // línea de arriba), defensa en profundidad para PostgREST directo.
+    if (error.message?.includes("moderation_actions_recordable_type")) {
+      return { error: "Tipo de acción inválido." };
+    }
     return { error: "No se pudo registrar la acción de moderación." };
   }
   return { success: true };

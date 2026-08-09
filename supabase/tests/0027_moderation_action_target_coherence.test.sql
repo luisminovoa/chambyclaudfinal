@@ -67,9 +67,13 @@ values ('94000000-0000-4000-8000-000000000002', '92000000-0000-4000-8000-0000000
         null, 'note_added');
 
 -- P3: target_user_id = null y report_id = null — ninguna coherencia que
--- exigir cuando no hay a quién notificar ni atribuir.
+-- exigir cuando no hay a quién notificar ni atribuir. Usa action_type
+-- 'note_added' (no 'no_action': desde 0029/Fase 12,
+-- moderation_actions_recordable_type restringe action_type a los
+-- valores que la aplicación realmente produce, y 'no_action' no es uno
+-- de ellos — ver 0029_moderation_actions_recordable_type_guard.sql).
 insert into public.moderation_actions (report_id, admin_id, target_user_id, action_type)
-values (null, '92000000-0000-4000-8000-000000000004', null, 'no_action');
+values (null, '92000000-0000-4000-8000-000000000004', null, 'note_added');
 
 select count(*) from public.moderation_actions;
 -- Debe ser 3.
