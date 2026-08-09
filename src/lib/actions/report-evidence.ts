@@ -206,6 +206,15 @@ export async function saveReportEvidence(params: {
   if (error) {
     const admin = createAdminClient();
     await admin.storage.from("report-evidence").remove([params.storagePath]);
+
+    // trg_report_evidence_limit (0024) es la garantía atómica real del
+    // límite de 5 archivos — el conteo de arriba es solo un fallo rápido
+    // que puede perder una condición de carrera entre dos subidas
+    // concurrentes. Si el trigger rechazó el INSERT, se traduce al mismo
+    // mensaje amigable que el chequeo de conteo, en vez del genérico.
+    if (error.message?.includes("report_evidence_limit_exceeded")) {
+      return { error: `Ya adjuntaste el máximo de ${MAX_FILES_PER_REPORT} archivos para este reporte.` };
+    }
     return { error: "No se pudo registrar la evidencia. Intenta de nuevo." };
   }
 

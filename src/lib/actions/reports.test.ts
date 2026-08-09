@@ -222,6 +222,68 @@ describe("submitReport", () => {
     expect(result.success).toBeUndefined();
   });
 
+  describe("Fase 6 — anti-duplicado para reportes de oferta (reports_no_duplicate_active_job, 0025)", () => {
+    it("1. primer reporte de una oferta es permitido", async () => {
+      const result = await submitReport({
+        targetType: "job",
+        reportedJobId: JOB_ID,
+        reason: "spam",
+        description: "x",
+      });
+      expect(result.success).toBe(true);
+      expect(state.inserted).toHaveLength(1);
+    });
+
+    it("2/3. un duplicado exacto (mismo reportante, misma oferta, mismo motivo) es rechazado con mensaje amigable — distinto al de reportes de usuario", async () => {
+      state.insertError = { code: "23505", message: "duplicate key value violates unique constraint" };
+      const result = await submitReport({
+        targetType: "job",
+        reportedJobId: JOB_ID,
+        reason: "spam",
+        description: "Segundo intento sobre la misma oferta.",
+      });
+      expect(result.error).toBe(
+        "Ya tienes un reporte activo sobre esta oferta por este motivo. Nuestro equipo ya lo está revisando."
+      );
+    });
+
+    it("no reescribe el mensaje de duplicado de reportes de USUARIO (regresión): sigue diciendo 'este usuario', no 'esta oferta'", async () => {
+      state.insertError = { code: "23505", message: "duplicate key value violates unique constraint" };
+      const result = await submitReport({
+        targetType: "user",
+        reportedUserId: OTHER_USER_ID,
+        reason: "harassment",
+        description: "x",
+      });
+      expect(result.error).toBe(
+        "Ya tienes un reporte activo sobre este usuario por este motivo. Nuestro equipo ya lo está revisando."
+      );
+    });
+
+    it("5. la Server Action no impone ninguna restricción propia de motivo único — la legitimidad de 'mismo job, motivo distinto' depende exclusivamente del índice parcial (no hay chequeo de reason duplicado aquí)", async () => {
+      // submitReport() no consulta reports existentes antes de insertar —
+      // toda la deduplicación vive en el índice único parcial de 0025, no
+      // en la Server Action (mismo criterio que reports_no_duplicate_active
+      // de 0019 para usuarios). Este test documenta esa decisión: sin
+      // insertError simulado, dos motivos distintos para la misma oferta
+      // se insertan ambos sin que la Server Action los bloquee.
+      await submitReport({ targetType: "job", reportedJobId: JOB_ID, reason: "spam", description: "x" });
+      await submitReport({ targetType: "job", reportedJobId: JOB_ID, reason: "discrimination", description: "y" });
+      expect(state.inserted).toHaveLength(2);
+    });
+
+    it("7. los reportes de usuario existentes (0019) siguen funcionando exactamente igual tras agregar el índice de oferta", async () => {
+      const result = await submitReport({
+        targetType: "user",
+        reportedUserId: OTHER_USER_ID,
+        reason: "harassment",
+        description: "x",
+      });
+      expect(result.success).toBe(true);
+      expect(state.inserted[0].reported_job_id).toBeNull();
+    });
+  });
+
   it("rechaza target_type inválido", async () => {
     const result = await submitReport({
       // @ts-expect-error — valor inválido a propósito

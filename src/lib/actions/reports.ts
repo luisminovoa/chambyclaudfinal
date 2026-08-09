@@ -133,14 +133,16 @@ export async function submitReport(input: SubmitReportInput): Promise<ActionResu
     .single();
 
   if (error) {
-    // 23505 = unique_violation: reports_no_duplicate_active (0019) ya
+    // 23505 = unique_violation: reports_no_duplicate_active (0019, target
+    // 'user') o reports_no_duplicate_active_job (0025, target 'job') ya
     // tiene un reporte activo (pending/under_review) de este mismo
-    // reportante contra el mismo usuario y motivo. No es un error del
+    // reportante contra el mismo objetivo y motivo. No es un error del
     // sistema — es información útil para el usuario, sin crear un
     // segundo mecanismo de deduplicación en la Server Action.
     if (error.code === "23505") {
+      const target = input.targetType === "job" ? "esta oferta" : "este usuario";
       return {
-        error: "Ya tienes un reporte activo sobre este usuario por este motivo. Nuestro equipo ya lo está revisando.",
+        error: `Ya tienes un reporte activo sobre ${target} por este motivo. Nuestro equipo ya lo está revisando.`,
       };
     }
     return { error: "No se pudo enviar el reporte. Intenta de nuevo." };

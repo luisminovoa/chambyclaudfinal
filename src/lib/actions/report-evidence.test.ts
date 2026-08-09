@@ -68,6 +68,8 @@ interface State {
   evidence: EvidenceRow[];
   profiles: { id: string; role: string }[];
   forceInsertError: boolean;
+  /** Mensaje del error simulado en el INSERT — por defecto uno genérico; los tests de Fase 6 lo cambian para simular el rechazo del trigger trg_report_evidence_limit (0024). */
+  insertErrorMessage: string;
   removedPaths: string[];
   signedUploadUrls: string[];
   signedUrlCalls: { path: string; ttl: number }[];
@@ -79,6 +81,7 @@ const state: State = {
   evidence: [],
   profiles: [],
   forceInsertError: false,
+  insertErrorMessage: "insert failed",
   removedPaths: [],
   signedUploadUrls: [],
   signedUrlCalls: [],
@@ -100,7 +103,7 @@ vi.mock("@/lib/supabase/server", () => ({
           insert: (payload: Omit<EvidenceRow, "id" | "created_at">) => ({
             select: () => ({
               single: async () => {
-                if (state.forceInsertError) return { data: null, error: { message: "insert failed" } };
+                if (state.forceInsertError) return { data: null, error: { message: state.insertErrorMessage } };
                 const row: EvidenceRow = {
                   id: `ev-${state.evidence.length + 1}`,
                   created_at: new Date().toISOString(),
@@ -160,6 +163,7 @@ beforeEach(() => {
     { id: ADMIN_ID, role: "admin" },
   ];
   state.forceInsertError = false;
+  state.insertErrorMessage = "insert failed";
   state.removedPaths = [];
   state.signedUploadUrls = [];
   state.signedUrlCalls = [];
@@ -267,6 +271,104 @@ describe("createReportEvidenceUploadUrl / saveReportEvidence", () => {
     });
     expect(expectErr(result)).toBeTruthy();
     expect(state.removedPaths).toContain(storagePath);
+  });
+
+  describe("Fase 6 — garantía atómica del límite de 5 (trg_report_evidence_limit, 0024)", () => {
+    // Estos son tests UNITARIOS del manejo de errores en TypeScript, no una
+    // prueba de concurrencia real: este entorno no tiene acceso a un
+    // Postgres real, así que no se puede disparar dos INSERT concurrentes
+    // de verdad y observar que el segundo espera el advisory lock. Lo que
+    // SÍ se prueba aquí: cuando el trigger atómico rechaza el INSERT (el
+    // camino que SÍ ocurriría si dos requests concurrentes ya hicieran que
+    // el conteo previo de la Server Action fuera obsoleto), la aplicación
+    // limpia el archivo huérfano y devuelve el mismo mensaje amigable que
+    // el chequeo de conteo — no un error genérico. La garantía de
+    // atomicidad en sí (que el trigger realmente serializa por report_id
+    // vía pg_advisory_xact_lock) se verifica de forma ESTÁTICA en
+    // fase6-migrations.test.ts, leyendo el SQL de 0024 — no se puede
+    // verificar en runtime en este entorno.
+    it("1/2/3/6. si el trigger atómico rechaza el INSERT (sexto archivo real, detectado server-side), se traduce al mensaje amigable de límite y se limpia el bucket", async () => {
+      state.forceInsertError = true;
+      state.insertErrorMessage = "report_evidence_limit_exceeded: máximo 5 archivos de evidencia por reporte";
+      const storagePath = `${REPORTER_ID}/${REPORT_ID}/sexto-real.jpg`;
+
+      const result = await saveReportEvidence({
+        reportId: REPORT_ID,
+        storagePath,
+        fileName: "sexto-real.jpg",
+        contentType: "image/jpeg",
+        fileSize: 1024,
+      });
+
+      expect(expectErr(result)).toBe("Ya adjuntaste el máximo de 5 archivos para este reporte.");
+      expect(state.removedPaths).toContain(storagePath);
+    });
+
+    it("4. tras eliminar una evidencia, el conteo baja y una subida nueva puede volver a tener éxito (revalidado en cada llamada, no cacheado)", async () => {
+      state.evidence = Array.from({ length: 5 }, (_, i) => ({
+        id: `existing-${i}`,
+        report_id: REPORT_ID,
+        storage_path: `${REPORTER_ID}/${REPORT_ID}/existing-${i}.jpg`,
+        file_name: `existing-${i}.jpg`,
+        content_type: "image/jpeg",
+        file_size: 100,
+        uploaded_by: REPORTER_ID,
+        created_at: new Date().toISOString(),
+      }));
+
+      const blocked = await saveReportEvidence({
+        reportId: REPORT_ID,
+        storagePath: `${REPORTER_ID}/${REPORT_ID}/sexto.jpg`,
+        fileName: "sexto.jpg",
+        contentType: "image/jpeg",
+        fileSize: 1024,
+      });
+      expect(expectErr(blocked)).toMatch(/máximo de 5/);
+
+      // Se libera un cupo (equivalente a deleteReportEvidence exitoso).
+      state.evidence.shift();
+
+      const allowed = await saveReportEvidence({
+        reportId: REPORT_ID,
+        storagePath: `${REPORTER_ID}/${REPORT_ID}/nuevo.jpg`,
+        fileName: "nuevo.jpg",
+        contentType: "image/jpeg",
+        fileSize: 1024,
+      });
+      expectOk(allowed);
+    });
+
+    it("5. otro usuario no puede consumir la capacidad de un reporte ajeno — el INSERT nunca llega a evaluarse porque la validación de ownership corta antes que el conteo (report_id no le pertenece)", async () => {
+      state.evidence = [
+        {
+          id: "existing-0",
+          report_id: REPORT_ID,
+          storage_path: `${REPORTER_ID}/${REPORT_ID}/existing-0.jpg`,
+          file_name: "existing-0.jpg",
+          content_type: "image/jpeg",
+          file_size: 100,
+          uploaded_by: REPORTER_ID,
+          created_at: new Date().toISOString(),
+        },
+      ];
+      state.user = { id: OTHER_USER_ID };
+
+      // El path SÍ respeta el prefijo de OTHER_USER_ID (no es un intento de
+      // path traversal) — lo que debe bloquearlo es que REPORT_ID pertenece
+      // a REPORTER_ID, no a quien llama. loadOwnedPendingReport() filtra
+      // por reporter_id = auth.uid(), así que este reporte "no existe" para
+      // OTHER_USER_ID, sin revelar que en realidad sí existe y es ajeno.
+      const result = await saveReportEvidence({
+        reportId: REPORT_ID,
+        storagePath: `${OTHER_USER_ID}/${REPORT_ID}/intento.jpg`,
+        fileName: "intento.jpg",
+        contentType: "image/jpeg",
+        fileSize: 1024,
+      });
+
+      expect(expectErr(result)).toBe("Reporte no encontrado.");
+      expect(state.evidence).toHaveLength(1);
+    });
   });
 });
 
