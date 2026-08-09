@@ -1,35 +1,23 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { ALL_REPORT_REASONS } from "@/lib/report-config";
 import type { ActionResult } from "@/lib/actions/auth";
 import type { ReportTargetType, ReportReason, ReporterReportView } from "@/lib/types";
 
 /**
- * Fase 1 (infraestructura): solo lo mínimo para validar que el modelo
- * de datos y RLS de 0019_user_reports_moderation.sql funcionan de
- * extremo a extremo. El flujo completo (botón/modal "Reportar",
- * catálogo de motivos por contexto en src/lib/report-config.ts,
- * evidencia) es Fase 4/6 — fuera de alcance aquí, ver
- * docs/user-reporting-moderation-design.md §19.
+ * Fase 2: flujo funcional completo de creación/consulta de reportes.
+ * El panel admin (Fase 3) sigue viviendo en admin-reports.ts, sin
+ * cambios aquí. La subida de evidencia (Fase 3 también) sigue sin
+ * implementarse — ver docs/user-reporting-moderation-design.md §19.
  */
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_TARGET_TYPES: ReportTargetType[] = ["user", "job"];
 
-const VALID_REASONS: ReportReason[] = [
-  "scam_fraud",
-  "inappropriate_behavior",
-  "non_compliance",
-  "harassment",
-  "suspicious_request",
-  "payment_issue",
-  "no_show",
-  "false_information",
-  "inappropriate_content",
-  "suspicious_terms",
-  "discrimination",
-  "spam",
-  "other",
-];
+function isValidUuid(value: string): boolean {
+  return typeof value === "string" && UUID_RE.test(value);
+}
 
 interface SubmitReportInput {
   targetType: ReportTargetType;
@@ -47,12 +35,20 @@ interface SubmitReportInput {
  * doblemente forzada porque reports_insert_own en RLS exige lo mismo).
  * reported_user_id/reported_job_id sí vienen del cliente — es la
  * esencia del feature ("a quién reporto") — pero nunca se usan para
- * autorizar, solo para seleccionar qué fila crear.
+ * autorizar, solo para seleccionar qué fila crear, y siempre se
+ * verifica que el objetivo exista antes de insertar (RLS por sí sola
+ * no lo garantiza: un `reported_user_id`/`reported_job_id` inexistente
+ * pasaría el CHECK igual, RLS no valida claves foráneas contra datos
+ * reales más allá de la restricción de FK en sí, que en este esquema
+ * son nullable y no bloquean el INSERT por un UUID bien formado pero
+ * inexistente hasta que Postgres lo intenta resolver — se prefiere
+ * fallar temprano con un mensaje claro en vez de un error crudo de FK).
  *
- * El auto-reporte se rechaza aquí también (no solo en el CHECK de
- * tabla) para devolver un mensaje de error claro en vez de un error
- * crudo de Postgres — el CHECK sigue siendo la garantía real, esto es
- * solo UX.
+ * El auto-reporte, la coherencia target_type/target y la duplicación
+ * también se validan aquí — no solo se confía en RLS/CHECK/índice
+ * único: esos son la garantía real (no se pueden saltar aunque esta
+ * función tuviera un bug), esto es además una respuesta de error
+ * legible en vez de un error crudo de Postgres.
  */
 export async function submitReport(input: SubmitReportInput): Promise<ActionResult> {
   const supabase = createClient();
@@ -64,7 +60,7 @@ export async function submitReport(input: SubmitReportInput): Promise<ActionResu
   if (!VALID_TARGET_TYPES.includes(input.targetType)) {
     return { error: "Tipo de reporte inválido." };
   }
-  if (!VALID_REASONS.includes(input.reason)) {
+  if (!ALL_REPORT_REASONS.includes(input.reason)) {
     return { error: "Motivo inválido." };
   }
   if (!input.description.trim()) {
@@ -76,12 +72,49 @@ export async function submitReport(input: SubmitReportInput): Promise<ActionResu
 
   if (input.targetType === "user") {
     if (!input.reportedUserId) return { error: "Falta el usuario reportado." };
-    if (input.reportedUserId === user.id) {
-      return { error: "No puedes reportarte a ti mismo." };
-    }
+    if (!isValidUuid(input.reportedUserId)) return { error: "Identificador de usuario inválido." };
+    if (input.reportedJobId) return { error: "Datos de reporte inconsistentes." };
+    if (input.reportedUserId === user.id) return { error: "No puedes reportarte a ti mismo." };
+
+    const { data: targetProfile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", input.reportedUserId)
+      .maybeSingle();
+    if (!targetProfile) return { error: "El usuario reportado no existe." };
   }
-  if (input.targetType === "job" && !input.reportedJobId) {
-    return { error: "Falta la oferta reportada." };
+
+  if (input.targetType === "job") {
+    if (!input.reportedJobId) return { error: "Falta la oferta reportada." };
+    if (!isValidUuid(input.reportedJobId)) return { error: "Identificador de oferta inválido." };
+    if (input.reportedUserId) return { error: "Datos de reporte inconsistentes." };
+
+    const { data: targetJob } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("id", input.reportedJobId)
+      .maybeSingle();
+    if (!targetJob) return { error: "La oferta reportada no existe." };
+  }
+
+  if (input.relatedJobId) {
+    if (!isValidUuid(input.relatedJobId)) return { error: "Identificador de trabajo relacionado inválido." };
+
+    const { data: relatedJob } = await supabase
+      .from("jobs")
+      .select("id, employer_id, assigned_worker_id")
+      .eq("id", input.relatedJobId)
+      .maybeSingle();
+    if (!relatedJob) return { error: "El trabajo relacionado no existe." };
+
+    const job = relatedJob as { employer_id: string; assigned_worker_id: string | null };
+    const involvesReporter = job.employer_id === user.id || job.assigned_worker_id === user.id;
+    const involvesReported =
+      input.targetType === "user" &&
+      (job.employer_id === input.reportedUserId || job.assigned_worker_id === input.reportedUserId);
+    if (!involvesReporter && !involvesReported) {
+      return { error: "El trabajo relacionado no corresponde a este reporte." };
+    }
   }
 
   const { error } = await supabase.from("reports").insert({
@@ -94,7 +127,19 @@ export async function submitReport(input: SubmitReportInput): Promise<ActionResu
     description: input.description.trim(),
   });
 
-  if (error) return { error: "No se pudo enviar el reporte. Intenta de nuevo." };
+  if (error) {
+    // 23505 = unique_violation: reports_no_duplicate_active (0019) ya
+    // tiene un reporte activo (pending/under_review) de este mismo
+    // reportante contra el mismo usuario y motivo. No es un error del
+    // sistema — es información útil para el usuario, sin crear un
+    // segundo mecanismo de deduplicación en la Server Action.
+    if (error.code === "23505") {
+      return {
+        error: "Ya tienes un reporte activo sobre este usuario por este motivo. Nuestro equipo ya lo está revisando.",
+      };
+    }
+    return { error: "No se pudo enviar el reporte. Intenta de nuevo." };
+  }
   return { success: true };
 }
 

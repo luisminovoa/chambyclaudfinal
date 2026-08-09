@@ -257,6 +257,7 @@ export interface ReporterReportView {
   reported_job_id: string | null;
   related_job_id: string | null;
   reason: ReportReason;
+  description: string;
   status: ReportStatus;
   created_at: string;
   updated_at: string;

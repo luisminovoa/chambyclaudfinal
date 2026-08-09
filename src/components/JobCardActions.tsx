@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Bookmark, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toaster";
+import { ReportButton } from "@/components/reports/ReportButton";
 
 const STORAGE_KEY = "chamby:saved-jobs";
 
@@ -104,6 +105,15 @@ export function JobCardActions({
       >
         <Share2 className="h-4 w-4" />
       </motion.button>
+      {!isOwner && (
+        <ReportButton
+          targetType="job"
+          reportedJobId={jobId}
+          targetLabel={jobTitle}
+          variant="icon"
+          className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 transition-colors duration-200 hover:bg-danger-50 hover:text-danger-600"
+        />
+      )}
       {showApply && (
         <button onClick={handleApplyClick} className="btn-primary !px-4 !py-2 text-xs">
           Postular

@@ -17,6 +17,10 @@ import path from "node:path";
 const migrationsDir = path.resolve(__dirname, "../../../supabase/migrations");
 const sql0019 = readFileSync(path.join(migrationsDir, "0019_user_reports_moderation.sql"), "utf-8");
 const sql0020 = readFileSync(path.join(migrationsDir, "0020_moderation_actions.sql"), "utf-8");
+const sql0021 = readFileSync(
+  path.join(migrationsDir, "0021_reporter_reports_view_description.sql"),
+  "utf-8"
+);
 
 describe("0019_user_reports_moderation.sql — invariantes de seguridad", () => {
   it("RLS está habilitado en reports y report_evidence", () => {
@@ -105,5 +109,20 @@ describe("0020_moderation_actions.sql — invariantes de seguridad", () => {
 
   it("report_id usa on delete set null (el historial sobrevive al borrado del reporte)", () => {
     expect(sql0020).toMatch(/report_id\s+uuid references public\.reports\(id\) on delete set null/);
+  });
+});
+
+describe("0021_reporter_reports_view_description.sql — corrige la vista sin tocar 0019", () => {
+  it("agrega description a reporter_reports_view sin exponer columnas administrativas", () => {
+    const view = sql0021.match(/create or replace view public\.reporter_reports_view[\s\S]*?from public\.reports/)?.[0] ?? "";
+    expect(view).toMatch(/\bdescription\b/);
+    expect(view).not.toMatch(/admin_notes/);
+    expect(view).not.toMatch(/reviewed_by/);
+    expect(view).not.toMatch(/reviewed_at/);
+    expect(view).toMatch(/security_invoker = true/);
+  });
+
+  it("no modifica 0019 — sigue exactamente como se aprobó en la Fase 1", () => {
+    expect(sql0019).toMatch(/select id, target_type, reported_user_id, reported_job_id, related_job_id,\s*\n\s*reason, status, created_at, updated_at/);
   });
 });

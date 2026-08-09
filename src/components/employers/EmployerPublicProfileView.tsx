@@ -4,17 +4,35 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { RatingStars } from "@/components/RatingStars";
 import { VerificationBadges } from "@/components/profile/VerificationBadges";
+import { ReportButton } from "@/components/reports/ReportButton";
 import { formatCurrency, payTypeLabel, formatMemberSince } from "@/lib/utils";
 import type { EmployerPublicProfile } from "@/lib/actions/employers";
 
-export function EmployerPublicProfileView({ data }: { data: EmployerPublicProfile }) {
+export function EmployerPublicProfileView({
+  data,
+  viewerId,
+}: {
+  data: EmployerPublicProfile;
+  viewerId?: string | null;
+}) {
   const { profile, stats, ratingSummary, jobsPublished, jobsCompleted, hires, openJobs } = data;
   const earnedBadges = stats?.badges ?? [];
 
   return (
     <div className="space-y-6">
       {/* Encabezado */}
-      <div className="card flex flex-col items-center gap-4 p-6 text-center sm:flex-row sm:text-left">
+      <div className="card relative flex flex-col items-center gap-4 p-6 text-center sm:flex-row sm:text-left">
+        {viewerId !== profile.id && (
+          <div className="absolute right-4 top-4">
+            <ReportButton
+              targetType="user"
+              reportedUserId={profile.id}
+              reportedUserRole="employer"
+              targetLabel={profile.full_name}
+              variant="icon"
+            />
+          </div>
+        )}
         <Avatar name={profile.full_name} src={profile.avatar_url} size="xl" />
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-extrabold tracking-tight text-ink">{profile.full_name}</h1>

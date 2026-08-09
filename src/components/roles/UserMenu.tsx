@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Briefcase, LogOut, ShieldCheck, User, UserCog } from "lucide-react";
+import { Briefcase, Flag, LogOut, ShieldCheck, User, UserCog } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useActivateRole } from "@/components/roles/use-activate-role";
 import { logout } from "@/lib/actions/auth";
@@ -74,6 +74,16 @@ export function UserMenu({ profile, userRoles }: UserMenuProps) {
           >
             <User className="h-4 w-4" />
             Mi Perfil
+          </Link>
+
+          <Link
+            href="/dashboard/reports"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-primary-50 hover:text-primary-700"
+          >
+            <Flag className="h-4 w-4" />
+            Mis reportes
           </Link>
 
           {/* Solo se muestra si la cuenta ya posee el rol admin en
