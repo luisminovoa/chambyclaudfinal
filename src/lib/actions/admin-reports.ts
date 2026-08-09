@@ -297,7 +297,19 @@ export async function updateReportStatus(
     .select("id")
     .maybeSingle();
 
-  if (error) return { error: "No se pudo actualizar el reporte." };
+  if (error) {
+    // trg_report_status_transition (0026, Fase 9) es la garantía real a
+    // nivel de base de datos de que ninguna transición fuera de las 4
+    // oficiales puede escribirse — REPORT_STATUS_TRANSITIONS (arriba)
+    // ya debería haber rechazado esto antes de llegar aquí en el flujo
+    // normal de la app; este catch es defensa en profundidad para
+    // cualquier camino que no pase por esa validación, sin filtrar
+    // detalles internos de Postgres al cliente.
+    if (error.message?.includes("report_status_transition_invalid")) {
+      return { error: "El estado del reporte ya no permite esa transición." };
+    }
+    return { error: "No se pudo actualizar el reporte." };
+  }
   if (!data) {
     return { error: "El estado del reporte cambió mientras procesabas esta acción. Recarga e intenta de nuevo." };
   }

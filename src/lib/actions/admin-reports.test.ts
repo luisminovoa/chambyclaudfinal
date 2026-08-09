@@ -92,6 +92,8 @@ interface State {
   reports: ReportRow[];
   reportEvidence: { report_id: string }[];
   moderationActions: ModerationActionRow[];
+  /** Fase 9: simula el error que devolvería Postgres si trg_report_status_transition (0026) rechazara el UPDATE. */
+  updateErrorMessage: string | null;
 }
 
 const state: State = {
@@ -101,6 +103,7 @@ const state: State = {
   reports: [],
   reportEvidence: [],
   moderationActions: [],
+  updateErrorMessage: null,
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -128,6 +131,9 @@ vi.mock("@/lib/supabase/server", () => ({
               },
               select: () => ({
                 maybeSingle: async () => {
+                  if (state.updateErrorMessage) {
+                    return { data: null, error: { message: state.updateErrorMessage } };
+                  }
                   const row = state.reports.find((r) =>
                     Object.entries(filters).every(([k, v]) => (r as unknown as Record<string, unknown>)[k] === v)
                   );
@@ -195,6 +201,7 @@ beforeEach(() => {
   state.reports = [baseReport()];
   state.reportEvidence = [];
   state.moderationActions = [];
+  state.updateErrorMessage = null;
 });
 
 describe("listReports", () => {
@@ -327,6 +334,25 @@ describe("updateReportStatus", () => {
   it("12. reporte inexistente es manejado con un error claro, no una excepción", async () => {
     const result = await updateReportStatus("99999999-9999-4999-8999-999999999999", "under_review");
     expect(result.error).toBe("Reporte no encontrado.");
+  });
+
+  it("Fase 9 — N-STATE-1: si trg_report_status_transition (0026) rechaza el UPDATE en la base de datos (defensa en profundidad), el error se traduce a un mensaje amigable sin filtrar detalles internos de Postgres", async () => {
+    // Simula el error real que 0026 lanzaría — incluso para una llamada
+    // que REPORT_STATUS_TRANSITIONS ya considera válida (pending →
+    // under_review), para aislar específicamente el mapeo de error de
+    // la validación de REPORT_STATUS_TRANSITIONS que ya se prueba arriba.
+    state.updateErrorMessage =
+      "report_status_transition_invalid: pending -> under_review no es una transición permitida";
+    const result = await updateReportStatus(REPORT_ID, "under_review");
+    expect(result.error).toBe("El estado del reporte ya no permite esa transición.");
+    expect(result.error).not.toMatch(/P0001|trigger|Postgres|report_status_transition_invalid/i);
+    expect(state.reports[0].status).toBe("pending");
+  });
+
+  it("Fase 9 — un error de base de datos NO relacionado con el trigger de transición sigue devolviendo el mensaje genérico existente", async () => {
+    state.updateErrorMessage = "connection reset by peer";
+    const result = await updateReportStatus(REPORT_ID, "under_review");
+    expect(result.error).toBe("No se pudo actualizar el reporte.");
   });
 });
 
