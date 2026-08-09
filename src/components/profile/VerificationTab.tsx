@@ -1,8 +1,9 @@
 "use client";
 
-import { ShieldCheck, Building2, Award, Star, CheckCircle2, Circle } from "lucide-react";
+import { CheckCircle2, Circle } from "lucide-react";
 import { ProfileCompletionBar } from "@/components/profile/ProfileCompletionBar";
 import { getProfileCompletionItems } from "@/lib/profile-completion";
+import { BADGE_CONFIG } from "@/lib/badge-config";
 import type {
   Profile,
   ProfileStats,
@@ -11,41 +12,6 @@ import type {
   WorkerProfileDetails,
   WorkerExperience,
 } from "@/lib/types";
-
-export const BADGE_CONFIG = {
-  identity_verified: {
-    label: "Identidad verificada",
-    description: "DNI revisado y aprobado por Chamby",
-    icon: ShieldCheck,
-    color: "text-primary-600",
-    bg: "bg-primary-50",
-    border: "border-primary-200",
-  },
-  ruc_active: {
-    label: "RUC activo",
-    description: "Número de RUC validado ante SUNAT",
-    icon: Building2,
-    color: "text-success-600",
-    bg: "bg-success-50",
-    border: "border-success-200",
-  },
-  certified_professional: {
-    label: "Profesional certificado",
-    description: "Certificado profesional verificado",
-    icon: Award,
-    color: "text-warning-600",
-    bg: "bg-warning-50",
-    border: "border-warning-200",
-  },
-  top_profile: {
-    label: "Perfil destacado",
-    description: "Perfil con completitud superior al 80%",
-    icon: Star,
-    color: "text-sun",
-    bg: "bg-yellow-50",
-    border: "border-yellow-200",
-  },
-};
 
 interface VerificationTabProps {
   profile: Profile;
