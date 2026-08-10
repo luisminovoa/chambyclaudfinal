@@ -229,6 +229,13 @@ export type DocumentType =
 
 export type DocumentStatus = "pending" | "verified" | "rejected";
 
+export type DocumentRejectionReason =
+  | "illegible"
+  | "expired"
+  | "data_mismatch"
+  | "wrong_document"
+  | "other";
+
 export interface ProfilePhoto {
   id: string;
   profile_id: string;
@@ -248,6 +255,21 @@ export interface VerificationDocument {
   status: DocumentStatus;
   uploaded_at: string;
   verified_at: string | null;
+  rejection_reason: DocumentRejectionReason | null;
+  rejection_note: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+}
+
+export interface VerificationDocumentReview {
+  id: string;
+  document_id: string;
+  reviewed_by: string;
+  previous_status: DocumentStatus;
+  new_status: DocumentStatus;
+  rejection_reason: DocumentRejectionReason | null;
+  rejection_note: string | null;
+  created_at: string;
 }
 
 export interface ProfileStats {
@@ -430,6 +452,17 @@ export type Database = {
           file_name: string;
         };
         Update: Partial<VerificationDocument>;
+        Relationships: [];
+      };
+      verification_document_reviews: {
+        Row: VerificationDocumentReview;
+        Insert: Partial<VerificationDocumentReview> & {
+          document_id: string;
+          reviewed_by: string;
+          previous_status: DocumentStatus;
+          new_status: DocumentStatus;
+        };
+        Update: Partial<VerificationDocumentReview>;
         Relationships: [];
       };
       profile_stats: {

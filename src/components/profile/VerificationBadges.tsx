@@ -1,9 +1,20 @@
-import { BADGE_CONFIG } from "@/components/profile/VerificationTab";
+import { BADGE_CONFIG } from "@/lib/badge-config";
 
 /**
  * Insignias de confianza en un perfil público — compartido entre
- * WorkerPublicProfileView y EmployerPublicProfileView para no duplicar el
- * mapeo icono/color/label de BADGE_CONFIG en cada uno.
+ * WorkerPublicProfileView, EmployerPublicProfileView y
+ * AdminProfileVerification para no duplicar el mapeo icono/color/label
+ * de BADGE_CONFIG en cada uno.
+ *
+ * BADGE_CONFIG se importa desde src/lib/badge-config.ts (sin "use
+ * client") y no desde VerificationTab.tsx — ese archivo SÍ tiene "use
+ * client", y Next.js trata cualquier export de un módulo "use client"
+ * como una referencia de cliente, incluso un objeto plano sin hooks. Eso
+ * rompía este Server Component en producción con "Cannot access X.icon
+ * on the server. You cannot dot into a client module from a server
+ * component." — pero solo para perfiles con al menos una insignia
+ * ganada (el `if (badges.length === 0) return null` de abajo evitaba que
+ * el bug se disparara en cualquier perfil sin insignias).
  */
 export function VerificationBadges({ badges }: { badges: string[] }) {
   if (badges.length === 0) return null;

@@ -390,25 +390,53 @@ export async function getDocumentDownloadUrl(
 
 // ── Profile stats ─────────────────────────────────────────────────────────────
 
-export async function computeAndSaveProfileStats(): Promise<
-  ActionResult & { stats?: ProfileStats }
-> {
+/**
+ * Recalcula completion_percentage/trust_score/badges. Sin argumento,
+ * calcula para el usuario autenticado (comportamiento original, sin
+ * cambios). Con `targetProfileId` distinto del caller, exige que el
+ * caller sea admin — usado por reviewVerificationDocument()
+ * (src/lib/actions/admin.ts) para recalcular badges del trabajador
+ * dueño del documento justo después de aprobar/rechazar, en vez de
+ * duplicar este cálculo. Como es un Server Action exportado (invocable
+ * directamente, no solo desde la UI que lo dispara), el chequeo de rol
+ * es obligatorio aquí adentro — no alcanza con que solo lo llame código
+ * ya admin-gated.
+ */
+export async function computeAndSaveProfileStats(
+  targetProfileId?: string
+): Promise<ActionResult & { stats?: ProfileStats }> {
   const { supabase, user } = await getAuth();
   if (!user) return { error: "No autenticado." };
 
+  let profileId = user.id;
+  let db = supabase;
+
+  if (targetProfileId && targetProfileId !== user.id) {
+    const { data: callerProfile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    if ((callerProfile as { role: string } | null)?.role !== "admin") {
+      return { error: "No autorizado." };
+    }
+    profileId = targetProfileId;
+    db = createAdminClient();
+  }
+
   const [profileRes, photosRes, docsRes, detailsRes, experienceRes] = await Promise.all([
-    supabase.from("profiles").select("bio,category,skills").eq("id", user.id).single(),
-    supabase.from("profile_photos").select("is_primary").eq("profile_id", user.id),
-    supabase.from("verification_documents").select("document_type,status").eq("profile_id", user.id),
-    supabase
+    db.from("profiles").select("bio,category,skills").eq("id", profileId).single(),
+    db.from("profile_photos").select("is_primary").eq("profile_id", profileId),
+    db.from("verification_documents").select("document_type,status").eq("profile_id", profileId),
+    db
       .from("worker_profile_details")
       .select("professional_title,years_experience,hourly_rate,daily_rate")
-      .eq("profile_id", user.id)
+      .eq("profile_id", profileId)
       .maybeSingle(),
-    supabase
+    db
       .from("worker_experience")
       .select("id", { count: "exact", head: true })
-      .eq("profile_id", user.id),
+      .eq("profile_id", profileId),
   ]);
 
   const profile = profileRes.data as {
@@ -503,12 +531,13 @@ export async function computeAndSaveProfileStats(): Promise<
   // representan una verificación calculada por este mismo cálculo, no
   // algo que el usuario deba poder escribir directamente. Se usa el
   // cliente admin únicamente para este upsert; el resto de la función
-  // sigue leyendo con el cliente normal, ya acotado por user.id.
+  // sigue leyendo con `db` (normal para el propio usuario, admin cuando
+  // targetProfileId pertenece a otro perfil), ya acotado por profileId.
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("profile_stats")
     .upsert({
-      profile_id: user.id,
+      profile_id: profileId,
       completion_percentage: score,
       trust_score,
       badges,

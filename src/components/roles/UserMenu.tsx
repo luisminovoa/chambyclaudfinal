@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Briefcase, LogOut, User, UserCog } from "lucide-react";
+import { Briefcase, LogOut, ShieldCheck, User, UserCog } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useActivateRole } from "@/components/roles/use-activate-role";
 import { logout } from "@/lib/actions/auth";
@@ -28,10 +28,12 @@ export function UserMenu({ profile, userRoles }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasEmployerRole = userRoles.includes("employer");
+  const hasAdminRole = userRoles.includes("admin");
 
   const toWorker = useActivateRole("worker", true, "/dashboard/worker");
   const toEmployer = useActivateRole("employer", hasEmployerRole, "/dashboard/employer");
   const toPublish = useActivateRole("employer", hasEmployerRole, "/jobs/new");
+  const toAdmin = useActivateRole("admin", hasAdminRole, "/admin");
 
   useEffect(() => {
     if (!open) return;
@@ -73,6 +75,27 @@ export function UserMenu({ profile, userRoles }: UserMenuProps) {
             <User className="h-4 w-4" />
             Mi Perfil
           </Link>
+
+          {/* Solo se muestra si la cuenta ya posee el rol admin en
+              user_roles — nunca como invitación de auto-servicio, a
+              diferencia de "Panel Empleador"/"Publicar Chamba". Corrige
+              el bug "no puedo volver a Administrador": antes no existía
+              ningún control para reactivar modo admin desde este menú. */}
+          {hasAdminRole && (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={toAdmin.isPending}
+              onClick={() => {
+                setOpen(false);
+                toAdmin.activate();
+              }}
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-ink-muted transition-colors hover:bg-primary-50 hover:text-primary-700 disabled:opacity-60"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Panel Administrador
+            </button>
+          )}
 
           <button
             type="button"
