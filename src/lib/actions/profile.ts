@@ -50,19 +50,33 @@ export async function updateProfile(formData: FormData): Promise<ActionResult> {
         .filter(Boolean)
     : [];
 
+  const updates: Record<string, unknown> = { bio, phone, city, category, skills };
+
+  // full_name es opcional en el FormData a propósito: InfoTab.tsx (worker)
+  // no lo envía, así que `formData.get()` devuelve null y no se toca la
+  // columna — evitar que un caller que no edita el nombre lo vacíe sin
+  // querer. EmployerInfoTab.tsx sí lo envía siempre.
+  const fullNameRaw = formData.get("full_name") as string | null;
+  if (fullNameRaw !== null) {
+    const fullName = fullNameRaw.trim();
+    if (!fullName) return { error: "El nombre no puede estar vacío." };
+    if (fullName.length > 120) return { error: "El nombre es demasiado largo." };
+    updates.full_name = fullName;
+  }
+
   try {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ bio, phone, city, category, skills })
-      .eq("id", user.id);
+    const { error } = await supabase.from("profiles").update(updates).eq("id", user.id);
 
     if (error) return { error: formatSupabaseError(error, "updateProfile") };
   } catch (err) {
     return { error: formatUnknownError(err, "updateProfile") };
   }
 
-  revalidatePath("/dashboard/worker/profile");
-  revalidatePath("/dashboard/worker");
+  // Layout completo: este perfil puede mostrarse en el dashboard de
+  // worker, el de employer, y las páginas públicas /workers/[id] y
+  // /employers/[id] — revalidar solo rutas de worker (como antes)
+  // dejaba desactualizado el dashboard de employer tras guardar.
+  revalidatePath("/", "layout");
   return { success: true };
 }
 
@@ -167,8 +181,7 @@ export async function saveProfilePhoto(params: {
       .eq("id", user.id);
   }
 
-  revalidatePath("/dashboard/worker/profile");
-  revalidatePath("/dashboard/worker");
+  revalidatePath("/", "layout");
   return { success: true, photo: data as ProfilePhoto };
 }
 
@@ -203,8 +216,7 @@ export async function deleteProfilePhoto(photoId: string): Promise<ActionResult>
       .eq("id", user.id);
   }
 
-  revalidatePath("/dashboard/worker/profile");
-  revalidatePath("/dashboard/worker");
+  revalidatePath("/", "layout");
   return { success: true };
 }
 
@@ -238,8 +250,7 @@ export async function setPrimaryPhoto(photoId: string): Promise<ActionResult> {
     .update({ avatar_url: (photo as { public_url: string }).public_url })
     .eq("id", user.id);
 
-  revalidatePath("/dashboard/worker/profile");
-  revalidatePath("/dashboard/worker");
+  revalidatePath("/", "layout");
   return { success: true };
 }
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MapPin, Briefcase, CalendarDays, Star, CheckCircle2, Handshake, ChevronRight } from "lucide-react";
+import { MapPin, Briefcase, CalendarDays, Star, CheckCircle2, Handshake, ChevronRight, Pencil } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { RatingStars } from "@/components/RatingStars";
@@ -22,7 +22,18 @@ export function EmployerPublicProfileView({
     <div className="space-y-6">
       {/* Encabezado */}
       <div className="card relative flex flex-col items-center gap-4 p-6 text-center sm:flex-row sm:text-left">
-        {viewerId !== profile.id && (
+        {viewerId === profile.id ? (
+          <div className="absolute right-4 top-4">
+            <Link
+              href="/dashboard/employer/profile"
+              aria-label="Editar mi perfil"
+              title="Editar mi perfil"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 text-ink-muted transition-colors hover:border-primary-300 hover:text-primary-600"
+            >
+              <Pencil className="h-4 w-4" />
+            </Link>
+          </div>
+        ) : (
           <div className="absolute right-4 top-4">
             <ReportButton
               targetType="user"
