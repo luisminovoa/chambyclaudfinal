@@ -2,42 +2,51 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, User, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, User, Image as ImageIcon, ShieldCheck } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Reveal } from "@/components/ui/Reveal";
 import { cn } from "@/lib/utils";
 import { EmployerInfoTab } from "@/components/employers/EmployerInfoTab";
 import { EmployerLogoUpload } from "@/components/employers/EmployerLogoUpload";
-import type { Profile, ProfilePhoto } from "@/lib/types";
+import { EmployerVerificationTab } from "@/components/employers/EmployerVerificationTab";
+import type { Profile, ProfilePhoto, ProfileStats, VerificationDocument } from "@/lib/types";
 
-type TabId = "info" | "logo";
+type TabId = "info" | "logo" | "verification";
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "info", label: "Información", icon: User },
   { id: "logo", label: "Foto / Logo", icon: ImageIcon },
+  { id: "verification", label: "Verificación", icon: ShieldCheck },
 ];
 
 interface EmployerProfileClientProps {
   profile: Profile;
   initialPhoto: ProfilePhoto | null;
+  documents: VerificationDocument[];
+  initialStats: ProfileStats | null;
 }
 
 /**
- * Shell del perfil de empleador — deliberadamente distinto de
- * WorkerProfileClient.tsx: sin barra de completitud, sin badges, sin
- * RoleSwitcherCard, solo 2 secciones (Información / Foto). El
- * encabezado enmarca el perfil como "así te ven los trabajadores" para
- * reforzar que esto es lo que aparece en /employers/[id].
+ * Shell del perfil de empleador — antes solo tenía Información / Foto;
+ * ahora suma Verificación (Entrega 1), reutilizando exactamente la misma
+ * infraestructura de documentos/badges/trust score que el trabajador
+ * (ver EmployerVerificationTab.tsx). El encabezado enmarca el perfil
+ * como "así te ven los trabajadores" para reforzar que esto es lo que
+ * aparece en /employers/[id].
  */
 export function EmployerProfileClient({
   profile: initialProfile,
   initialPhoto,
+  documents,
+  initialStats,
 }: EmployerProfileClientProps) {
   const [profile, setProfile] = useState(initialProfile);
   const [photo, setPhoto] = useState(initialPhoto);
+  const [stats, setStats] = useState(initialStats);
   const [activeTab, setActiveTab] = useState<TabId>("info");
 
   const avatarSrc = photo?.public_url ?? profile.avatar_url;
+  const rucVerified = (stats?.badges ?? []).includes("ruc_active");
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
@@ -97,13 +106,24 @@ export function EmployerProfileClient({
       </Reveal>
 
       <Reveal delay={0.1}>
-        {activeTab === "info" ? (
+        {activeTab === "info" && (
           <EmployerInfoTab
             profile={profile}
+            rucVerified={rucVerified}
             onSaved={(updated) => setProfile((p) => ({ ...p, ...updated }))}
           />
-        ) : (
+        )}
+        {activeTab === "logo" && (
           <EmployerLogoUpload profile={profile} initialPhoto={photo} onPhotoChange={setPhoto} />
+        )}
+        {activeTab === "verification" && (
+          <EmployerVerificationTab
+            profile={profile}
+            stats={stats}
+            photos={photo ? [photo] : []}
+            documents={documents}
+            onStatsChange={setStats}
+          />
         )}
       </Reveal>
     </div>

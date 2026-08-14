@@ -129,4 +129,72 @@ describe("updateProfile() — reutilizada por EmployerInfoTab (worker e employer
     expect(result).toEqual({ error: "No autenticado." });
     expect(state.updateCalls).toHaveLength(0);
   });
+
+  it("un employer puede actualizar su identidad empresarial (0030)", async () => {
+    const fd = new FormData();
+    fd.set("district", "Los Olivos");
+    fd.set("employer_type", "company");
+    fd.set("business_name", "Ferretería Don Jose SAC");
+    fd.set("business_sector", "Ferretería");
+    fd.set("business_description", "Vendemos herramientas.");
+    fd.set("business_ruc", "20123456789");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload).toMatchObject({
+      district: "Los Olivos",
+      employer_type: "company",
+      business_name: "Ferretería Don Jose SAC",
+      business_sector: "Ferretería",
+      business_description: "Vendemos herramientas.",
+      business_ruc: "20123456789",
+    });
+  });
+
+  it("rechaza employer_type con un valor fuera del enum (no puede escalar a 'admin' vía este campo tampoco)", async () => {
+    const fd = new FormData();
+    fd.set("employer_type", "admin");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ error: "Tipo de empleador inválido." });
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("rechaza business_ruc que no tenga 11 dígitos", async () => {
+    const fd = new FormData();
+    fd.set("business_ruc", "123");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ error: "El RUC debe tener 11 dígitos." });
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("business_ruc vacío se guarda como null (declarar-y-borrar es válido)", async () => {
+    const fd = new FormData();
+    fd.set("business_ruc", "");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload.business_ruc).toBeNull();
+  });
+
+  it("los campos de identidad empresarial NO se tocan si el FormData no los incluye (flujo de InfoTab de worker)", async () => {
+    const fd = new FormData();
+    fd.set("bio", "hola");
+    fd.set("phone", "");
+    fd.set("city", "");
+    fd.set("category", "");
+    fd.set("skills", "");
+
+    await updateProfile(fd);
+
+    expect(state.updateCalls[0].payload).not.toHaveProperty("employer_type");
+    expect(state.updateCalls[0].payload).not.toHaveProperty("business_name");
+    expect(state.updateCalls[0].payload).not.toHaveProperty("business_ruc");
+    expect(state.updateCalls[0].payload).not.toHaveProperty("district");
+  });
 });

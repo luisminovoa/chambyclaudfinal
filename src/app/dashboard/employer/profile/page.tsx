@@ -1,9 +1,14 @@
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
-import { getProfilePhotos } from "@/lib/actions/profile";
+import {
+  getProfilePhotos,
+  getVerificationDocuments,
+  getProfileStats,
+  computeAndSaveProfileStats,
+} from "@/lib/actions/profile";
 import { EmployerProfileClient } from "@/components/employers/EmployerProfileClient";
-import type { ProfilePhoto } from "@/lib/types";
+import type { ProfilePhoto, ProfileStats, VerificationDocument } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Editar perfil | Chamby" };
 
@@ -17,8 +22,28 @@ export default async function EmployerProfilePage() {
   // estar navegando en modo worker.
   if (!profile || !userRoles.includes("employer")) redirect("/dashboard");
 
-  const photos = (await getProfilePhotos()) as ProfilePhoto[];
-  const primaryPhoto = photos.find((p) => p.is_primary) ?? photos[0] ?? null;
+  const [photos, documents, statsRaw] = await Promise.all([
+    getProfilePhotos(),
+    getVerificationDocuments(),
+    getProfileStats(),
+  ]);
+  const primaryPhoto =
+    (photos as ProfilePhoto[]).find((p) => p.is_primary) ?? (photos as ProfilePhoto[])[0] ?? null;
 
-  return <EmployerProfileClient profile={profile} initialPhoto={primaryPhoto} />;
+  // Mismo criterio que /dashboard/worker/profile: calcular stats en la
+  // primera visita si todavía no existen.
+  let stats: ProfileStats | null = statsRaw;
+  if (!stats) {
+    const res = await computeAndSaveProfileStats();
+    stats = "stats" in res ? (res.stats ?? null) : null;
+  }
+
+  return (
+    <EmployerProfileClient
+      profile={profile}
+      initialPhoto={primaryPhoto}
+      documents={documents as VerificationDocument[]}
+      initialStats={stats}
+    />
+  );
 }

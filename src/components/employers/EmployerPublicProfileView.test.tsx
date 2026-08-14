@@ -18,7 +18,7 @@ const baseData: EmployerPublicProfile = {
   profile: {
     id: "employer-1",
     role: "employer",
-    full_name: "Ferretería Don Jose",
+    full_name: "Jose Ramirez",
     phone: "+51999999999",
     city: "Lima",
     category: null,
@@ -28,6 +28,12 @@ const baseData: EmployerPublicProfile = {
     is_active: true,
     created_at: "2020-01-01T00:00:00Z",
     updated_at: "2020-01-01T00:00:00Z",
+    employer_type: "company",
+    business_name: "Ferretería Don Jose",
+    business_sector: "Ferretería",
+    business_description: "Vendemos herramientas y materiales de construcción.",
+    business_ruc: "20123456789",
+    district: "Los Olivos",
   },
   stats: null,
   ratingSummary: null,
@@ -70,5 +76,48 @@ describe("EmployerPublicProfileView — acceso a edición y no-exposición de da
     );
 
     expect(html).not.toContain("+51999999999");
+  });
+
+  it("el perfil público NUNCA renderiza el número de RUC declarado (business_ruc)", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
+    );
+
+    expect(html).not.toContain("20123456789");
+  });
+
+  it("muestra identidad empresarial: nombre comercial, tipo, rubro y distrito", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
+    );
+
+    expect(html).toContain("Ferretería Don Jose");
+    expect(html).toContain("Empresa");
+    expect(html).toContain("Ferretería");
+    expect(html).toContain("Los Olivos");
+  });
+
+  it("sin badges de verificación, no muestra ningún estado de RUC/DNI verificado", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
+    );
+
+    expect(html).not.toContain("RUC activo");
+    expect(html).not.toContain("Identidad verificada");
+  });
+
+  it("con badge ruc_active en stats, muestra el estado de verificación sin exponer el documento", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView
+        data={{
+          ...baseData,
+          stats: { profile_id: "employer-1", completion_percentage: 90, trust_score: 90, badges: ["ruc_active"], updated_at: "2020-01-01T00:00:00Z" },
+        }}
+        viewerId="employer-1"
+      />
+    );
+
+    expect(html).toContain("RUC activo");
+    expect(html).not.toContain("20123456789");
   });
 });

@@ -3,6 +3,9 @@ export type JobStatus = "abierto" | "en_progreso" | "completado" | "cancelado";
 export type ApplicationStatus = "pendiente" | "aceptado" | "rechazado" | "retirado";
 export type PayType = "por_hora" | "por_dia" | "fijo";
 
+// Identidad empresarial del empleador (0030, Entrega 1)
+export type EmployerType = "individual" | "company";
+
 export interface Profile {
   id: string;
   role: UserRole;
@@ -16,6 +19,16 @@ export interface Profile {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // Identidad empresarial del empleador (0030) — nullable, no aplica a
+  // worker. `business_ruc` es solo el RUC DECLARADO por el propio
+  // empleador, nunca una fuente de verificación (ver verification_documents
+  // + badge `ruc_active` en src/lib/badge-config.ts).
+  employer_type: EmployerType | null;
+  business_name: string | null;
+  business_sector: string | null;
+  business_description: string | null;
+  business_ruc: string | null;
+  district: string | null;
 }
 
 // Sistema multi-rol (ver docs/DISENO-MULTI-ROL.md)

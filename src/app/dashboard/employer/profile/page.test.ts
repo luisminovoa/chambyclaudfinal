@@ -9,6 +9,9 @@ vi.mock("@/lib/get-current-profile", () => ({
 
 vi.mock("@/lib/actions/profile", () => ({
   getProfilePhotos: vi.fn().mockResolvedValue([]),
+  getVerificationDocuments: vi.fn().mockResolvedValue([]),
+  getProfileStats: vi.fn().mockResolvedValue(null),
+  computeAndSaveProfileStats: vi.fn().mockResolvedValue({ success: true, stats: null }),
 }));
 
 // Mismo criterio que roles.test.ts: redirect() real de Next.js aborta la
@@ -35,6 +38,12 @@ const EMPLOYER_PROFILE: Profile = {
   is_active: true,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
+  employer_type: null,
+  business_name: null,
+  business_sector: null,
+  business_description: null,
+  business_ruc: null,
+  district: null,
 };
 
 function mockSession(user: { id: string } | null, profile: Profile | null, userRoles: UserRole[]) {

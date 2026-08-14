@@ -11,6 +11,7 @@ import type {
   WorkerProfileDetails,
   AvailabilityStatus,
   WorkerExperience,
+  EmployerType,
 } from "@/lib/types";
 
 const AVAILABILITY_VALUES: AvailabilityStatus[] = [
@@ -19,6 +20,9 @@ const AVAILABILITY_VALUES: AvailabilityStatus[] = [
   "un_mes",
   "no_disponible",
 ];
+
+const EMPLOYER_TYPE_VALUES: EmployerType[] = ["individual", "company"];
+const RUC_PATTERN = /^\d{11}$/;
 
 type Ok = { success: true };
 type Err = { error: string };
@@ -62,6 +66,68 @@ export async function updateProfile(formData: FormData): Promise<ActionResult> {
     if (!fullName) return { error: "El nombre no puede estar vacío." };
     if (fullName.length > 120) return { error: "El nombre es demasiado largo." };
     updates.full_name = fullName;
+  }
+
+  // Identidad empresarial (0030) — mismo criterio de "opcional en el
+  // FormData" que full_name: solo EmployerInfoTab.tsx los envía, así que
+  // InfoTab.tsx (worker) nunca los toca. `district` es la excepción: se
+  // trata como el resto de campos de "Información básica" (bio/phone/
+  // city), siempre presente en el FormData de quien lo envía.
+  const districtRaw = formData.get("district") as string | null;
+  if (districtRaw !== null) {
+    updates.district = districtRaw.trim() || null;
+  }
+
+  const employerTypeRaw = formData.get("employer_type") as string | null;
+  if (employerTypeRaw !== null) {
+    if (employerTypeRaw === "") {
+      updates.employer_type = null;
+    } else if (!EMPLOYER_TYPE_VALUES.includes(employerTypeRaw as EmployerType)) {
+      return { error: "Tipo de empleador inválido." };
+    } else {
+      updates.employer_type = employerTypeRaw;
+    }
+  }
+
+  const businessNameRaw = formData.get("business_name") as string | null;
+  if (businessNameRaw !== null) {
+    const businessName = businessNameRaw.trim();
+    if (businessName.length > 150) {
+      return { error: "El nombre comercial es demasiado largo." };
+    }
+    updates.business_name = businessName || null;
+  }
+
+  const businessSectorRaw = formData.get("business_sector") as string | null;
+  if (businessSectorRaw !== null) {
+    const businessSector = businessSectorRaw.trim();
+    if (businessSector.length > 100) {
+      return { error: "El rubro/sector es demasiado largo." };
+    }
+    updates.business_sector = businessSector || null;
+  }
+
+  const businessDescriptionRaw = formData.get("business_description") as string | null;
+  if (businessDescriptionRaw !== null) {
+    const businessDescription = businessDescriptionRaw.trim();
+    if (businessDescription.length > 1000) {
+      return { error: "La descripción empresarial es demasiado larga." };
+    }
+    updates.business_description = businessDescription || null;
+  }
+
+  // business_ruc es SOLO el RUC declarado por el propio empleador — nunca
+  // otorga el badge ruc_active (eso depende exclusivamente de
+  // verification_documents con document_type='ruc' y status='verified',
+  // ver computeAndSaveProfileStats()). Se valida el formato (11 dígitos,
+  // estándar peruano) para evitar basura evidente, no su autenticidad.
+  const businessRucRaw = formData.get("business_ruc") as string | null;
+  if (businessRucRaw !== null) {
+    const businessRuc = businessRucRaw.trim();
+    if (businessRuc && !RUC_PATTERN.test(businessRuc)) {
+      return { error: "El RUC debe tener 11 dígitos." };
+    }
+    updates.business_ruc = businessRuc || null;
   }
 
   try {
@@ -341,7 +407,11 @@ export async function saveVerificationDocument(params: {
 
   if (error) return { error: formatSupabaseError(error, "saveVerificationDocument") };
 
-  revalidatePath("/dashboard/worker/profile");
+  // Esta acción ahora también la usa el empleador (verificación de RUC/DNI
+  // en /dashboard/employer/profile) — mismo ajuste que
+  // computeAndSaveProfileStats(), no acotar la revalidación a la ruta de
+  // worker.
+  revalidatePath("/", "layout");
   return { success: true, document: data as VerificationDocument };
 }
 
@@ -372,7 +442,7 @@ export async function deleteVerificationDocument(
 
   if (error) return { error: formatSupabaseError(error, "deleteVerificationDocument") };
 
-  revalidatePath("/dashboard/worker/profile");
+  revalidatePath("/", "layout");
   return { success: true };
 }
 
@@ -436,7 +506,13 @@ export async function computeAndSaveProfileStats(
   }
 
   const [profileRes, photosRes, docsRes, detailsRes, experienceRes] = await Promise.all([
-    db.from("profiles").select("bio,category,skills").eq("id", profileId).single(),
+    db
+      .from("profiles")
+      .select(
+        "role,bio,category,skills,city,district,employer_type,business_name,business_sector,business_description"
+      )
+      .eq("id", profileId)
+      .single(),
     db.from("profile_photos").select("is_primary").eq("profile_id", profileId),
     db.from("verification_documents").select("document_type,status").eq("profile_id", profileId),
     db
@@ -451,9 +527,16 @@ export async function computeAndSaveProfileStats(
   ]);
 
   const profile = profileRes.data as {
+    role: "worker" | "employer" | "admin";
     bio: string | null;
     category: string | null;
     skills: string[];
+    city: string | null;
+    district: string | null;
+    employer_type: string | null;
+    business_name: string | null;
+    business_sector: string | null;
+    business_description: string | null;
   } | null;
   const photos = (photosRes.data ?? []) as { is_primary: boolean }[];
   const docs = (docsRes.data ?? []) as {
@@ -469,29 +552,57 @@ export async function computeAndSaveProfileStats(
 
   let score = 0;
   const badges: string[] = [];
+  const hasPrimaryPhoto = photos.some((p) => p.is_primary);
 
-  // Foto principal = 10%
-  if (photos.some((p) => p.is_primary)) score += 10;
+  // Los pesos de completitud difieren por rol: los criterios de worker
+  // (skills, categoría laboral, worker_profile_details, experiencia) no
+  // aplican a un employer y lo dejaban artificialmente bajo aunque su
+  // perfil estuviera completo para lo que a él le corresponde. Las
+  // insignias por documento verificado (identity_verified/ruc_active/
+  // certified_professional) son las mismas para ambos roles — no se
+  // duplica esa lógica, solo el peso que suman al score de completitud.
+  if (profile?.role === "employer") {
+    // Foto/logo = 15%
+    if (hasPrimaryPhoto) score += 15;
+    // Nombre comercial = 15%
+    if (profile.business_name) score += 15;
+    // Rubro/sector = 10%
+    if (profile.business_sector) score += 10;
+    // Tipo de empleador = 10%
+    if (profile.employer_type) score += 10;
+    // Descripción (empresarial, o general como respaldo) = 15%
+    if (profile.business_description || profile.bio) score += 15;
+    // Ciudad = 5%
+    if (profile.city) score += 5;
+    // Distrito = 5%
+    if (profile.district) score += 5;
+  } else {
+    // Foto principal = 10%
+    if (hasPrimaryPhoto) score += 10;
 
-  // 5 fotos = 10%
-  if (photos.length >= 5) score += 10;
+    // 5 fotos = 10%
+    if (photos.length >= 5) score += 10;
 
-  // Descripción = 10%
-  if (profile?.bio) score += 10;
+    // Descripción = 10%
+    if (profile?.bio) score += 10;
 
-  // Especialidad = 10%
-  if (profile?.category) score += 10;
+    // Especialidad = 10%
+    if (profile?.category) score += 10;
 
-  // Habilidades / Experiencia = 10% (3+ skills)
-  if ((profile?.skills ?? []).length >= 3) score += 10;
+    // Habilidades / Experiencia = 10% (3+ skills)
+    if ((profile?.skills ?? []).length >= 3) score += 10;
 
-  // Información profesional ampliada = 10% (título + años de experiencia
-  // + al menos una tarifa cargada)
-  const hasExtendedInfo =
-    !!details?.professional_title &&
-    details.years_experience != null &&
-    (details.hourly_rate != null || details.daily_rate != null);
-  if (hasExtendedInfo) score += 10;
+    // Información profesional ampliada = 10% (título + años de experiencia
+    // + al menos una tarifa cargada)
+    const hasExtendedInfo =
+      !!details?.professional_title &&
+      details.years_experience != null &&
+      (details.hourly_rate != null || details.daily_rate != null);
+    if (hasExtendedInfo) score += 10;
+
+    // Experiencia laboral registrada = 10% (al menos 1 experiencia)
+    if ((experienceRes.count ?? 0) >= 1) score += 10;
+  }
 
   // DNI verificado = 10%
   const dniOk = docs.some(
@@ -520,17 +631,17 @@ export async function computeAndSaveProfileStats(
     badges.push("certified_professional");
   }
 
-  // Antecedentes verificados = 5%
-  const antecOk = docs.some(
-    (d) =>
-      (d.document_type === "antecedentes_policiales" ||
-        d.document_type === "antecedentes_penales") &&
-      d.status === "verified"
-  );
-  if (antecOk) score += 5;
-
-  // Experiencia laboral registrada = 10% (al menos 1 experiencia)
-  if ((experienceRes.count ?? 0) >= 1) score += 10;
+  // Antecedentes verificados = 5% (worker; no forma parte de la
+  // completitud de employer, ver rama de arriba)
+  if (profile?.role !== "employer") {
+    const antecOk = docs.some(
+      (d) =>
+        (d.document_type === "antecedentes_policiales" ||
+          d.document_type === "antecedentes_penales") &&
+        d.status === "verified"
+    );
+    if (antecOk) score += 5;
+  }
 
   // Insignia Perfil Destacado
   if (score >= 80) badges.push("top_profile");
@@ -559,7 +670,14 @@ export async function computeAndSaveProfileStats(
 
   if (error) return { error: formatSupabaseError(error, "computeAndSaveProfileStats") };
 
-  revalidatePath("/dashboard/worker/profile");
+  // Mismo bug que updateProfile()/saveProfilePhoto() tenían antes de
+  // corregirse: este cálculo corre tanto para worker (propio perfil o
+  // admin recalculando tras revisar un documento) como para employer —
+  // revalidar solo "/dashboard/worker/profile" dejaba el dashboard/perfil
+  // público de un employer con badges/trust_score desactualizados tras
+  // aprobarse su DNI o RUC. Se usa el mismo patrón ya establecido para
+  // fotos: invalidar todo el layout en vez de una ruta fija de un solo rol.
+  revalidatePath("/", "layout");
   return { success: true, stats: data as ProfileStats };
 }
 
