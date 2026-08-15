@@ -3,6 +3,9 @@ export type JobStatus = "abierto" | "en_progreso" | "completado" | "cancelado";
 export type ApplicationStatus = "pendiente" | "aceptado" | "rechazado" | "retirado";
 export type PayType = "por_hora" | "por_dia" | "fijo";
 
+// Identidad empresarial del empleador (0030, Entrega 1)
+export type EmployerType = "individual" | "company";
+
 export interface Profile {
   id: string;
   role: UserRole;
@@ -16,6 +19,16 @@ export interface Profile {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // Identidad empresarial del empleador (0030) — nullable, no aplica a
+  // worker. `business_ruc` es solo el RUC DECLARADO por el propio
+  // empleador, nunca una fuente de verificación (ver verification_documents
+  // + badge `ruc_active` en src/lib/badge-config.ts).
+  employer_type: EmployerType | null;
+  business_name: string | null;
+  business_sector: string | null;
+  business_description: string | null;
+  business_ruc: string | null;
+  district: string | null;
 }
 
 // Sistema multi-rol (ver docs/DISENO-MULTI-ROL.md)
@@ -145,7 +158,9 @@ export type NotificationType =
   | "new_rating"
   | "reminder"
   | "system"
-  | "admin_alert";
+  | "admin_alert"
+  | "report_status_update"
+  | "moderation_action";
 
 export type NotificationPriority = "low" | "normal" | "high" | "urgent";
 export type NotificationChannel = "in_app" | "push" | "email" | "whatsapp" | "sms";
@@ -190,6 +205,98 @@ export interface BugReport {
   os: string | null;
   resolution: string | null;
   version: string;
+  created_at: string;
+}
+
+// Sistema de reportes de usuario / moderación (ver
+// docs/user-reporting-moderation-design.md) — independiente de
+// bug_reports/BugReport de arriba, que es solo para errores técnicos.
+export type ReportTargetType = "user" | "job";
+
+export type ReportReason =
+  | "scam_fraud"
+  | "inappropriate_behavior"
+  | "non_compliance"
+  | "harassment"
+  | "suspicious_request"
+  | "payment_issue"
+  | "no_show"
+  | "false_information"
+  | "inappropriate_content"
+  | "suspicious_terms"
+  | "discrimination"
+  | "spam"
+  | "other";
+
+export type ReportStatus = "pending" | "under_review" | "resolved" | "dismissed";
+
+export type ModerationActionType =
+  | "status_changed"
+  | "note_added"
+  | "warning_issued"
+  | "temporary_suspension"
+  | "permanent_block"
+  | "account_deactivated"
+  | "no_action";
+
+export interface Report {
+  id: string;
+  reporter_id: string;
+  target_type: ReportTargetType;
+  reported_user_id: string | null;
+  reported_job_id: string | null;
+  related_job_id: string | null;
+  reason: ReportReason;
+  description: string;
+  status: ReportStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  admin_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Fila devuelta por la vista reporter_reports_view (0019) — el
+ * subconjunto de columnas de `reports` que el propio denunciante puede
+ * leer. No incluye admin_notes/reviewed_by/reviewed_at a propósito:
+ * RLS no puede ocultar columnas dentro de una fila que el dueño ya
+ * puede leer, así que la restricción vive en esta vista, no en una
+ * policy. getMyReports() (src/lib/actions/reports.ts) siempre consulta
+ * esta vista, nunca la tabla `reports` directamente.
+ */
+export interface ReporterReportView {
+  id: string;
+  target_type: ReportTargetType;
+  reported_user_id: string | null;
+  reported_job_id: string | null;
+  related_job_id: string | null;
+  reason: ReportReason;
+  description: string;
+  status: ReportStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReportEvidence {
+  id: string;
+  report_id: string;
+  storage_path: string;
+  file_name: string;
+  content_type: string;
+  file_size: number | null;
+  uploaded_by: string;
+  created_at: string;
+}
+
+export interface ModerationAction {
+  id: string;
+  report_id: string | null;
+  admin_id: string;
+  target_user_id: string | null;
+  action_type: ModerationActionType;
+  reason: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 
@@ -494,10 +601,46 @@ export type Database = {
         Update: Partial<UserRoleRow>;
         Relationships: [];
       };
+      reports: {
+        Row: Report;
+        Insert: Partial<Report> & {
+          reporter_id: string;
+          target_type: ReportTargetType;
+          reason: ReportReason;
+          description: string;
+        };
+        Update: Partial<Report>;
+        Relationships: [];
+      };
+      report_evidence: {
+        Row: ReportEvidence;
+        Insert: Partial<ReportEvidence> & {
+          report_id: string;
+          storage_path: string;
+          file_name: string;
+          content_type: string;
+          uploaded_by: string;
+        };
+        Update: Partial<ReportEvidence>;
+        Relationships: [];
+      };
+      moderation_actions: {
+        Row: ModerationAction;
+        Insert: Partial<ModerationAction> & {
+          admin_id: string;
+          action_type: ModerationActionType;
+        };
+        Update: Partial<ModerationAction>;
+        Relationships: [];
+      };
     };
     Views: {
       rating_summary: {
         Row: RatingSummary;
+        Relationships: [];
+      };
+      reporter_reports_view: {
+        Row: ReporterReportView;
         Relationships: [];
       };
     };

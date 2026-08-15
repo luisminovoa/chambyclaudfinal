@@ -48,17 +48,36 @@ async function fetchEmployerPublicProfile(
 ): Promise<EmployerPublicProfile | null> {
   const supabase = createClient();
 
-  // Filtra por role="employer" para que esta ruta solo sirva perfiles de
-  // empleador — un worker/admin con ese id debe seguir siendo invisible
-  // aquí, aunque profiles_select_all sea público a nivel de fila.
   const { data: profileRow } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", employerId)
-    .eq("role", "employer")
     .maybeSingle();
 
   if (!profileRow) return null;
+
+  // "¿Es empleador?" se decide contra user_roles (roles que POSEE la
+  // cuenta), no contra profiles.role (el MODO ACTIVO, mutable en
+  // cualquier momento vía switchRoleAction() — ver 0014_multi_role.sql).
+  // Filtrar por profiles.role="employer" rompía este perfil en cuanto la
+  // cuenta cambiaba su modo activo a worker: el empleador seguía siendo
+  // el dueño real de sus jobs (jobs.employer_id no cambia), pero dejaba
+  // de "existir" para esta consulta. user_roles no tiene policy SELECT
+  // que permita leer la fila de OTRO usuario (user_roles_select_own,
+  // 0014, es auth.uid()=user_id or admin) — se usa el cliente admin para
+  // esta única comprobación puntual, mismo patrón de defense-in-depth ya
+  // usado más abajo para profile_stats: no se expone ninguna columna de
+  // user_roles al cliente, solo se usa para decidir si la fila de
+  // profiles ya obtenida es visible en esta ruta.
+  const { data: employerRoleRow } = await createAdminClient()
+    .from("user_roles")
+    .select("id")
+    .eq("user_id", employerId)
+    .eq("role", "employer")
+    .eq("active", true)
+    .maybeSingle();
+
+  if (!employerRoleRow) return null;
 
   const [statsRes, ratingRes, jobsCountRes, jobsCompletedRes, hiresRes, openJobsRes] = await Promise.all([
     createAdminClient().from("profile_stats").select("*").eq("profile_id", employerId).maybeSingle(),

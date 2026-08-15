@@ -4,6 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { Wifi, WifiOff } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { ReportButton } from "@/components/reports/ReportButton";
 import type { Profile } from "@/lib/types";
 import type { PresenceState } from "@/lib/realtime/useChatRealtime";
 
@@ -46,6 +47,15 @@ export function PresenceBar({ user, presence, isConnected }: PresenceBarProps) {
           {statusText}
         </p>
       </div>
+
+      <ReportButton
+        targetType="user"
+        reportedUserId={user.id}
+        reportedUserRole={user.role}
+        targetLabel={user.full_name}
+        variant="icon"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-danger-50 hover:text-danger-600"
+      />
     </div>
   );
 }

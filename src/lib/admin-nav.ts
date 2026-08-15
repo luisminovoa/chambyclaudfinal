@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, Users, ShieldCheck, Briefcase, FlaskConical } from "lucide-react";
+import { LayoutDashboard, Users, ShieldCheck, Briefcase, FlaskConical, Flag } from "lucide-react";
 
 export interface AdminNavTab {
   href: string;
@@ -18,6 +18,7 @@ export const ADMIN_NAV_TABS: AdminNavTab[] = [
   { href: "/admin", label: "Resumen", icon: LayoutDashboard, exact: true },
   { href: "/admin/users", label: "Usuarios", icon: Users },
   { href: "/admin/verifications", label: "Verificaciones", icon: ShieldCheck },
+  { href: "/admin/reports", label: "Reportes", icon: Flag },
   { href: "/admin/jobs", label: "Trabajos", icon: Briefcase },
   { href: "/admin/beta", label: "Beta", icon: FlaskConical },
 ];

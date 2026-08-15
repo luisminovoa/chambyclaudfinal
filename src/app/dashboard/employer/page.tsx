@@ -1,15 +1,17 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Plus, Briefcase, Loader2, CheckCircle2, Star, Award } from "lucide-react";
+import { Plus, Briefcase, Loader2, CheckCircle2, Star, Award, MapPin, Pencil } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
+import { getProfilePhotos } from "@/lib/actions/profile";
 import { RatingStars } from "@/components/RatingStars";
 import { EmployerJobRow } from "@/components/EmployerJobRow";
+import { Avatar } from "@/components/ui/Avatar";
 import { StatCard } from "@/components/ui/StatCard";
 import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { BackToWorkerButton } from "@/components/roles/BackToWorkerButton";
-import type { Job, RatingSummary } from "@/lib/types";
+import type { Job, ProfilePhoto, RatingSummary } from "@/lib/types";
 
 export default async function EmployerDashboardPage() {
   const supabase = createClient();
@@ -19,11 +21,17 @@ export default async function EmployerDashboardPage() {
   if (profile && profile.role === "worker") redirect("/dashboard/worker");
   if (profile && profile.role === "admin") redirect("/admin");
 
-  const { data: jobs } = await supabase
-    .from("jobs")
-    .select("*")
-    .eq("employer_id", user.id)
-    .order("created_at", { ascending: false });
+  const [{ data: jobs }, photos] = await Promise.all([
+    supabase
+      .from("jobs")
+      .select("*")
+      .eq("employer_id", user.id)
+      .order("created_at", { ascending: false }),
+    getProfilePhotos(),
+  ]);
+
+  const primaryPhoto = (photos as ProfilePhoto[]).find((p) => p.is_primary) ?? null;
+  const avatarSrc = primaryPhoto?.public_url ?? profile?.avatar_url ?? null;
 
   const typedJobs = (jobs as Job[]) ?? [];
 
@@ -72,6 +80,32 @@ export default async function EmployerDashboardPage() {
           <Link href="/jobs/new" className="btn-primary">
             <Plus className="h-4 w-4" />
             Publicar trabajo
+          </Link>
+        </div>
+      </Reveal>
+
+      {/* Perfil */}
+      <Reveal delay={0.03}>
+        <div className="mt-6 card flex flex-col items-center gap-4 p-5 text-center sm:flex-row sm:text-left">
+          <Avatar name={profile?.full_name ?? ""} src={avatarSrc} size="lg" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-bold text-ink">{profile?.full_name}</p>
+            {profile?.city && (
+              <p className="flex items-center justify-center gap-1 text-xs text-ink-muted sm:justify-start">
+                <MapPin className="h-3 w-3 shrink-0" />
+                {profile.city}
+              </p>
+            )}
+            <p className="mt-0.5 text-xs text-ink-muted">
+              Así te ven los trabajadores en tu perfil público
+            </p>
+          </div>
+          <Link
+            href="/dashboard/employer/profile"
+            className="btn-secondary w-full shrink-0 justify-center gap-1.5 sm:w-auto"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Editar perfil
           </Link>
         </div>
       </Reveal>

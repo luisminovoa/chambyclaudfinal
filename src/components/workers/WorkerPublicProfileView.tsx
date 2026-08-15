@@ -12,6 +12,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { RatingStars } from "@/components/RatingStars";
 import { VerificationBadges } from "@/components/profile/VerificationBadges";
+import { ReportButton } from "@/components/reports/ReportButton";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import { formatMemberSince } from "@/lib/utils";
 import type { WorkerPublicProfile } from "@/lib/actions/workers";
@@ -24,7 +25,13 @@ const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
   no_disponible: "No disponible por ahora",
 };
 
-export function WorkerPublicProfileView({ data }: { data: WorkerPublicProfile }) {
+export function WorkerPublicProfileView({
+  data,
+  viewerId,
+}: {
+  data: WorkerPublicProfile;
+  viewerId?: string | null;
+}) {
   const { profile, workerDetails, photos, experience, stats, ratingSummary, jobsCompleted } = data;
   const primaryTitle = getWorkerPrimaryTitle(profile, workerDetails);
   const primaryPhoto = photos.find((p) => p.is_primary) ?? photos[0] ?? null;
@@ -34,7 +41,18 @@ export function WorkerPublicProfileView({ data }: { data: WorkerPublicProfile })
   return (
     <div className="space-y-6">
       {/* Encabezado */}
-      <div className="card flex flex-col items-center gap-4 p-6 text-center sm:flex-row sm:text-left">
+      <div className="card relative flex flex-col items-center gap-4 p-6 text-center sm:flex-row sm:text-left">
+        {viewerId !== profile.id && (
+          <div className="absolute right-4 top-4">
+            <ReportButton
+              targetType="user"
+              reportedUserId={profile.id}
+              reportedUserRole="worker"
+              targetLabel={profile.full_name}
+              variant="icon"
+            />
+          </div>
+        )}
         <Avatar
           name={profile.full_name}
           src={primaryPhoto?.public_url ?? profile.avatar_url}

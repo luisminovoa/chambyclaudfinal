@@ -49,7 +49,7 @@ export default async function WorkerProfilePage({ params, searchParams }: Worker
             </Reveal>
           )}
           <Reveal delay={0.05}>
-            <WorkerPublicProfileView data={data} />
+            <WorkerPublicProfileView data={data} viewerId={user.id} />
           </Reveal>
         </div>
       )}

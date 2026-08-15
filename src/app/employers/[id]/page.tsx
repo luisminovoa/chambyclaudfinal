@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { getEmployerPublicProfile } from "@/lib/actions/employers";
 import { EmployerPublicProfileView } from "@/components/employers/EmployerPublicProfileView";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -13,7 +14,10 @@ interface EmployerProfilePageProps {
 }
 
 export default async function EmployerProfilePage({ params }: EmployerProfilePageProps) {
-  const data = await getEmployerPublicProfile(params.id);
+  const [{ user }, data] = await Promise.all([
+    getCurrentUserAndProfile(),
+    getEmployerPublicProfile(params.id),
+  ]);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
@@ -29,7 +33,7 @@ export default async function EmployerProfilePage({ params }: EmployerProfilePag
         </Reveal>
       ) : (
         <Reveal>
-          <EmployerPublicProfileView data={data} />
+          <EmployerPublicProfileView data={data} viewerId={user?.id ?? null} />
         </Reveal>
       )}
     </div>
