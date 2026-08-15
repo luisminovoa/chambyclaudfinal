@@ -111,6 +111,7 @@ export function EmployerProfileClient({
             profile={profile}
             rucVerified={rucVerified}
             onSaved={(updated) => setProfile((p) => ({ ...p, ...updated }))}
+            onStatsChange={setStats}
           />
         )}
         {activeTab === "logo" && (

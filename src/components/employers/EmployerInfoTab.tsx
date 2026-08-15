@@ -5,7 +5,8 @@ import { ShieldCheck, Clock } from "lucide-react";
 import { useToast } from "@/components/ui/Toaster";
 import { Badge } from "@/components/ui/Badge";
 import { updateProfile } from "@/lib/actions/profile";
-import type { EmployerType, Profile } from "@/lib/types";
+import { refreshProfileStats } from "@/lib/profile-stats";
+import type { EmployerType, Profile, ProfileStats } from "@/lib/types";
 
 type EmployerProfileFields = Pick<
   Profile,
@@ -26,6 +27,7 @@ interface EmployerInfoTabProps {
   /** true si existe un documento RUC verificado (verification_documents) — determina el badge "RUC verificado" vs "RUC pendiente de verificación". */
   rucVerified: boolean;
   onSaved: (updated: EmployerProfileFields) => void;
+  onStatsChange: (stats: ProfileStats) => void;
 }
 
 const EMPLOYER_TYPE_OPTIONS: { value: EmployerType; label: string }[] = [
@@ -41,7 +43,12 @@ const EMPLOYER_TYPE_OPTIONS: { value: EmployerType; label: string }[] = [
  * que ya usa el trabajador — ahora también acepta full_name, district y
  * los campos de identidad empresarial (0030).
  */
-export function EmployerInfoTab({ profile, rucVerified, onSaved }: EmployerInfoTabProps) {
+export function EmployerInfoTab({
+  profile,
+  rucVerified,
+  onSaved,
+  onStatsChange,
+}: EmployerInfoTabProps) {
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
 
@@ -103,6 +110,7 @@ export function EmployerInfoTab({ profile, rucVerified, onSaved }: EmployerInfoT
           business_description: businessDescription.trim() || null,
           business_ruc: businessRuc.trim() || null,
         });
+        await refreshProfileStats(onStatsChange);
         toast("Perfil actualizado correctamente", "success");
       }
     });
