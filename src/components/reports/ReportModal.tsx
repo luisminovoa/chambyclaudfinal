@@ -235,7 +235,7 @@ export function ReportModal({
         role="dialog"
         aria-modal
         aria-label={title}
-        className="w-full max-w-md rounded-t-2xl bg-white p-6 shadow-xl sm:rounded-2xl"
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-6 shadow-xl sm:rounded-2xl"
       >
         {/* Header */}
         <div className="mb-1 flex items-center justify-between">
