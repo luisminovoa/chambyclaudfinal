@@ -333,6 +333,54 @@ const RECORDABLE_ACTION_TYPES: ModerationActionType[] = [
 ];
 
 /**
+ * Acciones con consecuencia real para el usuario objetivo — las únicas
+ * que notify_moderation_action() (0023) notifica. Exigen un destinatario
+ * real y no nulo: registrar una de estas sin nadie a quien atribuirla
+ * sería una acción de moderación fantasma, sin efecto.
+ */
+const CONSEQUENTIAL_ACTION_TYPES: ModerationActionType[] = [
+  "warning_issued",
+  "temporary_suspension",
+  "permanent_block",
+];
+
+/**
+ * Resuelve a quién debe atribuirse una acción de moderación, en
+ * servidor, según el tipo de objetivo del reporte — nunca desde un
+ * valor enviado por el cliente (recordModerationAction() no acepta
+ * ningún parámetro de destinatario en absoluto).
+ *
+ * target_type='user': reported_user_id directamente — siempre presente
+ * (reports_target_matches_type, 0019, nunca relajado para este caso).
+ *
+ * target_type='job': un reporte de oferta no señala a ningún usuario en
+ * `reports` (reported_user_id es siempre null para este caso, por el
+ * mismo CHECK) — el destinatario real es el empleador dueño de la
+ * oferta, resuelto aquí vía jobs.employer_id. Si reported_job_id es
+ * null, la oferta ya fue eliminada (reports_survive_job_deletion, 0031
+ * — el reporte y su evidencia sobreviven al borrado, pero no queda
+ * ningún empleador al que atribuir una acción nueva) — se devuelve
+ * `null` sin inventar ningún destinatario; recordModerationAction()
+ * decide qué hacer con ese `null` según el tipo de acción (ver abajo).
+ */
+async function resolveModerationTargetUserId(
+  supabase: SupabaseSession,
+  targetType: ReportTargetType,
+  reportedUserId: string | null,
+  reportedJobId: string | null
+): Promise<string | null> {
+  if (targetType === "user") {
+    return reportedUserId;
+  }
+
+  // target_type === "job"
+  if (!reportedJobId) return null;
+
+  const { data: job } = await supabase.from("jobs").select("employer_id").eq("id", reportedJobId).maybeSingle();
+  return (job as { employer_id: string } | null)?.employer_id ?? null;
+}
+
+/**
  * Registra una acción de moderación — SOLO el registro de auditoría.
  * No suspende, no bloquea, no desactiva ninguna cuenta: esta fase
  * explícitamente no implementa el comportamiento real de esas
@@ -342,6 +390,14 @@ const RECORDABLE_ACTION_TYPES: ModerationActionType[] = [
  * integración por separado). target_user_id siempre se deriva del
  * propio reporte en el servidor — nunca de un valor enviado por el
  * cliente — y admin_id siempre de assertAdmin() (auth.uid()).
+ *
+ * No cambia reports.status: registrar una acción de moderación (aunque
+ * sea warning_issued/temporary_suspension/permanent_block) es
+ * independiente de resolver el reporte — ambas son decisiones propias
+ * del admin, sin acoplamiento automático (mismo diseño original, §11.5
+ * de docs/user-reporting-moderation-design.md, que las lista como
+ * acciones separadas). Si se necesitara ese acoplamiento en el futuro,
+ * es una decisión de producto nueva, no un bug de esta función.
  */
 export async function recordModerationAction(
   reportId: string,
@@ -355,12 +411,34 @@ export async function recordModerationAction(
 
   const { data: report } = await supabase
     .from("reports")
-    .select("id, reported_user_id")
+    .select("id, target_type, reported_user_id, reported_job_id")
     .eq("id", reportId)
     .maybeSingle();
   if (!report) return { error: "Reporte no encontrado." };
 
-  const { reported_user_id: targetUserId } = report as { reported_user_id: string | null };
+  const {
+    target_type: targetType,
+    reported_user_id: reportedUserId,
+    reported_job_id: reportedJobId,
+  } = report as {
+    target_type: ReportTargetType;
+    reported_user_id: string | null;
+    reported_job_id: string | null;
+  };
+
+  const targetUserId = await resolveModerationTargetUserId(supabase, targetType, reportedUserId, reportedJobId);
+
+  // Nunca se inserta una acción con consecuencia real sin un destinatario
+  // resuelto — el único caso donde esto ocurre hoy es target_type='job'
+  // con la oferta ya eliminada (reported_job_id=null tras 0031). No se
+  // inventa ningún destinatario: se rechaza en servidor, antes de tocar
+  // la base de datos, con un error explicable para el admin.
+  if (targetUserId === null && CONSEQUENTIAL_ACTION_TYPES.includes(actionType)) {
+    return {
+      error:
+        "No se pudo registrar la acción: la oferta reportada ya no existe, así que no hay ningún destinatario válido al que notificar.",
+    };
+  }
 
   const { error } = await supabase.from("moderation_actions").insert({
     report_id: reportId,
@@ -372,11 +450,14 @@ export async function recordModerationAction(
   });
 
   if (error) {
-    // trg_moderation_action_target_coherence (0027, Fase 10) es la
-    // garantía real a nivel de base de datos de que target_user_id
-    // siempre coincide con reports.reported_user_id — targetUserId ya
-    // se deriva del reporte arriba, así que este catch es defensa en
-    // profundidad, no debería alcanzarse en el flujo normal de la app.
+    // trg_moderation_action_target_coherence (0027, extendida en 0033
+    // para target_type='job') es la garantía real a nivel de base de
+    // datos de que target_user_id siempre coincide con el objetivo real
+    // del reporte (reports.reported_user_id para 'user', jobs.employer_id
+    // vía reports.reported_job_id para 'job') — targetUserId ya se
+    // resuelve con la misma lógica arriba (resolveModerationTargetUserId),
+    // así que este catch es defensa en profundidad, no debería alcanzarse
+    // en el flujo normal de la app.
     if (error.message?.includes("moderation_action_target_mismatch")) {
       return { error: "No se pudo registrar la acción: el usuario objetivo no corresponde a este reporte." };
     }
