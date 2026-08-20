@@ -88,7 +88,7 @@ interface ModerationActionRow {
 interface State {
   user: { id: string } | null;
   profiles: { id: string; full_name: string; avatar_url: string | null; city: string | null; role: string }[];
-  jobs: { id: string; title: string }[];
+  jobs: { id: string; title: string; employer_id?: string }[];
   reports: ReportRow[];
   reportEvidence: { report_id: string }[];
   moderationActions: ModerationActionRow[];
@@ -456,6 +456,110 @@ describe("recordModerationAction", () => {
     expect(result.error).toBe("Tipo de acción inválido.");
     expect(result.error).not.toMatch(/check constraint|relation|moderation_actions_recordable_type/i);
     expect(state.moderationActions).toHaveLength(0);
+  });
+
+  // ------------------------------------------------------------
+  // Fase 13 — target_user_id para reportes de tipo 'job' (fix del bug:
+  // reported_user_id es siempre null para target_type='job', por
+  // reports_target_matches_type — el destinatario real es
+  // jobs.employer_id, resuelto vía reports.reported_job_id).
+  // ------------------------------------------------------------
+  const JOB_ID = "55555555-5555-4555-8555-555555555555";
+  const EMPLOYER_ID = "66666666-6666-4666-8666-666666666666";
+
+  it("B. reporte de oferta (target_type='job') resuelve target_user_id como jobs.employer_id, no como reported_user_id (siempre null para 'job')", async () => {
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+
+    const result = await recordModerationAction(REPORT_ID, "warning_issued", "Contenido engañoso en la oferta.");
+    expect(result.success).toBe(true);
+    expect(state.moderationActions[0]).toMatchObject({
+      report_id: REPORT_ID,
+      target_user_id: EMPLOYER_ID,
+      action_type: "warning_issued",
+    });
+  });
+
+  it("C. reporte de oferta ya eliminada (reported_job_id=null tras 0031) NO crea la acción y devuelve un error controlado, sin inventar destinatario", async () => {
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: null })];
+
+    const result = await recordModerationAction(REPORT_ID, "warning_issued");
+    expect(result.error).toBe(
+      "No se pudo registrar la acción: la oferta reportada ya no existe, así que no hay ningún destinatario válido al que notificar."
+    );
+    expect(state.moderationActions).toHaveLength(0);
+  });
+
+  it("C2 (defensivo) — reported_job_id apunta a un job que la consulta no encuentra: tampoco se inventa destinatario", async () => {
+    state.jobs = []; // el job no aparece en la consulta, aunque reported_job_id no sea null
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+
+    const result = await recordModerationAction(REPORT_ID, "permanent_block");
+    expect(result.error).toMatch(/oferta reportada ya no existe/);
+    expect(state.moderationActions).toHaveLength(0);
+  });
+
+  it("D. temporary_suspension sobre un reporte de oferta resuelve target_user_id = jobs.employer_id", async () => {
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+
+    const result = await recordModerationAction(REPORT_ID, "temporary_suspension", "Reincidencia.");
+    expect(result.success).toBe(true);
+    expect(state.moderationActions[0].target_user_id).toBe(EMPLOYER_ID);
+    expect(state.moderationActions[0].action_type).toBe("temporary_suspension");
+  });
+
+  it("E. permanent_block sobre un reporte de oferta resuelve target_user_id = jobs.employer_id", async () => {
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+
+    const result = await recordModerationAction(REPORT_ID, "permanent_block", "Fraude confirmado.");
+    expect(result.success).toBe(true);
+    expect(state.moderationActions[0].target_user_id).toBe(EMPLOYER_ID);
+    expect(state.moderationActions[0].action_type).toBe("permanent_block");
+  });
+
+  it("F. note_added sobre un reporte de oferta ya eliminada SÍ se permite con target_user_id=null (no es consecuente, no exige destinatario)", async () => {
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: null })];
+
+    const result = await recordModerationAction(REPORT_ID, "note_added", "Nota interna: la oferta ya no existe.");
+    expect(result.success).toBe(true);
+    expect(state.moderationActions[0].target_user_id).toBeNull();
+  });
+
+  it("F2 — note_added sobre un reporte de oferta VIGENTE también resuelve target_user_id = employer_id (coherente con el trigger, sin exigirlo)", async () => {
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+
+    const result = await recordModerationAction(REPORT_ID, "note_added", "Nota interna.");
+    expect(result.success).toBe(true);
+    expect(state.moderationActions[0].target_user_id).toBe(EMPLOYER_ID);
+  });
+
+  it("G. si trg_moderation_action_target_coherence (0027 + 0033) rechaza el INSERT para un reporte de tipo job (defensa en profundidad), el error se traduce a un mensaje amigable sin filtrar detalles internos de Postgres", async () => {
+    // target_user_id ya se resuelve correctamente como employer_id arriba
+    // (test B) — esto simula específicamente el catch de la Server
+    // Action, no un camino alcanzable por la resolución normal.
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+    state.moderationActionInsertErrorMessage =
+      "moderation_action_target_mismatch: target_user_id no coincide con el employer_id de la oferta reportada";
+
+    const result = await recordModerationAction(REPORT_ID, "warning_issued");
+    expect(result.error).toBe("No se pudo registrar la acción: el usuario objetivo no corresponde a este reporte.");
+    expect(result.error).not.toMatch(/P0001|trigger|Postgres|employer_id|moderation_action_target_mismatch/i);
+    expect(state.moderationActions).toHaveLength(0);
+  });
+
+  it("H. ningún action_type con consecuencia real puede insertarse con target_user_id null, para ningún camino de código (oferta eliminada)", async () => {
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: null })];
+
+    for (const actionType of ["warning_issued", "temporary_suspension", "permanent_block"] as const) {
+      state.moderationActions = [];
+      const result = await recordModerationAction(REPORT_ID, actionType);
+      expect(result.error).toMatch(/oferta reportada ya no existe/);
+      expect(state.moderationActions).toHaveLength(0);
+    }
   });
 });
 
