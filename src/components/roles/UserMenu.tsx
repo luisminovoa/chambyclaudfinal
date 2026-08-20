@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Briefcase, Flag, LogOut, ShieldCheck, User, UserCog } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useActivateRole } from "@/components/roles/use-activate-role";
+import { getProfileHref } from "@/lib/main-nav";
 import { logout } from "@/lib/actions/auth";
 import type { Profile, UserRole } from "@/lib/types";
 
@@ -66,8 +67,12 @@ export function UserMenu({ profile, userRoles }: UserMenuProps) {
           role="menu"
           className="card absolute right-0 top-full z-50 mt-2 w-56 origin-top-right p-1.5"
         >
+          {/* Destino según el modo activo (src/lib/main-nav.ts): una
+              cuenta employer pura no posee el rol worker, así que el
+              antiguo destino fijo /dashboard/worker/profile la rebotaba
+              hasta /dashboard/employer sin llegar nunca a su perfil. */}
           <Link
-            href="/dashboard/worker/profile"
+            href={getProfileHref(profile.role)}
             role="menuitem"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-primary-50 hover:text-primary-700"
