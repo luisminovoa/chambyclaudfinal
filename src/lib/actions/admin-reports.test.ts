@@ -17,7 +17,7 @@ import {
  * y que una búsqueda sin coincidencias corta antes de tocar `reports`
  * — ver el `if (ids.length === 0) return []` real en el código).
  */
-function selectChain(rows: Record<string, unknown>[]) {
+function selectChain(rows: Record<string, unknown>[], errorMessage: string | null = null) {
   let filtered = rows;
   const chain = {
     eq(col: string, val: unknown) {
@@ -48,10 +48,16 @@ function selectChain(rows: Record<string, unknown>[]) {
     limit() {
       return chain;
     },
-    single: async () => ({ data: filtered[0] ?? null, error: null }),
-    maybeSingle: async () => ({ data: filtered[0] ?? null, error: null }),
-    then(resolve: (v: { data: unknown[]; error: null; count: number }) => void) {
-      resolve({ data: filtered, error: null, count: filtered.length });
+    single: async () =>
+      errorMessage ? { data: null, error: { message: errorMessage } } : { data: filtered[0] ?? null, error: null },
+    maybeSingle: async () =>
+      errorMessage ? { data: null, error: { message: errorMessage } } : { data: filtered[0] ?? null, error: null },
+    then(resolve: (v: { data: unknown[] | null; error: { message: string } | null; count: number }) => void) {
+      resolve(
+        errorMessage
+          ? { data: null, error: { message: errorMessage }, count: 0 }
+          : { data: filtered, error: null, count: filtered.length }
+      );
     },
   };
   return chain;
@@ -96,6 +102,8 @@ interface State {
   updateErrorMessage: string | null;
   /** Fase 10: simula el error que devolvería Postgres si trg_moderation_action_target_coherence (0027) rechazara el INSERT. */
   moderationActionInsertErrorMessage: string | null;
+  /** Fase 14: simula un error REAL de la consulta a `jobs` en resolveModerationTargetUserId() (RLS/red/PostgREST) — distinto de "job no encontrado" (data=null, error=null). */
+  jobsQueryErrorMessage: string | null;
 }
 
 const state: State = {
@@ -107,6 +115,7 @@ const state: State = {
   moderationActions: [],
   updateErrorMessage: null,
   moderationActionInsertErrorMessage: null,
+  jobsQueryErrorMessage: null,
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -117,7 +126,10 @@ vi.mock("@/lib/supabase/server", () => ({
         return { select: () => selectChain(state.profiles as unknown as Record<string, unknown>[]) };
       }
       if (table === "jobs") {
-        return { select: () => selectChain(state.jobs as unknown as Record<string, unknown>[]) };
+        return {
+          select: () =>
+            selectChain(state.jobs as unknown as Record<string, unknown>[], state.jobsQueryErrorMessage),
+        };
       }
       if (table === "report_evidence") {
         return { select: () => selectChain(state.reportEvidence as unknown as Record<string, unknown>[]) };
@@ -209,6 +221,7 @@ beforeEach(() => {
   state.moderationActions = [];
   state.updateErrorMessage = null;
   state.moderationActionInsertErrorMessage = null;
+  state.jobsQueryErrorMessage = null;
 });
 
 describe("listReports", () => {
@@ -560,6 +573,58 @@ describe("recordModerationAction", () => {
       expect(result.error).toMatch(/oferta reportada ya no existe/);
       expect(state.moderationActions).toHaveLength(0);
     }
+  });
+
+  // ------------------------------------------------------------
+  // Fase 14 — la consulta a `jobs` en resolveModerationTargetUserId()
+  // ahora distingue "la oferta no existe" (data=null, error=null, ya
+  // cubierto arriba por C/C2/H) de "la consulta falló por otra razón"
+  // (error!=null) — antes ambos casos eran indistinguibles porque el
+  // `error` se descartaba, así que un fallo real de Postgres/PostgREST
+  // se reportaba al admin como si la oferta hubiera sido eliminada.
+  // ------------------------------------------------------------
+
+  it("I. job existente con employer_id válido → target_user_id = employer_id (caso real de Production: reported_job_id y jobs.employer_id ambos presentes)", async () => {
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+
+    const result = await recordModerationAction(REPORT_ID, "warning_issued");
+    expect(result.success).toBe(true);
+    expect(state.moderationActions[0].target_user_id).toBe(EMPLOYER_ID);
+  });
+
+  it("J. si la consulta a `jobs` falla por un error real (RLS/red/PostgREST), NO se trata como 'oferta inexistente' — devuelve un error distinto y no inserta la fila", async () => {
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+    state.jobsQueryErrorMessage = "connection reset by peer";
+
+    const result = await recordModerationAction(REPORT_ID, "warning_issued");
+    expect(result.error).toBe("No se pudo verificar la oferta reportada. Intenta nuevamente en unos minutos.");
+    expect(result.error).not.toMatch(/oferta reportada ya no existe/);
+    expect(result.error).not.toMatch(/connection reset|PostgREST|Postgres/i);
+    expect(state.moderationActions).toHaveLength(0);
+  });
+
+  it("K. warning_issued sigue siendo registrable con normalidad cuando la consulta a jobs no tiene error (regresión del fix de la Fase 14)", async () => {
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+
+    const result = await recordModerationAction(REPORT_ID, "warning_issued", "Advertencia por contenido engañoso.");
+    expect(result.success).toBe(true);
+    expect(state.moderationActions).toHaveLength(1);
+  });
+
+  it("L. no existe ninguna regla de 'una sola advertencia' — dos warning_issued consecutivos sobre el mismo reporte se registran ambos, sin bloqueo", async () => {
+    state.jobs = [{ id: JOB_ID, title: "Seguridad por horas", employer_id: EMPLOYER_ID }];
+    state.reports = [baseReport({ target_type: "job", reported_user_id: null, reported_job_id: JOB_ID })];
+
+    const first = await recordModerationAction(REPORT_ID, "warning_issued", "Primera advertencia.");
+    const second = await recordModerationAction(REPORT_ID, "warning_issued", "Segunda advertencia.");
+
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(state.moderationActions).toHaveLength(2);
+    expect(state.moderationActions.every((a) => a.target_user_id === EMPLOYER_ID)).toBe(true);
   });
 });
 
