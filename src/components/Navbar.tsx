@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogOut, Plus, Search } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { logout } from "@/lib/actions/auth";
 import { getUnreadCount } from "@/lib/actions/notifications";
@@ -10,6 +10,7 @@ import { PublishChambaButton } from "@/components/roles/PublishChambaButton";
 import { UserMenu } from "@/components/roles/UserMenu";
 import { RoleIndicator } from "@/components/roles/RoleIndicator";
 import { ADMIN_NAV_TABS } from "@/lib/admin-nav";
+import { getMainNavItems } from "@/lib/main-nav";
 
 export async function Navbar() {
   const { user, profile, userRoles } = await getCurrentUserAndProfile();
@@ -45,24 +46,19 @@ export async function Navbar() {
               </Link>
             ))
           ) : (
-            <>
+            // Navegación según el MODO ACTIVO (src/lib/main-nav.ts): en
+            // modo empleador ya no aparece "Buscar trabajos", que es una
+            // acción de trabajador. La misma fuente alimenta el BottomNav.
+            getMainNavItems(profile?.role ?? null).map((item) => (
               <Link
-                href="/jobs"
+                key={item.href}
+                href={item.href}
                 className="flex items-center gap-1.5 rounded-xl px-3 py-2 transition-colors duration-200 hover:bg-primary-50 hover:text-primary-700"
               >
-                <Search className="h-4 w-4" />
-                Buscar trabajos
+                <item.icon className="h-4 w-4" />
+                {item.label}
               </Link>
-              {profile?.role === "employer" && (
-                <Link
-                  href="/jobs/new"
-                  className="flex items-center gap-1.5 rounded-xl px-3 py-2 transition-colors duration-200 hover:bg-primary-50 hover:text-primary-700"
-                >
-                  <Plus className="h-4 w-4" />
-                  Publicar trabajo
-                </Link>
-              )}
-            </>
+            ))
           )}
         </nav>
 

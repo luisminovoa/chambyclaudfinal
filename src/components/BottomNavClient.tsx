@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Home, Search, Plus, MessageCircle, User } from "lucide-react";
+import { Home, Plus, MessageCircle, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useActivateRole } from "@/components/roles/use-activate-role";
+import { getBrowseTab } from "@/lib/main-nav";
 import type { UserRole } from "@/lib/types";
 
 interface BottomNavClientProps {
@@ -31,9 +32,14 @@ export function BottomNavClient({
   // Un invitado que quiere publicar vuelve al formulario justo después de registrarse
   const publishHref = isLoggedIn ? "/jobs/new" : "/register?next=/jobs/new";
 
+  // Segunda pestaña según el modo activo: en modo empleador, "Buscar"
+  // (/jobs) es una acción de trabajador y se reemplaza por sus propias
+  // publicaciones. Se mantienen exactamente 5 tabs.
+  const browse = getBrowseTab(role);
+
   const tabs = [
     { href: "/", label: "Inicio", icon: Home, exact: true, badge: 0 },
-    { href: "/jobs", label: "Buscar", icon: Search, exact: false, badge: 0 },
+    { href: browse.href, label: browse.label, icon: browse.icon, exact: false, badge: 0 },
     { href: publishHref, label: "Publicar", icon: Plus, center: true, exact: false, badge: 0 },
     { href: "/messages", label: "Mensajes", icon: MessageCircle, exact: false, badge: messagesUnreadCount },
     { href: profileHref, label: "Perfil", icon: User, exact: false, badge: 0 },
