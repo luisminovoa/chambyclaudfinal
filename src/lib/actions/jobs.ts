@@ -296,6 +296,9 @@ export async function updateApplicationStatus(applicationId: string, status: str
   if (!error && updated) {
     revalidatePath(`/jobs/${updated.job_id}`);
     revalidatePath("/dashboard/employer");
+    // Vista agregada de postulantes: sin esto, aceptar/rechazar desde
+    // ahí no refresca la lista (la fila quedaría con el estado viejo).
+    revalidatePath("/dashboard/employer/applicants");
     revalidatePath("/dashboard/worker");
   }
   return { error: error?.message };
