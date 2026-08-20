@@ -34,13 +34,22 @@ export function AdminModerationActionForm({ reportId }: { reportId: string }) {
 
   function handleSubmit() {
     startTransition(async () => {
-      const result = await recordModerationAction(reportId, actionType, reason);
-      if (result.error) {
-        toast(result.error, "error");
-      } else {
-        toast("Acción de moderación registrada", "success");
-        setReason("");
-        router.refresh();
+      try {
+        const result = await recordModerationAction(reportId, actionType, reason);
+        if (result.error) {
+          toast(result.error, "error");
+        } else {
+          toast("Acción de moderación registrada", "success");
+          setReason("");
+          router.refresh();
+        }
+      } catch {
+        // recordModerationAction() no debería lanzar en su flujo normal
+        // (siempre retorna {error}/{success}), salvo por assertAdmin()
+        // (sesión/rol) — sin este catch, esa excepción quedaba como una
+        // promise rejection silenciosa dentro de startTransition, sin
+        // ningún indicio visible para el admin.
+        toast("No se pudo registrar la acción. Intenta nuevamente.", "error");
       }
     });
   }

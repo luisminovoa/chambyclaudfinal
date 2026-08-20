@@ -363,6 +363,18 @@ const CONSEQUENTIAL_ACTION_TYPES: ModerationActionType[] = [
  * `null` sin inventar ningún destinatario; recordModerationAction()
  * decide qué hacer con ese `null` según el tipo de acción (ver abajo).
  */
+/**
+ * Señal interna: la consulta a `jobs` de resolveModerationTargetUserId()
+ * falló por una razón real (RLS, red, PostgREST) — nunca cruza el límite
+ * público de recordModerationAction(), que la captura y la traduce a un
+ * error seguro y genérico. Se distingue a propósito de "la oferta no
+ * existe" (ese caso sigue devolviendo `null`, sin lanzar nada): antes,
+ * ambos casos eran indistinguibles porque el `error` de la consulta se
+ * descartaba, así que un fallo real de la consulta se reportaba al admin
+ * como si la oferta hubiera sido eliminada.
+ */
+class ModerationJobLookupError extends Error {}
+
 async function resolveModerationTargetUserId(
   supabase: SupabaseSession,
   targetType: ReportTargetType,
@@ -376,7 +388,14 @@ async function resolveModerationTargetUserId(
   // target_type === "job"
   if (!reportedJobId) return null;
 
-  const { data: job } = await supabase.from("jobs").select("employer_id").eq("id", reportedJobId).maybeSingle();
+  const { data: job, error } = await supabase
+    .from("jobs")
+    .select("employer_id")
+    .eq("id", reportedJobId)
+    .maybeSingle();
+  if (error) {
+    throw new ModerationJobLookupError("No se pudo verificar la oferta reportada.");
+  }
   return (job as { employer_id: string } | null)?.employer_id ?? null;
 }
 
@@ -426,7 +445,15 @@ export async function recordModerationAction(
     reported_job_id: string | null;
   };
 
-  const targetUserId = await resolveModerationTargetUserId(supabase, targetType, reportedUserId, reportedJobId);
+  let targetUserId: string | null;
+  try {
+    targetUserId = await resolveModerationTargetUserId(supabase, targetType, reportedUserId, reportedJobId);
+  } catch (err) {
+    if (err instanceof ModerationJobLookupError) {
+      return { error: "No se pudo verificar la oferta reportada. Intenta nuevamente en unos minutos." };
+    }
+    throw err;
+  }
 
   // Nunca se inserta una acción con consecuencia real sin un destinatario
   // resuelto — el único caso donde esto ocurre hoy es target_type='job'
