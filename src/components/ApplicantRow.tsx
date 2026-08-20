@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Check, X, MapPin, AlertCircle, Star, UserCircle2 } from "lucide-react";
+import { Check, X, MapPin, AlertCircle, Star, UserCircle2, Briefcase } from "lucide-react";
 import { updateApplicationStatus } from "@/lib/actions/jobs";
-import { applicationStatusLabel } from "@/lib/utils";
+import { applicationStatusLabel, formatDate } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toaster";
@@ -18,6 +18,15 @@ interface ApplicantRowProps {
   occupation?: string | null;
   ratingSummary?: RatingSummary | null;
   canManage: boolean;
+  /**
+   * Publicación a la que postuló. Redundante en /jobs/[id] (ya estás
+   * dentro de esa publicación) y por eso opcional; imprescindible en la
+   * vista agregada /dashboard/employer/applicants, donde conviven
+   * postulantes de varias publicaciones.
+   */
+  jobTitle?: string;
+  /** Fecha de postulación (created_at). Se omite donde no aporta. */
+  appliedAt?: string;
 }
 
 export function ApplicantRow({
@@ -28,6 +37,8 @@ export function ApplicantRow({
   occupation,
   ratingSummary,
   canManage,
+  jobTitle,
+  appliedAt,
 }: ApplicantRowProps) {
   const [isPending, startTransition] = useTransition();
   const [confirmingAccept, setConfirmingAccept] = useState(false);
@@ -77,6 +88,18 @@ export function ApplicantRow({
               </p>
             ) : (
               <p className="mt-0.5 text-[11px] text-ink-muted">Sin calificaciones aún</p>
+            )}
+            {(jobTitle || appliedAt) && (
+              <p className="mt-1 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-ink-muted">
+                {jobTitle && (
+                  <span className="inline-flex items-center gap-1">
+                    <Briefcase className="h-3 w-3 shrink-0" />
+                    <span className="font-medium text-ink">{jobTitle}</span>
+                  </span>
+                )}
+                {jobTitle && appliedAt && <span aria-hidden>·</span>}
+                {appliedAt && <span>Postuló el {formatDate(appliedAt)}</span>}
+              </p>
             )}
           </div>
         </div>

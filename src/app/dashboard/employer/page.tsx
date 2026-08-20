@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Plus, Briefcase, Loader2, CheckCircle2, Star, Award, MapPin, Pencil } from "lucide-react";
+import { Plus, Briefcase, Loader2, CheckCircle2, Users, Award, MapPin, Pencil } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { getProfilePhotos } from "@/lib/actions/profile";
@@ -122,13 +122,21 @@ export default async function EmployerDashboardPage() {
           <StatCard icon={CheckCircle2} label="Completados" value={completedCount} tone="success" />
         </Reveal>
         <Reveal delay={0.15}>
-          <StatCard
-            icon={Star}
-            label="Postulantes"
-            value={totalApplicants}
-            tone="neutral"
-            hint="en todas tus vacantes"
-          />
+          {/* Único KPI accionable: abre la vista agregada de postulantes.
+              Hasta ahora la tarjeta parecía interactiva (card-hover) pero
+              no navegaba a ningún sitio. */}
+          <Link
+            href="/dashboard/employer/applicants"
+            className="block rounded-3xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
+          >
+            <StatCard
+              icon={Users}
+              label="Postulantes"
+              value={totalApplicants}
+              tone="neutral"
+              hint="Ver todos"
+            />
+          </Link>
         </Reveal>
       </div>
 
