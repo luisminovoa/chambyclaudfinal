@@ -20,7 +20,7 @@ export interface CompletionItem {
  * mientras professional_title está vacío); nunca se prioriza sobre él.
  */
 export function getWorkerPrimaryTitle(
-  profile: Profile,
+  profile: Pick<Profile, "category">,
   workerDetails: WorkerProfileDetails | null
 ): string {
   return workerDetails?.professional_title || profile.category || "Sin especialidad";

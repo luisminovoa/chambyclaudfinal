@@ -17,23 +17,17 @@ vi.mock("next/link", () => ({
 const baseData: EmployerPublicProfile = {
   profile: {
     id: "employer-1",
-    role: "employer",
     full_name: "Jose Ramirez",
-    phone: "+51999999999",
     city: "Lima",
     category: null,
     skills: [],
     bio: "Somos una ferretería familiar.",
     avatar_url: null,
-    is_active: true,
     created_at: "2020-01-01T00:00:00Z",
-    updated_at: "2020-01-01T00:00:00Z",
     employer_type: "company",
     business_name: "Ferretería Don Jose",
     business_sector: "Ferretería",
     business_description: "Vendemos herramientas y materiales de construcción.",
-    business_ruc: "20123456789",
-    district: "Los Olivos",
   },
   stats: null,
   ratingSummary: null,
@@ -70,23 +64,24 @@ describe("EmployerPublicProfileView — acceso a edición y no-exposición de da
     expect(html).not.toContain("Editar mi perfil");
   });
 
-  it("el perfil público NUNCA renderiza el teléfono del empleador", () => {
+  it("el perfil público JAMÁS incluye phone/business_ruc en el objeto serializado, no solo en el render — getEmployerPublicProfile() ya no puede devolverlos: se leen de public.public_profiles (0034), que no los proyecta", () => {
+    // No basta con que el componente no los muestre en el HTML: deben
+    // estar AUSENTES del objeto que llega al cliente. PublicProfileView
+    // (src/lib/types.ts) no declara estas claves — este test falla en
+    // compilación (no en runtime) si algún día alguien las reintroduce.
+    expect("phone" in baseData.profile).toBe(false);
+    expect("business_ruc" in baseData.profile).toBe(false);
+    expect("role" in baseData.profile).toBe(false);
+    expect("is_active" in baseData.profile).toBe(false);
+
     const html = renderToStaticMarkup(
       <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
     );
-
     expect(html).not.toContain("+51999999999");
-  });
-
-  it("el perfil público NUNCA renderiza el número de RUC declarado (business_ruc)", () => {
-    const html = renderToStaticMarkup(
-      <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
-    );
-
     expect(html).not.toContain("20123456789");
   });
 
-  it("muestra identidad empresarial: nombre comercial, tipo, rubro y distrito", () => {
+  it("muestra identidad empresarial: nombre comercial, tipo y rubro", () => {
     const html = renderToStaticMarkup(
       <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
     );
@@ -94,7 +89,15 @@ describe("EmployerPublicProfileView — acceso a edición y no-exposición de da
     expect(html).toContain("Ferretería Don Jose");
     expect(html).toContain("Empresa");
     expect(html).toContain("Ferretería");
-    expect(html).toContain("Los Olivos");
+  });
+
+  it("ya no muestra el distrito (0034_harden_profiles_public_access.sql excluye district de public_profiles) — sí sigue mostrando la ciudad", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
+    );
+
+    expect(html).toContain("Lima");
+    expect(html).not.toContain("Los Olivos");
   });
 
   it("sin badges de verificación, no muestra ningún estado de RUC/DNI verificado", () => {

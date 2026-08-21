@@ -8,12 +8,12 @@ import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { PresenceBar } from "./PresenceBar";
 import { useToast } from "@/components/ui/Toaster";
-import type { Message, MessageType, Profile } from "@/lib/types";
+import type { Message, MessageType, ChatParticipant } from "@/lib/types";
 
 interface ChatWindowProps {
   conversationId: string;
   currentUserId: string;
-  otherUser: Profile;
+  otherUser: ChatParticipant;
   initialMessages: Message[];
   initialHasMore: boolean;
 }

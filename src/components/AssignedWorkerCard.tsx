@@ -2,10 +2,10 @@ import Link from "next/link";
 import { MapPin, Briefcase } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { RatingStars } from "@/components/RatingStars";
-import type { Profile, RatingSummary } from "@/lib/types";
+import type { PublicWorkerSummary, RatingSummary } from "@/lib/types";
 
 interface AssignedWorkerCardProps {
-  worker: Profile;
+  worker: PublicWorkerSummary;
   rating: RatingSummary | null;
 }
 

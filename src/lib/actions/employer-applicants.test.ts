@@ -83,12 +83,11 @@ vi.mock("@/lib/supabase/server", () => ({
         return { select: () => selectChain(state.jobs as unknown as Record<string, unknown>[]) };
       }
       if (table === "job_applications") {
-        // Emula el embed `worker:profiles!...(*)` de PostgREST.
-        const withWorker = state.applications.map((a) => ({
-          ...a,
-          worker: state.profiles.find((p) => p.id === a.worker_id) ?? null,
-        }));
-        return { select: () => selectChain(withWorker as unknown as Record<string, unknown>[]) };
+        // 0034_harden_profiles_public_access.sql: ya no hay embed
+        // `worker:profiles!...(*)` — job_applications se lee sola, el
+        // perfil del trabajador se resuelve aparte con el cliente admin
+        // (ver el mock de createAdminClient más abajo).
+        return { select: () => selectChain(state.applications as unknown as Record<string, unknown>[]) };
       }
       if (table === "rating_summary") {
         return { select: () => selectChain([]) };
@@ -101,6 +100,13 @@ vi.mock("@/lib/supabase/server", () => ({
     return {
       from: (table: string) => {
         state.adminTablesRead.push(table);
+        if (table === "profiles") {
+          // Los perfiles de los postulantes son terceros para auth.uid():
+          // la RLS ya no los deja leer con el cliente de sesión, ni con
+          // un embed ni con columnas acotadas — por eso se resuelven con
+          // el cliente admin (ver employer-applicants.ts).
+          return { select: () => selectChain(state.profiles as unknown as Record<string, unknown>[]) };
+        }
         return { select: () => selectChain([]) };
       },
     };
@@ -238,14 +244,29 @@ describe("datos que necesita la fila de postulante", () => {
     expect(cerrada[0].jobStatus).toBe("completado");
   });
 
-  it("el cliente admin solo se usa para worker_profile_details, y nunca antes de autorizar", async () => {
+  it("el cliente admin solo se usa para profiles/worker_profile_details, y nunca antes de autorizar", async () => {
     state.userRoles = ["worker"];
     await expect(listEmployerApplicants()).rejects.toThrow("No autorizado");
     expect(state.adminClientCreated).toBe(false);
 
     state.userRoles = ["employer"];
     await listEmployerApplicants();
-    expect(state.adminTablesRead).toEqual(["worker_profile_details"]);
+    // "profiles" se agrega aquí (0034_harden_profiles_public_access.sql):
+    // el perfil del postulante ya no llega por un embed `profiles!fkey`
+    // vía el cliente de sesión (la RLS ya no lo permite para un
+    // tercero) — se resuelve con el cliente admin, igual que
+    // worker_profile_details, con una lista blanca explícita de
+    // columnas (nunca select("*"), nunca phone/business_ruc).
+    expect(state.adminTablesRead.sort()).toEqual(["profiles", "worker_profile_details"]);
+  });
+
+  it("el objeto worker que recibe ApplicantRow nunca incluye phone ni business_ruc", async () => {
+    const items = await listEmployerApplicants({ jobId: JOB_A1 });
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect("phone" in item.worker).toBe(false);
+      expect("business_ruc" in item.worker).toBe(false);
+    }
   });
 });
 

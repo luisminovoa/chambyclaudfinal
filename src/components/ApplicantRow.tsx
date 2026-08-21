@@ -8,13 +8,13 @@ import { applicationStatusLabel, formatDate } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toaster";
-import type { Profile, RatingSummary } from "@/lib/types";
+import type { PublicWorkerSummary, RatingSummary } from "@/lib/types";
 
 interface ApplicantRowProps {
   applicationId: string;
   jobId: string;
   status: string;
-  worker: Profile;
+  worker: PublicWorkerSummary;
   occupation?: string | null;
   ratingSummary?: RatingSummary | null;
   canManage: boolean;

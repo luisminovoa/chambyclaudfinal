@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient, createAdminClient } from "@/lib/supabase/server";
-import type { Profile, ProfileStats, RatingSummary, PayType } from "@/lib/types";
+import type { PublicProfileView, ProfileStats, RatingSummary, PayType } from "@/lib/types";
 
 export interface EmployerOpenJob {
   id: string;
@@ -12,7 +12,7 @@ export interface EmployerOpenJob {
 }
 
 export interface EmployerPublicProfile {
-  profile: Profile;
+  profile: PublicProfileView;
   stats: ProfileStats | null;
   ratingSummary: RatingSummary | null;
   jobsPublished: number;
@@ -24,12 +24,12 @@ export interface EmployerPublicProfile {
 /**
  * Perfil público de un empleador — a diferencia de getWorkerPublicProfile()
  * (src/lib/actions/workers.ts), no requiere ninguna relación con quien mira:
- * profiles/jobs/rating_summary ya son de lectura pública a nivel de RLS
- * ("profiles_select_all"/"jobs_select_all" con `using (true)`, ver
- * 0001_init.sql), y esta misma información (nombre, avatar, calificación
- * del empleador) ya se muestra sin restricción en /jobs/[id]. Solo
- * profile_stats (badges) sigue siendo owner-only por RLS, así que esa
- * lectura puntual usa el cliente admin — mismo patrón de
+ * cualquier visitante, incluso sin sesión, puede ver esta ruta. Por eso el
+ * perfil base se lee de public.public_profiles
+ * (0034_harden_profiles_public_access.sql) — la proyección pública
+ * controlada que nunca incluye phone/business_ruc — y no de profiles
+ * directamente. profile_stats (badges) sigue siendo owner-only por RLS,
+ * así que esa lectura puntual usa el cliente admin — mismo patrón de
  * defense-in-depth que el resto del módulo de perfiles.
  */
 export async function getEmployerPublicProfile(
@@ -49,8 +49,10 @@ async function fetchEmployerPublicProfile(
   const supabase = createClient();
 
   const { data: profileRow } = await supabase
-    .from("profiles")
-    .select("*")
+    .from("public_profiles")
+    .select(
+      "id, full_name, avatar_url, city, category, skills, bio, created_at, employer_type, business_name, business_sector, business_description"
+    )
     .eq("id", employerId)
     .maybeSingle();
 
@@ -106,7 +108,7 @@ async function fetchEmployerPublicProfile(
   ]);
 
   return {
-    profile: profileRow as Profile,
+    profile: profileRow as unknown as PublicProfileView,
     stats: (statsRes.data as ProfileStats | null) ?? null,
     ratingSummary: (ratingRes.data as unknown as RatingSummary | null) ?? null,
     jobsPublished: jobsCountRes.count ?? 0,

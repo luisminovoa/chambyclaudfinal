@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, Sparkles, UserPlus, SearchCheck, Star, BadgeCheck } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { JobCard } from "@/components/JobCard";
 import { HeroSearch } from "@/components/HeroSearch";
@@ -10,30 +10,58 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { HeroAnt } from "@/components/brand/HeroAnt";
 import { AntIcon } from "@/components/brand/AntIcon";
 import { CATEGORIES } from "@/lib/categories";
-import type { JobWithEmployer, Profile } from "@/lib/types";
+import type { JobWithEmployer } from "@/lib/types";
+
+type HomePublicProfile = { id: string; full_name: string; avatar_url: string | null; city: string | null; created_at: string };
 
 export default async function HomePage() {
   const supabase = createClient();
 
-  const [{ user, profile }, { data: jobs }, { data: employers }] = await Promise.all([
+  const [{ user, profile }, { data: jobs }, { data: employerRoleRows }] = await Promise.all([
     getCurrentUserAndProfile(),
     supabase
       .from("jobs")
-      .select("*, employer:profiles!jobs_employer_id_fkey(id, full_name, avatar_url, city)")
+      .select("*")
       .eq("status", "abierto")
       .order("created_at", { ascending: false })
       .limit(6),
-    supabase
-      .from("profiles")
-      .select("*")
-      .eq("role", "employer")
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(4),
+    // "¿Es empleador?" se decide contra user_roles (roles que POSEE la
+    // cuenta), no contra profiles.role — mismo criterio ya establecido en
+    // getEmployerPublicProfile() (src/lib/actions/employers.ts). La vista
+    // public_profiles (0034_harden_profiles_public_access.sql) no
+    // proyecta `role`, así que no puede filtrarse por ahí directamente.
+    createAdminClient().from("user_roles").select("user_id").eq("role", "employer").eq("active", true),
   ]);
 
-  const typedJobs = (jobs as unknown as JobWithEmployer[]) ?? [];
-  const typedEmployers = (employers as unknown as Profile[]) ?? [];
+  const jobRows = (jobs as unknown as Omit<JobWithEmployer, "employer">[]) ?? [];
+  const employerUserIds = ((employerRoleRows as { user_id: string }[] | null) ?? []).map((r) => r.user_id);
+
+  // El empleador de cada job y los "empleadores destacados" son terceros:
+  // se leen de public.public_profiles (0034), nunca de profiles
+  // directamente con un embed `profiles!fkey` — la RLS ya no permite
+  // resolver eso para alguien que no sea el propio dueño del perfil o un
+  // admin, y la vista nunca expone phone/business_ruc.
+  const profileIds = [...new Set([...jobRows.map((j) => j.employer_id), ...employerUserIds])];
+  const { data: publicProfileRows } =
+    profileIds.length > 0
+      ? await supabase
+          .from("public_profiles")
+          .select("id, full_name, avatar_url, city, created_at")
+          .in("id", profileIds)
+      : { data: [] as unknown[] };
+  const publicProfileById = new Map(
+    ((publicProfileRows as unknown as HomePublicProfile[]) ?? []).map((p) => [p.id, p])
+  );
+
+  const typedJobs: JobWithEmployer[] = jobRows.map((j) => ({
+    ...j,
+    employer: publicProfileById.get(j.employer_id) ?? null,
+  }));
+  const typedEmployers = employerUserIds
+    .map((id) => publicProfileById.get(id))
+    .filter((e): e is HomePublicProfile => Boolean(e))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, 4);
 
   return (
     <div>
