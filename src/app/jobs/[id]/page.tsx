@@ -25,7 +25,7 @@ import type {
   ApplicationWithProfiles,
   RatingSummary,
   StateHistoryEntry,
-  Profile,
+  PublicWorkerSummary,
   WorkerProfileDetails,
 } from "@/lib/types";
 
@@ -54,44 +54,64 @@ export default async function JobDetailPage({ params }: { params: { id: string }
 
   const { data: job } = await supabase
     .from("jobs")
-    .select("*, employer:profiles!jobs_employer_id_fkey(id, full_name, avatar_url, city)")
+    .select("*")
     .eq("id", params.id)
     .single();
 
   if (!job) notFound();
 
-  const typedJob = job as unknown as JobWithEmployer;
-  const isOwner = user?.id === typedJob.employer_id;
-  const isAssignedWorker = user?.id === typedJob.assigned_worker_id;
+  const jobBase = job as unknown as Omit<JobWithEmployer, "employer">;
+  const isOwner = user?.id === jobBase.employer_id;
+  const isAssignedWorker = user?.id === jobBase.assigned_worker_id;
   // El botón del header solo debe aparecer si el trabajo sigue abierto —
   // a diferencia de las tarjetas de listado (que ya solo traen trabajos
   // "abierto"), esta página muestra cualquier estado.
   const showApply =
-    canShowApplyButton({ viewerRole: profile?.role ?? null, isOwner }) && typedJob.status === "abierto";
-  const jobCompleted = typedJob.status === "completado";
+    canShowApplyButton({ viewerRole: profile?.role ?? null, isOwner }) && jobBase.status === "abierto";
+  const jobCompleted = jobBase.status === "completado";
 
-  // Fetch em parallel: employer rating, state history, assigned worker profile
-  const [employerRatingRes, stateHistoryRes, assignedWorkerRes] = await Promise.all([
+  // Fetch en paralelo: perfil público del empleador, su calificación,
+  // historial de estados, perfil público del trabajador asignado. El
+  // empleador y el trabajador asignado son terceros (no auth.uid() ni
+  // admin necesariamente) — se leen de public.public_profiles, no de
+  // profiles directamente, para no depender de un embed `profiles!fkey`
+  // que la RLS de 0034_harden_profiles_public_access.sql ya no permite
+  // resolver para un tercero. Ver esa migración: la vista nunca expone
+  // phone/business_ruc.
+  const [employerRes, employerRatingRes, stateHistoryRes, assignedWorkerRes] = await Promise.all([
+    supabase
+      .from("public_profiles")
+      .select("id, full_name, avatar_url, city")
+      .eq("id", jobBase.employer_id)
+      .maybeSingle(),
     supabase
       .from("rating_summary")
       .select("*")
-      .eq("profile_id", typedJob.employer_id)
+      .eq("profile_id", jobBase.employer_id)
       .maybeSingle(),
     (isOwner || isAssignedWorker) && user
       ? supabase
           .from("job_state_history")
           .select("*")
-          .eq("job_id", typedJob.id)
+          .eq("job_id", jobBase.id)
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [] }),
-    typedJob.assigned_worker_id
-      ? supabase.from("profiles").select("*").eq("id", typedJob.assigned_worker_id).single()
+    jobBase.assigned_worker_id
+      ? supabase
+          .from("public_profiles")
+          .select("id, full_name, avatar_url, category, city")
+          .eq("id", jobBase.assigned_worker_id)
+          .maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 
+  const typedJob: JobWithEmployer = {
+    ...jobBase,
+    employer: (employerRes.data as unknown as JobWithEmployer["employer"]) ?? null,
+  };
   const employerRating = employerRatingRes.data as unknown as RatingSummary | null;
   const stateHistory = (stateHistoryRes.data as unknown as StateHistoryEntry[]) ?? [];
-  const assignedWorker = assignedWorkerRes.data as unknown as Profile | null;
+  const assignedWorker = assignedWorkerRes.data as unknown as PublicWorkerSummary | null;
 
   // Assigned worker rating (only when worker is assigned)
   const workerRatingRes = assignedWorker
@@ -111,29 +131,41 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   if (isOwner) {
     const { data } = await supabase
       .from("job_applications")
-      .select("*, worker:profiles!job_applications_worker_id_fkey(*)")
+      .select("id, job_id, worker_id, status, message, created_at, updated_at")
       .eq("job_id", typedJob.id)
       .order("created_at", { ascending: false });
-    applications = (data as unknown as ApplicationWithProfiles[]) ?? [];
+    const applicationRows =
+      (data as unknown as Omit<ApplicationWithProfiles, "worker" | "job">[]) ?? [];
 
-    const workerIds = applications.map((a) => a.worker_id);
+    const workerIds = applicationRows.map((a) => a.worker_id);
+    let workerById = new Map<string, PublicWorkerSummary>();
     if (workerIds.length > 0) {
-      // Ya confirmamos isOwner arriba — relación legítima para leer el
-      // título profesional de estos postulantes (owner-only por RLS,
-      // mismo patrón que getWorkerPublicProfile en src/lib/actions/workers.ts).
+      // Ya confirmamos isOwner arriba — relación legítima para leer estos
+      // perfiles (owner-only por la relación job_applications.job_id, no
+      // por RLS de profiles) — mismo patrón que getWorkerPublicProfile en
+      // src/lib/actions/workers.ts: cliente admin + lista blanca explícita
+      // de columnas, nunca select("*"). Nunca se pide phone/business_ruc.
       const admin = createAdminClient();
-      const [detailsRes, ratingsRes] = await Promise.all([
+      const [workersRes, detailsRes, ratingsRes] = await Promise.all([
+        admin
+          .from("profiles")
+          .select("id, full_name, avatar_url, category, city")
+          .in("id", workerIds),
         admin.from("worker_profile_details").select("*").in("profile_id", workerIds),
         supabase.from("rating_summary").select("*").in("profile_id", workerIds),
       ]);
+      workerById = new Map(
+        ((workersRes.data as unknown as PublicWorkerSummary[]) ?? []).map((w) => [w.id, w])
+      );
       const detailsByWorker = new Map(
         ((detailsRes.data as unknown as WorkerProfileDetails[]) ?? []).map((d) => [d.profile_id, d])
       );
-      for (const app of applications) {
-        if (app.worker) {
+      for (const app of applicationRows) {
+        const worker = workerById.get(app.worker_id);
+        if (worker) {
           applicantOccupations.set(
             app.worker_id,
-            getWorkerPrimaryTitle(app.worker, detailsByWorker.get(app.worker_id) ?? null)
+            getWorkerPrimaryTitle(worker, detailsByWorker.get(app.worker_id) ?? null)
           );
         }
       }
@@ -141,6 +173,10 @@ export default async function JobDetailPage({ params }: { params: { id: string }
         applicantRatings.set(r.profile_id, r);
       }
     }
+
+    applications = applicationRows
+      .filter((a) => workerById.has(a.worker_id))
+      .map((a) => ({ ...a, worker: workerById.get(a.worker_id)!, job: null }));
   } else if (profile?.role === "worker" && user) {
     const { data } = await supabase
       .from("job_applications")

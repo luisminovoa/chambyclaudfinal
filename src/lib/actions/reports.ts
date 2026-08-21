@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { ALL_REPORT_REASONS } from "@/lib/report-config";
 import type { ActionResult } from "@/lib/actions/auth";
 import type { ReportTargetType, ReportReason, ReporterReportView } from "@/lib/types";
@@ -77,7 +77,13 @@ export async function submitReport(input: SubmitReportInput): Promise<ActionResu
     if (input.reportedJobId) return { error: "Datos de reporte inconsistentes." };
     if (input.reportedUserId === user.id) return { error: "No puedes reportarte a ti mismo." };
 
-    const { data: targetProfile } = await supabase
+    // El usuario reportado es un tercero cualquiera (auth.uid() puede
+    // reportar a alguien con quien no tiene ninguna relación previa
+    // verificada): la RLS de profiles (0034_harden_profiles_public_access.sql)
+    // ya no deja resolver su existencia con el cliente de sesión. Es una
+    // simple comprobación de existencia — solo "id", nunca ninguna
+    // columna de PII — así que se resuelve con el cliente admin.
+    const { data: targetProfile } = await createAdminClient()
       .from("profiles")
       .select("id")
       .eq("id", input.reportedUserId)

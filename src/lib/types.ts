@@ -31,6 +31,38 @@ export interface Profile {
   district: string | null;
 }
 
+/**
+ * Proyección pública mínima de un trabajador/empleador para tarjetas y
+ * listados de terceros (ApplicantRow, AssignedWorkerCard, "Empleadores
+ * destacados"). Exactamente los campos que esos componentes leen — nunca
+ * phone/business_ruc. No confundir con PublicProfileView (las 12 columnas
+ * completas de public.public_profiles, 0034_harden_profiles_public_access.sql).
+ */
+export type PublicWorkerSummary = Pick<Profile, "id" | "full_name" | "avatar_url" | "category" | "city">;
+
+/**
+ * Proyección pública completa — exactamente las columnas de
+ * public.public_profiles (0034_harden_profiles_public_access.sql). Nunca
+ * incluye phone, business_ruc, role, is_active, district ni updated_at.
+ */
+export interface PublicProfileView {
+  id: string;
+  full_name: string;
+  avatar_url: string | null;
+  city: string | null;
+  category: string | null;
+  skills: string[];
+  bio: string | null;
+  created_at: string;
+  employer_type: EmployerType | null;
+  business_name: string | null;
+  business_sector: string | null;
+  business_description: string | null;
+}
+
+/** Perfil de la contraparte en un chat — solo lo que PresenceBar/ChatWindow necesitan. */
+export type ChatParticipant = Pick<Profile, "id" | "full_name" | "avatar_url" | "role">;
+
 // Sistema multi-rol (ver docs/DISENO-MULTI-ROL.md)
 // profiles.role = modo activo; user_roles = roles que el usuario posee.
 export interface UserRoleRow {
@@ -319,7 +351,7 @@ export interface JobWithEmployer extends Job {
 }
 
 export interface ApplicationWithProfiles extends JobApplication {
-  worker: Profile | null;
+  worker: PublicWorkerSummary | null;
   job: Job | null;
 }
 

@@ -45,7 +45,7 @@ function reset() {
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () => ({
     from: (table: string) => {
-      if (table === "profiles") {
+      if (table === "public_profiles") {
         return {
           select: () => ({
             eq: (_col: string, val: string) => ({

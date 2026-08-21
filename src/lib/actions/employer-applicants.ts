@@ -3,7 +3,7 @@
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
-import type { Profile, RatingSummary, WorkerProfileDetails } from "@/lib/types";
+import type { PublicWorkerSummary, RatingSummary, WorkerProfileDetails } from "@/lib/types";
 
 /**
  * Vista agregada de postulantes del empleador (PR 2). Responde "¿quién
@@ -44,7 +44,7 @@ export interface EmployerApplicantItem {
   jobStatus: string;
   status: string;
   createdAt: string;
-  worker: Profile;
+  worker: PublicWorkerSummary;
   occupation: string | null;
   ratingSummary: RatingSummary | null;
 }
@@ -148,7 +148,7 @@ export async function listEmployerApplicants(
   const supabase = createClient();
   let query = supabase
     .from("job_applications")
-    .select("*, worker:profiles!job_applications_worker_id_fkey(*)")
+    .select("id, job_id, status, created_at, worker_id")
     .in("job_id", jobIds)
     .order("created_at", { ascending: false })
     .limit(MAX_APPLICANTS);
@@ -165,23 +165,30 @@ export async function listEmployerApplicants(
       status: string;
       created_at: string;
       worker_id: string;
-      worker: Profile | null;
     }[]) ?? [];
 
   if (applications.length === 0) return [];
 
   // Enriquecimiento en batch (nunca N+1), mismo patrón que la lista de
-  // postulantes de /jobs/[id]: el título profesional vive en
-  // worker_profile_details, cuya RLS es owner-only, así que se lee con
-  // el cliente admin — solo DESPUÉS de haber confirmado arriba que
+  // postulantes de /jobs/[id]: el perfil del trabajador y el título
+  // profesional (worker_profile_details) son de un tercero para
+  // auth.uid() — la RLS de profiles (0034_harden_profiles_public_access.sql)
+  // ya no deja resolver un embed `profiles!fkey` para nadie que no sea
+  // el propio dueño del perfil o un admin. Se leen con el cliente admin
+  // y una lista blanca explícita de columnas — nunca select("*"), nunca
+  // phone/business_ruc — solo DESPUÉS de haber confirmado arriba que
   // estas postulaciones pertenecen a publicaciones del usuario.
   const workerIds = applications.map((a) => a.worker_id);
   const admin = createAdminClient();
-  const [detailsRes, ratingsRes] = await Promise.all([
+  const [workersRes, detailsRes, ratingsRes] = await Promise.all([
+    admin.from("profiles").select("id, full_name, avatar_url, category, city").in("id", workerIds),
     admin.from("worker_profile_details").select("*").in("profile_id", workerIds),
     supabase.from("rating_summary").select("*").in("profile_id", workerIds),
   ]);
 
+  const workerById = new Map(
+    ((workersRes.data as unknown as PublicWorkerSummary[]) ?? []).map((w) => [w.id, w])
+  );
   const detailsByWorker = new Map(
     ((detailsRes.data as unknown as WorkerProfileDetails[]) ?? []).map((d) => [d.profile_id, d])
   );
@@ -190,7 +197,7 @@ export async function listEmployerApplicants(
   );
 
   return applications
-    .filter((a) => a.worker)
+    .filter((a) => workerById.has(a.worker_id))
     .map((a) => ({
       id: a.id,
       jobId: a.job_id,
@@ -198,9 +205,9 @@ export async function listEmployerApplicants(
       jobStatus: jobById.get(a.job_id)?.status ?? "",
       status: a.status,
       createdAt: a.created_at,
-      worker: a.worker as Profile,
+      worker: workerById.get(a.worker_id)!,
       occupation: getWorkerPrimaryTitle(
-        a.worker as Profile,
+        workerById.get(a.worker_id)!,
         detailsByWorker.get(a.worker_id) ?? null
       ),
       ratingSummary: ratingByWorker.get(a.worker_id) ?? null,

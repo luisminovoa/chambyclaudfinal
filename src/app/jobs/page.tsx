@@ -25,7 +25,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   let query = supabase
     .from("jobs")
-    .select("*, employer:profiles!jobs_employer_id_fkey(id, full_name, avatar_url, city)")
+    .select("*")
     .eq("status", "abierto")
     .order("created_at", { ascending: false });
 
@@ -40,7 +40,24 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   }
 
   const { data: jobs, error } = await query;
-  const typedJobs = (jobs as unknown as JobWithEmployer[]) ?? [];
+  const jobRows = (jobs as unknown as Omit<JobWithEmployer, "employer">[]) ?? [];
+
+  // El empleador es un tercero: se resuelve aparte desde public_profiles
+  // (0034_harden_profiles_public_access.sql), no con un embed
+  // `profiles!fkey` — la RLS ya no permite resolver ese embed para
+  // alguien que no sea el propio empleador o un admin.
+  const employerIds = [...new Set(jobRows.map((j) => j.employer_id))];
+  const { data: employerRows } =
+    employerIds.length > 0
+      ? await supabase.from("public_profiles").select("id, full_name, avatar_url, city").in("id", employerIds)
+      : { data: [] as unknown[] };
+  const employerById = new Map(
+    ((employerRows as unknown as JobWithEmployer["employer"][]) ?? []).map((e) => [e!.id, e])
+  );
+  const typedJobs: JobWithEmployer[] = jobRows.map((j) => ({
+    ...j,
+    employer: employerById.get(j.employer_id) ?? null,
+  }));
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">

@@ -5,11 +5,11 @@ import { es } from "date-fns/locale";
 import { Wifi, WifiOff } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { ReportButton } from "@/components/reports/ReportButton";
-import type { Profile } from "@/lib/types";
+import type { ChatParticipant } from "@/lib/types";
 import type { PresenceState } from "@/lib/realtime/useChatRealtime";
 
 interface PresenceBarProps {
-  user: Profile;
+  user: ChatParticipant;
   presence: PresenceState;
   isConnected: boolean;
 }

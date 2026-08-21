@@ -9,6 +9,7 @@ import type {
   Conversation,
   ConversationWithDetails,
   ConversationSettings,
+  ChatParticipant,
   Profile,
   Job,
 } from "@/lib/types";
@@ -272,6 +273,12 @@ export async function getConversations(): Promise<ConversationWithDetails[]> {
   ];
   const jobIds = typedConvs.map((c) => c.job_id);
 
+  // Los otros participantes son terceros para auth.uid(): la RLS de
+  // profiles (0034_harden_profiles_public_access.sql) ya no deja leer su
+  // fila con el cliente de sesión. La relación ya está verificada arriba
+  // (conversaciones donde participa auth.uid()), así que se usa el
+  // cliente admin con la MISMA lista de columnas que ya se pedía —
+  // ninguna columna nueva, nunca phone/business_ruc.
   const [
     { data: profileRows },
     { data: jobRows },
@@ -279,7 +286,7 @@ export async function getConversations(): Promise<ConversationWithDetails[]> {
     { data: cursorRows },
     { data: settingRows },
   ] = await Promise.all([
-    supabase.from("profiles").select("id, full_name, avatar_url").in("id", allUserIds),
+    createAdminClient().from("profiles").select("id, full_name, avatar_url").in("id", allUserIds),
     supabase.from("jobs").select("id, title, status").in("id", jobIds),
     supabase
       .from("messages")
@@ -353,7 +360,7 @@ export async function getConversations(): Promise<ConversationWithDetails[]> {
 }
 
 export async function getConversationForChat(conversationId: string): Promise<{
-  otherUser: Profile;
+  otherUser: ChatParticipant;
   currentUserId: string;
   initialMessages: Message[];
   initialHasMore: boolean;
@@ -370,8 +377,20 @@ export async function getConversationForChat(conversationId: string): Promise<{
 
   const otherId = conv.employer_id === user.id ? conv.worker_id : conv.employer_id;
 
+  // otherId es un tercero para auth.uid(): la RLS de profiles
+  // (0034_harden_profiles_public_access.sql) ya no deja leer su fila con
+  // el cliente de sesión, ni siquiera con columnas acotadas — es
+  // row-level, no column-level. assertParticipant() ya verificó arriba
+  // que auth.uid() es parte de esta conversación, así que se usa el
+  // cliente admin con una lista blanca explícita: nunca select("*"), y
+  // nunca phone/business_ruc — ChatWindow/PresenceBar (ambos Client
+  // Components) reciben este objeto completo como prop.
   const [{ data: otherProfile }, { data: jobData }, { data: msgRows }] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", otherId).single(),
+    createAdminClient()
+      .from("profiles")
+      .select("id, full_name, avatar_url, role")
+      .eq("id", otherId)
+      .single(),
     supabase.from("jobs").select("title").eq("id", conv.job_id).single(),
     supabase
       .from("messages")
@@ -387,7 +406,7 @@ export async function getConversationForChat(conversationId: string): Promise<{
   const hasMore = rows.length > MESSAGES_PER_PAGE;
 
   return {
-    otherUser: otherProfile as unknown as Profile,
+    otherUser: otherProfile as unknown as ChatParticipant,
     currentUserId: user.id,
     initialMessages: rows.slice(0, MESSAGES_PER_PAGE).reverse(),
     initialHasMore: hasMore,

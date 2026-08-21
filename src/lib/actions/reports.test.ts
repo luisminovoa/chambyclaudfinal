@@ -56,15 +56,6 @@ vi.mock("@/lib/supabase/server", () => ({
           },
         };
       }
-      if (table === "profiles") {
-        return {
-          select: () => ({
-            eq: (_col: string, val: string) => ({
-              maybeSingle: async () => ({ data: state.profiles.has(val) ? { id: val } : null }),
-            }),
-          }),
-        };
-      }
       if (table === "jobs") {
         return {
           select: () => ({
@@ -83,6 +74,23 @@ vi.mock("@/lib/supabase/server", () => ({
         };
       }
       throw new Error(`Tabla no mockeada: ${table}`);
+    },
+  }),
+  // 0034_harden_profiles_public_access.sql: la comprobación de existencia
+  // del usuario reportado (un tercero) ya no puede resolverse con el
+  // cliente de sesión — se usa el cliente admin (ver reports.ts).
+  createAdminClient: () => ({
+    from: (table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: (_col: string, val: string) => ({
+              maybeSingle: async () => ({ data: state.profiles.has(val) ? { id: val } : null }),
+            }),
+          }),
+        };
+      }
+      throw new Error(`Tabla no mockeada (admin): ${table}`);
     },
   }),
 }));
