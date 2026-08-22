@@ -3,6 +3,7 @@ import {
   parseWorkerDirectorySearchParams,
   escapePostgrestFilterValue,
   expandCategoryAliases,
+  computeWorkerQualityScore,
 } from "@/lib/worker-directory";
 
 describe("parseWorkerDirectorySearchParams", () => {
@@ -141,6 +142,96 @@ describe("expandCategoryAliases", () => {
 
   it("un valor arbitrario no listado nunca arrastra alias de otra categoría", () => {
     expect(expandCategoryAliases("Plomero")).toEqual(["Plomero"]);
+  });
+});
+
+describe("computeWorkerQualityScore (Fase C3)", () => {
+  const empty = {
+    category: null,
+    city: null,
+    availability: null,
+    professional_title: null,
+    years_experience: null,
+    hourly_rate: null,
+    daily_rate: null,
+    bio: null,
+    skills: [] as string[],
+  };
+
+  it("A) worker completamente vacío puntúa 0", () => {
+    expect(computeWorkerQualityScore(empty)).toBe(0);
+  });
+
+  it("B) solo category puntúa 30", () => {
+    expect(computeWorkerQualityScore({ ...empty, category: "Electricista" })).toBe(30);
+  });
+
+  it("C) category + city puntúa 55 (30 + 25)", () => {
+    expect(
+      computeWorkerQualityScore({ ...empty, category: "Electricista", city: "Lima" })
+    ).toBe(55);
+  });
+
+  it("D) category + city + availability puntúa 70 (30 + 25 + 15)", () => {
+    expect(
+      computeWorkerQualityScore({
+        ...empty,
+        category: "Electricista",
+        city: "Lima",
+        availability: "inmediata",
+      })
+    ).toBe(70);
+  });
+
+  it("E) perfil profesional completo puntúa 100", () => {
+    expect(
+      computeWorkerQualityScore({
+        category: "Electricista",
+        city: "Lima",
+        availability: "inmediata",
+        professional_title: "Electricista industrial",
+        years_experience: 5,
+        hourly_rate: 30,
+        daily_rate: null,
+        bio: "Electricista con experiencia",
+        skills: ["Soldadura"],
+      })
+    ).toBe(100);
+  });
+
+  it("category pesa más que city, y city más que availability (orden de prioridad)", () => {
+    expect(computeWorkerQualityScore({ ...empty, category: "Electricista" })).toBeGreaterThan(
+      computeWorkerQualityScore({ ...empty, city: "Lima" })
+    );
+    expect(computeWorkerQualityScore({ ...empty, city: "Lima" })).toBeGreaterThan(
+      computeWorkerQualityScore({ ...empty, availability: "inmediata" })
+    );
+  });
+
+  it("category/city pesan más que experiencia o tarifa por separado", () => {
+    const experienceOnly = computeWorkerQualityScore({ ...empty, years_experience: 20 });
+    const rateOnly = computeWorkerQualityScore({ ...empty, hourly_rate: 100 });
+    expect(computeWorkerQualityScore({ ...empty, category: "Electricista" })).toBeGreaterThan(
+      experienceOnly
+    );
+    expect(computeWorkerQualityScore({ ...empty, city: "Lima" })).toBeGreaterThan(rateOnly);
+  });
+
+  it("daily_rate cuenta igual que hourly_rate (basta con que exista uno de los dos)", () => {
+    expect(computeWorkerQualityScore({ ...empty, hourly_rate: 30 })).toBe(
+      computeWorkerQualityScore({ ...empty, daily_rate: 100 })
+    );
+  });
+
+  it("tener ambas tarifas a la vez no duplica los puntos (sigue siendo +5, no +10)", () => {
+    expect(
+      computeWorkerQualityScore({ ...empty, hourly_rate: 30, daily_rate: 100 })
+    ).toBe(computeWorkerQualityScore({ ...empty, hourly_rate: 30 }));
+  });
+
+  it("skills vacío no puntúa, con al menos 1 elemento sí", () => {
+    expect(computeWorkerQualityScore({ ...empty, skills: [] })).toBe(0);
+    expect(computeWorkerQualityScore({ ...empty, skills: ["Excel"] })).toBe(5);
   });
 });
 

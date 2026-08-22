@@ -2,7 +2,11 @@
 
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { canViewWorkerProfile } from "@/lib/worker-profile-access";
-import { escapePostgrestFilterValue, expandCategoryAliases } from "@/lib/worker-directory";
+import {
+  escapePostgrestFilterValue,
+  expandCategoryAliases,
+  computeWorkerQualityScore,
+} from "@/lib/worker-directory";
 import type {
   ProfilePhoto,
   WorkerExperience,
@@ -310,13 +314,25 @@ export async function listPublicWorkers(
     const rows = (workers as unknown as Omit<PublicWorkerListing, "ratingSummary">[]) ?? [];
     if (rows.length === 0) return [];
 
-    const ids = rows.map((r) => r.id);
+    // Ranking de "preparación del perfil" (Fase C3) — se aplica DESPUÉS de
+    // los filtros de arriba (category/city/availability/q ya redujeron el
+    // conjunto), reordenando en memoria las filas ya obtenidas. Nunca
+    // excluye a nadie, solo cambia el orden. Empate → created_at DESC
+    // (mismo criterio que ya usaba la consulta, ahora como desempate
+    // explícito en vez de único criterio de orden).
+    const ranked = [...rows].sort((a, b) => {
+      const scoreDiff = computeWorkerQualityScore(b) - computeWorkerQualityScore(a);
+      if (scoreDiff !== 0) return scoreDiff;
+      return b.created_at.localeCompare(a.created_at);
+    });
+
+    const ids = ranked.map((r) => r.id);
     const { data: ratings } = await supabase.from("rating_summary").select("*").in("profile_id", ids);
     const ratingById = new Map(
       ((ratings as unknown as RatingSummary[]) ?? []).map((r) => [r.profile_id, r])
     );
 
-    return rows.map((r) => ({ ...r, ratingSummary: ratingById.get(r.id) ?? null }));
+    return ranked.map((r) => ({ ...r, ratingSummary: ratingById.get(r.id) ?? null }));
   } catch (err) {
     // Mismo mecanismo que getWorkerPublicProfile(): supabase-js puede
     // lanzar ante fallas de red/timeout — la página trata esto como

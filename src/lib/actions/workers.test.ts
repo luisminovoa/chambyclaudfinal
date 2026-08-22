@@ -1,7 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { listPublicWorkers } from "./workers";
+import type { PublicWorkerListing } from "@/lib/types";
 
-const WORKER_ROW = {
+type WorkerRow = Omit<PublicWorkerListing, "ratingSummary">;
+
+const WORKER_ROW: WorkerRow = {
   id: "w-1",
   full_name: "Ana Electricista",
   avatar_url: null,
@@ -25,11 +28,13 @@ interface Call {
 let authenticated = true;
 let calls: Call[] = [];
 let ratingRows: { profile_id: string; average_score: number; total_ratings: number }[] = [];
+let mockRows: WorkerRow[] = [WORKER_ROW];
 
 function reset() {
   authenticated = true;
   calls = [];
   ratingRows = [];
+  mockRows = [WORKER_ROW];
 }
 
 /**
@@ -61,7 +66,7 @@ function makeWorkersBuilder() {
     },
     order: () => builder,
     limit: () => builder,
-    then: (resolve: (v: { data: unknown }) => void) => resolve({ data: [WORKER_ROW] }),
+    then: (resolve: (v: { data: unknown }) => void) => resolve({ data: mockRows }),
   };
   return builder;
 }
@@ -244,6 +249,98 @@ describe("listPublicWorkers", () => {
       const topLevelConditions = expr.match(/\w+\.ilike\./g) ?? [];
       expect(topLevelConditions).toHaveLength(4);
       expect(expr).toContain('"%electricista, Chiclayo (urgente)%"');
+    });
+  });
+
+  // ============================================================
+  // Ranking de preparación del perfil (Fase C3) — se aplica sobre las
+  // filas ya devueltas por la consulta (que ya vinieron filtradas), nunca
+  // excluye a nadie, solo reordena.
+  // ============================================================
+  describe("ranking — perfil más preparado primero (C3)", () => {
+    const empty: WorkerRow = {
+      id: "w-empty",
+      full_name: "Sin Perfil",
+      avatar_url: null,
+      city: null,
+      category: null,
+      skills: [],
+      bio: null,
+      created_at: "2026-01-03T00:00:00Z",
+      professional_title: null,
+      availability: null,
+      years_experience: null,
+      hourly_rate: null,
+      daily_rate: null,
+    };
+    const categoryAndCity: WorkerRow = {
+      id: "w-cc",
+      full_name: "Category y City",
+      avatar_url: null,
+      city: "Lima",
+      category: "Electricista",
+      skills: [],
+      bio: null,
+      created_at: "2026-01-01T00:00:00Z",
+      professional_title: null,
+      availability: null,
+      years_experience: null,
+      hourly_rate: null,
+      daily_rate: null,
+    };
+    const full: WorkerRow = {
+      id: "w-full",
+      full_name: "Perfil Completo",
+      avatar_url: null,
+      city: "Lima",
+      category: "Electricista",
+      skills: ["Soldadura"],
+      bio: "Electricista con experiencia",
+      created_at: "2026-01-02T00:00:00Z",
+      professional_title: "Electricista industrial",
+      availability: "inmediata",
+      years_experience: 5,
+      hourly_rate: 30,
+      daily_rate: null,
+    };
+
+    it("A-E) ordena perfil completo > category+city > vacío, sin importar created_at", async () => {
+      mockRows = [empty, categoryAndCity, full];
+      const result = await listPublicWorkers({});
+      expect(result.map((w) => w.id)).toEqual(["w-full", "w-cc", "w-empty"]);
+    });
+
+    it("F) empate de puntaje se desempata con created_at DESC (más reciente primero)", async () => {
+      const tieOld = { ...categoryAndCity, id: "w-tie-old", created_at: "2026-01-01T00:00:00Z" };
+      const tieNew = { ...categoryAndCity, id: "w-tie-new", created_at: "2026-01-05T00:00:00Z" };
+      mockRows = [tieOld, tieNew];
+      const result = await listPublicWorkers({});
+      expect(result.map((w) => w.id)).toEqual(["w-tie-new", "w-tie-old"]);
+    });
+
+    it("L) sin filtros, TODOS los workers activos siguen apareciendo, solo cambia el orden", async () => {
+      mockRows = [empty, categoryAndCity, full];
+      const result = await listPublicWorkers({});
+      expect(result.map((w) => w.id).sort()).toEqual(["w-cc", "w-empty", "w-full"]);
+    });
+
+    it("M) un worker sin worker_profile_details (availability/professional_title null) no se excluye, solo queda más abajo", async () => {
+      mockRows = [empty, full];
+      const result = await listPublicWorkers({});
+      expect(result).toHaveLength(2);
+      expect(result.some((w) => w.id === "w-empty")).toBe(true);
+      expect(result[0].id).toBe("w-full");
+      expect(result[1].id).toBe("w-empty");
+    });
+
+    it("G-K) el ranking no interfiere con los filtros ya aplicados (category+q siguen generando los mismos calls)", async () => {
+      mockRows = [full];
+      await listPublicWorkers({ category: "Logística y almacén", q: "Juan" });
+      expect(calls).toContainEqual({
+        op: "in",
+        args: ["category", ["Logística y almacén", "Almacenero"]],
+      });
+      expect(calls.some((c) => c.op === "or")).toBe(true);
     });
   });
 });

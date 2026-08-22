@@ -1,5 +1,5 @@
 import { AVAILABILITY_VALUES } from "@/lib/types";
-import type { AvailabilityStatus, WorkerDirectoryFilters } from "@/lib/types";
+import type { AvailabilityStatus, WorkerDirectoryFilters, PublicWorkerListing } from "@/lib/types";
 
 /**
  * Normaliza los searchParams crudos de /workers (strings arbitrarias de
@@ -98,4 +98,55 @@ const CATEGORY_ALIASES: Record<string, string[]> = {
  */
 export function expandCategoryAliases(category: string): string[] {
   return CATEGORY_ALIASES[category] ?? [category];
+}
+
+/**
+ * Puntuación de "preparación del perfil" para ordenar /workers (Fase C3,
+ * auditoría C2) — determinística, calculada en memoria sobre las filas ya
+ * obtenidas de public_workers, sin ninguna consulta adicional. Objetivo
+ * acotado a propósito: "entre los que coinciden con mi búsqueda, ¿cuál
+ * tiene el perfil más preparado?", NO un ranking general de "mejor
+ * trabajador" (eso implicaría rating/jobsCompleted/badges — fuera de
+ * alcance, ver nota abajo).
+ *
+ * Pesos (suman 100), ocupación/ciudad deliberadamente por encima de
+ * experiencia/tarifa:
+ *   category (30) > city (25) > availability (15) > professional_title (10)
+ *   > years_experience (5) = hourly/daily_rate (5) = bio (5) = skills (5)
+ *
+ * NO incluye avatar_url — auditado: handle_new_user() (0006_auth_hardening.sql)
+ * copia avatar_url automáticamente desde los metadatos de Google OAuth para
+ * cualquier usuario que se registre así, con o sin esfuerzo en su perfil
+ * profesional. Usarlo como señal de "perfil preparado" sería engañoso.
+ *
+ * NO incluye rating/jobsCompleted/profile_photos(is_primary)/badges —
+ * requieren una consulta adicional (rating_summary/profile_photos ya
+ * separadas del fetch principal) o no están disponibles en absoluto en
+ * las columnas que expone public_workers; incorporarlos queda documentado
+ * como candidato a una fase posterior (C4/C5), no como parte de este MVP.
+ */
+export function computeWorkerQualityScore(
+  worker: Pick<
+    PublicWorkerListing,
+    | "category"
+    | "city"
+    | "availability"
+    | "professional_title"
+    | "years_experience"
+    | "hourly_rate"
+    | "daily_rate"
+    | "bio"
+    | "skills"
+  >
+): number {
+  let score = 0;
+  if (worker.category) score += 30;
+  if (worker.city) score += 25;
+  if (worker.availability) score += 15;
+  if (worker.professional_title) score += 10;
+  if (worker.years_experience != null) score += 5;
+  if (worker.hourly_rate != null || worker.daily_rate != null) score += 5;
+  if (worker.bio) score += 5;
+  if (worker.skills.length > 0) score += 5;
+  return score;
 }
