@@ -3,17 +3,17 @@
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { canViewWorkerProfile } from "@/lib/worker-profile-access";
 import type {
-  Profile,
-  WorkerProfileDetails,
   ProfilePhoto,
   WorkerExperience,
   ProfileStats,
   RatingSummary,
+  WorkerDiscoveryProfile,
+  WorkerDiscoveryDetails,
 } from "@/lib/types";
 
 export interface WorkerPublicProfile {
-  profile: Profile;
-  workerDetails: WorkerProfileDetails | null;
+  profile: WorkerDiscoveryProfile;
+  workerDetails: WorkerDiscoveryDetails | null;
   photos: ProfilePhoto[];
   experience: WorkerExperience[];
   stats: ProfileStats | null;
@@ -33,6 +33,9 @@ export interface WorkerPublicProfile {
  * - el propio trabajador
  * - un admin
  * - un empleador que tiene una postulación de este worker en alguno de sus jobs
+ * - (Fase 2, directorio de trabajadores) cualquier empleador autenticado,
+ *   si el trabajador solicitado está activo — canViewWorkerProfile()
+ *   ya codifica esa condición vía workerIsActiveWorker
  *
  * No amplía ninguna policy RLS de profile_photos/worker_profile_details/
  * worker_experience/profile_stats (siguen siendo owner+admin-only) — la
@@ -40,6 +43,21 @@ export interface WorkerPublicProfile {
  * admin. Mismo patrón que getDocumentDownloadUrl() (src/lib/actions/
  * profile.ts): defense-in-depth acotado a la relación legítima, en vez
  * de una policy nueva de alcance amplio.
+ *
+ * IMPORTANTE (Fase 2): autorizar el acceso NO amplía qué columnas se
+ * leen. profiles/worker_profile_details se proyectan con una lista
+ * explícita de columnas seguras (WorkerDiscoveryProfile/
+ * WorkerDiscoveryDetails, src/lib/types.ts — mismas columnas que
+ * public.public_workers, 0037_public_workers_directory.sql) sin importar
+ * por qué rama de canViewWorkerProfile() se autorizó — nunca phone,
+ * nunca whatsapp/birth_date/address/district, para ningún viewer,
+ * incluido un empleador con relación de postulación real. Antes de esta
+ * fase el código hacía select("*") sobre ambas tablas confiando en que
+ * WorkerPublicProfileView simplemente no renderizara esos campos — al
+ * ampliar quién llega a este código (cualquier empleador, no solo con
+ * relación), ese patrón dejaba de ser suficiente: la proyección explícita
+ * hace que la ausencia de esos campos sea estructural, no solo una
+ * omisión de la UI.
  *
  * Documentos de verificación (DNI, antecedentes) NO se exponen aquí —
  * solo el badge de verificación ya calculado (profile_stats.badges).
@@ -80,8 +98,12 @@ async function fetchWorkerPublicProfile(
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = (viewerProfile as { role: string } | null)?.role === "admin";
+  const viewerRole = (viewerProfile as { role: string } | null)?.role;
+  const isAdmin = viewerRole === "admin";
+  const isEmployer = viewerRole === "employer";
   const isSelf = user.id === workerId;
+
+  const admin = createAdminClient();
 
   let application: { id: string; status: string } | null = null;
 
@@ -102,21 +124,45 @@ async function fetchWorkerPublicProfile(
     }
   }
 
+  // Estado real del PERFIL SOLICITADO (no del viewer) — necesario para la
+  // rama "empleador descubre a un trabajador activo" de
+  // canViewWorkerProfile(). Cliente admin: la RLS de profiles (owner o
+  // admin únicamente, post-CONTRACT) no dejaría a un empleador leer esto
+  // directamente, y es exactamente el mismo tipo de comprobación puntual
+  // ya usada en el resto de esta función. Nunca se devuelve al llamador —
+  // solo alimenta esta decisión de autorización.
+  const { data: targetRow } = await admin
+    .from("profiles")
+    .select("role, is_active")
+    .eq("id", workerId)
+    .maybeSingle();
+  const workerIsActiveWorker =
+    (targetRow as { role: string; is_active: boolean } | null)?.role === "worker" &&
+    (targetRow as { role: string; is_active: boolean } | null)?.is_active === true;
+
   const authorized = canViewWorkerProfile({
     viewerId: user.id,
     workerId,
     viewerIsAdmin: isAdmin,
     hasApplicationRelationship: application !== null,
+    viewerIsEmployer: isEmployer,
+    workerIsActiveWorker,
   });
 
   if (!authorized) return null;
 
-  const admin = createAdminClient();
-
   const [profileRes, workerDetailsRes, photosRes, experienceRes, statsRes, ratingRes, completedRes] =
     await Promise.all([
-      admin.from("profiles").select("*").eq("id", workerId).single(),
-      admin.from("worker_profile_details").select("*").eq("profile_id", workerId).maybeSingle(),
+      admin
+        .from("profiles")
+        .select("id, full_name, avatar_url, city, category, skills, bio, created_at")
+        .eq("id", workerId)
+        .single(),
+      admin
+        .from("worker_profile_details")
+        .select("professional_title, availability, years_experience, hourly_rate, daily_rate, languages")
+        .eq("profile_id", workerId)
+        .maybeSingle(),
       admin
         .from("profile_photos")
         .select("*")
@@ -183,8 +229,8 @@ async function fetchWorkerPublicProfile(
   }
 
   return {
-    profile: profileRes.data as Profile,
-    workerDetails: (workerDetailsRes.data as WorkerProfileDetails | null) ?? null,
+    profile: profileRes.data as WorkerDiscoveryProfile,
+    workerDetails: (workerDetailsRes.data as WorkerDiscoveryDetails | null) ?? null,
     photos: (photosRes.data as ProfilePhoto[]) ?? [],
     experience: (experienceRes.data as WorkerExperience[]) ?? [],
     stats: (statsRes.data as ProfileStats | null) ?? null,

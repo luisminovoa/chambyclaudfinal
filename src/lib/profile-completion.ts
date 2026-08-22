@@ -21,7 +21,7 @@ export interface CompletionItem {
  */
 export function getWorkerPrimaryTitle(
   profile: Pick<Profile, "category">,
-  workerDetails: WorkerProfileDetails | null
+  workerDetails: Pick<WorkerProfileDetails, "professional_title"> | null
 ): string {
   return workerDetails?.professional_title || profile.category || "Sin especialidad";
 }

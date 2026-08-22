@@ -41,6 +41,30 @@ export interface Profile {
 export type PublicWorkerSummary = Pick<Profile, "id" | "full_name" | "avatar_url" | "category" | "city">;
 
 /**
+ * Perfil de trabajador para "Ver perfil" (getWorkerPublicProfile(), Fase 2
+ * del directorio de trabajadores) — mismas columnas que expone
+ * public.public_workers (0037_public_workers_directory.sql), nunca phone/
+ * role/is_active/updated_at. El viewer puede ser el propio trabajador, un
+ * admin, un empleador con relación de postulación, o cualquier empleador
+ * autenticado consultando a un trabajador activo — ninguno de esos casos
+ * necesita más columnas que estas para renderizar WorkerPublicProfileView.
+ */
+export type WorkerDiscoveryProfile = Pick<
+  Profile,
+  "id" | "full_name" | "avatar_url" | "city" | "category" | "skills" | "bio" | "created_at"
+>;
+
+/**
+ * Subconjunto seguro de worker_profile_details para el mismo flujo —
+ * nunca whatsapp/birth_date/address/district/work_radius_km, sea cual sea
+ * el viewer autorizado.
+ */
+export type WorkerDiscoveryDetails = Pick<
+  WorkerProfileDetails,
+  "professional_title" | "availability" | "years_experience" | "hourly_rate" | "daily_rate" | "languages"
+>;
+
+/**
  * Proyección pública completa — exactamente las columnas de
  * public.public_profiles (0034_harden_profiles_public_access.sql). Nunca
  * incluye phone, business_ruc, role, is_active, district ni updated_at.
