@@ -10,6 +10,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { HeroAnt } from "@/components/brand/HeroAnt";
 import { AntIcon } from "@/components/brand/AntIcon";
 import { CATEGORIES } from "@/lib/categories";
+import { listPublicWorkers } from "@/lib/actions/workers";
+import { WorkerDirectoryCard } from "@/components/workers/WorkerDirectoryCard";
 import type { JobWithEmployer } from "@/lib/types";
 
 type HomePublicProfile = { id: string; full_name: string; avatar_url: string | null; city: string | null; created_at: string };
@@ -70,6 +72,16 @@ export default async function HomePage() {
   // (idéntico a d7cb734, PR #27) porque esta rama parte de un historial
   // distinto al de esa rama — ver informe de Fase 3 para el detalle.
   const isEmployer = profile?.role === "employer";
+
+  // "Trabajadores recomendados" (solo employer): misma fuente que /workers
+  // — listPublicWorkers() ya lee de public.public_workers (0037) y ya
+  // excluye estructuralmente phone/whatsapp/birth_date/address/district.
+  // Sin filtros a propósito (nunca category/city), para que la
+  // recomendación no quede fija en una sola ocupación — a diferencia de
+  // las tarjetas de "Explora por categoría", que sí filtran deliberadamente.
+  // Se pide solo si isEmployer para no gastar la consulta en cada visita
+  // de worker/admin/visitante, que nunca ven esta sección.
+  const recommendedWorkers = isEmployer ? (await listPublicWorkers({})).slice(0, 6) : [];
 
   return (
     <div>
@@ -188,39 +200,83 @@ export default async function HomePage() {
         </Reveal>
       </section>
 
-      {/* Trabajos recomendados */}
+      {/* Trabajadores recomendados (employer) / Trabajos recomendados (worker, admin, visitante) */}
       <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6" aria-labelledby="recomendados">
-        <Reveal>
-          <div className="mb-6 flex items-center justify-between">
-            <h2 id="recomendados" className="section-title">
-              Trabajos recomendados
-            </h2>
-            <Link
-              href="/jobs"
-              className="inline-flex items-center gap-1 text-sm font-semibold text-primary-600 transition-colors hover:text-primary-700"
-            >
-              Ver todos
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </Reveal>
+        {isEmployer ? (
+          <>
+            <Reveal>
+              <div className="mb-6 flex items-center justify-between">
+                <div>
+                  <h2 id="recomendados" className="section-title">
+                    Trabajadores recomendados
+                  </h2>
+                  <p className="mt-1 text-sm text-ink-muted">
+                    Encuentra personas con experiencia en distintas ocupaciones.
+                  </p>
+                </div>
+                <Link
+                  href="/workers"
+                  className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-primary-600 transition-colors hover:text-primary-700"
+                >
+                  Ver todos
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+            </Reveal>
 
-        {typedJobs.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {typedJobs.map((job, i) => (
-              <Reveal key={job.id} delay={Math.min(i * 0.05, 0.25)}>
-                <JobCard job={job} currentUserId={user?.id ?? null} viewerRole={profile?.role ?? null} />
-              </Reveal>
-            ))}
-          </div>
+            {recommendedWorkers.length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {recommendedWorkers.map((worker, i) => (
+                  <Reveal key={worker.id} delay={Math.min(i * 0.05, 0.25)}>
+                    <WorkerDirectoryCard worker={worker} />
+                  </Reveal>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                pose="search"
+                title="La hormiguita todavía no encontró trabajadores"
+                description="Vuelve pronto — nuevos trabajadores se unen cada día, o revisa el directorio completo."
+                actionLabel="Ver directorio completo"
+                actionHref="/workers"
+              />
+            )}
+          </>
         ) : (
-          <EmptyState
-            pose="briefcase"
-            title="La hormiguita todavía no encontró ninguna chamba"
-            description="Sé el primero en publicar una y encuentra al talento ideal en minutos."
-            actionLabel="Publicar un trabajo"
-            actionHref="/register"
-          />
+          <>
+            <Reveal>
+              <div className="mb-6 flex items-center justify-between">
+                <h2 id="recomendados" className="section-title">
+                  Trabajos recomendados
+                </h2>
+                <Link
+                  href="/jobs"
+                  className="inline-flex items-center gap-1 text-sm font-semibold text-primary-600 transition-colors hover:text-primary-700"
+                >
+                  Ver todos
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+            </Reveal>
+
+            {typedJobs.length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {typedJobs.map((job, i) => (
+                  <Reveal key={job.id} delay={Math.min(i * 0.05, 0.25)}>
+                    <JobCard job={job} currentUserId={user?.id ?? null} viewerRole={profile?.role ?? null} />
+                  </Reveal>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                pose="briefcase"
+                title="La hormiguita todavía no encontró ninguna chamba"
+                description="Sé el primero en publicar una y encuentra al talento ideal en minutos."
+                actionLabel="Publicar un trabajo"
+                actionHref="/register"
+              />
+            )}
+          </>
         )}
       </section>
 
