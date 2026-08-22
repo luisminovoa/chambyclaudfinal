@@ -5,6 +5,7 @@ import { useToast } from "@/components/ui/Toaster";
 import { updateProfile, upsertWorkerProfileDetails } from "@/lib/actions/profile";
 import { refreshProfileStats } from "@/lib/profile-stats";
 import { SkillsSelector } from "@/components/profile/SkillsSelector";
+import { CATEGORY_NAMES } from "@/lib/categories";
 import type { Profile, WorkerProfileDetails, AvailabilityStatus, ProfileStats } from "@/lib/types";
 
 const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
@@ -12,25 +13,6 @@ const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
   { value: "una_semana", label: "En una semana" },
   { value: "un_mes", label: "En un mes" },
   { value: "no_disponible", label: "No disponible" },
-];
-
-const CATEGORIES = [
-  "Electricista",
-  "Albañil",
-  "Plomero",
-  "Carpintero",
-  "Pintor",
-  "Niñera / Cuidador",
-  "Limpieza",
-  "Jardinero",
-  "Conductor",
-  "Seguridad",
-  "Cocinero",
-  "Mesero",
-  "Administrativo",
-  "Técnico en computadoras",
-  "Diseñador",
-  "Otro",
 ];
 
 interface InfoTabProps {
@@ -159,7 +141,7 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
               onChange={(e) => setCategory(e.target.value)}
             >
               <option value="">Selecciona una especialidad</option>
-              {CATEGORIES.map((cat) => (
+              {CATEGORY_NAMES.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
