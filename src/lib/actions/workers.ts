@@ -2,6 +2,7 @@
 
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { canViewWorkerProfile } from "@/lib/worker-profile-access";
+import { escapePostgrestFilterValue, expandCategoryAliases } from "@/lib/worker-directory";
 import type {
   ProfilePhoto,
   WorkerExperience,
@@ -283,13 +284,25 @@ export async function listPublicWorkers(
         "id, full_name, avatar_url, city, category, skills, bio, created_at, professional_title, availability, years_experience, hourly_rate, daily_rate"
       );
 
-    if (filters.category) query = query.eq("category", filters.category);
+    // .in() con los alias conocidos de la categoría (p.ej. "Gasfitero" ->
+    // ["Gasfitero", "Plomero"]) — ver expandCategoryAliases() para el
+    // porqué: el catálogo del Home y el de InfoTab.tsx no coinciden para
+    // varias categorías. Sigue siendo un filtro estructurado (conjunto
+    // exacto de valores), no una búsqueda difusa — eso es responsabilidad
+    // de `q`, no de `category`.
+    if (filters.category) query = query.in("category", expandCategoryAliases(filters.category));
     if (filters.city) query = query.ilike("city", `%${filters.city}%`);
     if (filters.availability) query = query.eq("availability", filters.availability);
     if (filters.q) {
-      const q = filters.q;
+      // El valor completo (incl. los comodines % de ILIKE) se escapa y se
+      // envuelve entre comillas dobles para que PostgREST lo trate como
+      // UN solo valor — sin esto, una coma o un paréntesis en filters.q
+      // (p.ej. "Juan, electricista") se interpreta como el separador
+      // entre condiciones del propio .or() y rompe/altera el filtro. Ver
+      // escapePostgrestFilterValue() para el detalle de la sintaxis.
+      const q = escapePostgrestFilterValue(`%${filters.q}%`);
       query = query.or(
-        `full_name.ilike.%${q}%,professional_title.ilike.%${q}%,category.ilike.%${q}%,city.ilike.%${q}%`
+        `full_name.ilike.${q},professional_title.ilike.${q},category.ilike.${q},city.ilike.${q}`
       );
     }
 

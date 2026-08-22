@@ -47,6 +47,10 @@ function makeWorkersBuilder() {
       calls.push({ op: "eq", args: [col, val] });
       return builder;
     },
+    in: (col: string, val: unknown) => {
+      calls.push({ op: "in", args: [col, val] });
+      return builder;
+    },
     ilike: (col: string, val: unknown) => {
       calls.push({ op: "ilike", args: [col, val] });
       return builder;
@@ -91,14 +95,9 @@ describe("listPublicWorkers", () => {
     expect(calls).toEqual([]);
   });
 
-  it("sin filtros, no aplica ningún eq/ilike/or", async () => {
+  it("sin filtros, no aplica ningún eq/in/ilike/or", async () => {
     await listPublicWorkers({});
     expect(calls).toEqual([]);
-  });
-
-  it("5) category aplica exactamente un eq('category', valor)", async () => {
-    await listPublicWorkers({ category: "Electricista" });
-    expect(calls).toContainEqual({ op: "eq", args: ["category", "Electricista"] });
   });
 
   it("6) city aplica exactamente un ilike('city', %valor%)", async () => {
@@ -111,17 +110,6 @@ describe("listPublicWorkers", () => {
     expect(calls).toContainEqual({ op: "eq", args: ["availability", "una_semana"] });
   });
 
-  it("7) q aplica un or() que cubre full_name/professional_title/category/city", async () => {
-    await listPublicWorkers({ q: "electricista" });
-    const orCall = calls.find((c) => c.op === "or");
-    expect(orCall).toBeDefined();
-    const expr = orCall!.args[0] as string;
-    expect(expr).toContain("full_name.ilike.%electricista%");
-    expect(expr).toContain("professional_title.ilike.%electricista%");
-    expect(expr).toContain("category.ilike.%electricista%");
-    expect(expr).toContain("city.ilike.%electricista%");
-  });
-
   it("combina category + city + availability + q en una sola llamada", async () => {
     await listPublicWorkers({
       category: "Electricista",
@@ -129,7 +117,7 @@ describe("listPublicWorkers", () => {
       availability: "inmediata",
       q: "residencial",
     });
-    expect(calls).toContainEqual({ op: "eq", args: ["category", "Electricista"] });
+    expect(calls).toContainEqual({ op: "in", args: ["category", ["Electricista"]] });
     expect(calls).toContainEqual({ op: "ilike", args: ["city", "%Lima%"] });
     expect(calls).toContainEqual({ op: "eq", args: ["availability", "inmediata"] });
     expect(calls.some((c) => c.op === "or")).toBe(true);
@@ -157,5 +145,105 @@ describe("listPublicWorkers", () => {
   it("ratingSummary es null cuando el trabajador no tiene calificaciones", async () => {
     const result = await listPublicWorkers({});
     expect(result[0].ratingSummary).toBeNull();
+  });
+
+  // ============================================================
+  // category — alias de catálogo (P2 #2)
+  // ============================================================
+  describe("category — expansión de alias", () => {
+    it("5) Electricista (sin alias conocido) filtra solo por sí misma", async () => {
+      await listPublicWorkers({ category: "Electricista" });
+      expect(calls).toContainEqual({ op: "in", args: ["category", ["Electricista"]] });
+    });
+
+    it("Gasfitero expande a [Gasfitero, Plomero]", async () => {
+      await listPublicWorkers({ category: "Gasfitero" });
+      expect(calls).toContainEqual({ op: "in", args: ["category", ["Gasfitero", "Plomero"]] });
+    });
+
+    it("Niñera expande a [Niñera, Niñera / Cuidador]", async () => {
+      await listPublicWorkers({ category: "Niñera" });
+      expect(calls).toContainEqual({
+        op: "in",
+        args: ["category", ["Niñera", "Niñera / Cuidador"]],
+      });
+    });
+
+    it("Cocinero/a expande a [Cocinero/a, Cocinero]", async () => {
+      await listPublicWorkers({ category: "Cocinero/a" });
+      expect(calls).toContainEqual({ op: "in", args: ["category", ["Cocinero/a", "Cocinero"]] });
+    });
+
+    it("Chofer expande a [Chofer, Conductor]", async () => {
+      await listPublicWorkers({ category: "Chofer" });
+      expect(calls).toContainEqual({ op: "in", args: ["category", ["Chofer", "Conductor"]] });
+    });
+
+    it("una categoría sin alias conocido (p.ej. Otro) no arrastra alias de ninguna otra", async () => {
+      await listPublicWorkers({ category: "Otro" });
+      expect(calls).toContainEqual({ op: "in", args: ["category", ["Otro"]] });
+    });
+  });
+
+  // ============================================================
+  // q — el .or() debe tratar el valor completo como UN valor, sin que
+  // comas/paréntesis alteren la estructura del filtro (P2 #1). Se
+  // comprueba el string final generado, no solo que se llamó .or().
+  // ============================================================
+  describe("q — búsqueda textual segura", () => {
+    it("1) q simple ('Juan') queda envuelta entre comillas, un solo valor por columna", async () => {
+      await listPublicWorkers({ q: "Juan" });
+      const expr = (calls.find((c) => c.op === "or")!.args[0] as string);
+      expect(expr).toBe(
+        'full_name.ilike."%Juan%",professional_title.ilike."%Juan%",category.ilike."%Juan%",city.ilike."%Juan%"'
+      );
+    });
+
+    it("2) q con espacio ('Juan Pérez') no se parte en dos condiciones", async () => {
+      await listPublicWorkers({ q: "Juan Pérez" });
+      const expr = calls.find((c) => c.op === "or")!.args[0] as string;
+      expect(expr).toContain('"%Juan Pérez%"');
+      // Ninguna condición queda formada solo por "Pérez" — confirma que
+      // el espacio no partió el valor.
+      expect(expr.split(",").filter((c) => c.includes("Pérez")).length).toBeGreaterThan(0);
+      expect(expr).not.toMatch(/^Pérez/);
+    });
+
+    it("3) q con coma ('Juan, electricista') no produce condiciones adicionales", async () => {
+      await listPublicWorkers({ q: "Juan, electricista" });
+      const expr = calls.find((c) => c.op === "or")!.args[0] as string;
+      expect(expr).toBe(
+        'full_name.ilike."%Juan, electricista%",professional_title.ilike."%Juan, electricista%",category.ilike."%Juan, electricista%",city.ilike."%Juan, electricista%"'
+      );
+      // Exactamente 4 condiciones (3 comas de separación) — si la coma de
+      // q hubiera roto el filtro, aparecerían más de 4.
+      expect(expr.split("),").length + expr.split(",").length).toBeGreaterThan(0); // sanity: no vacío
+      const topLevelConditions = expr.match(/\w+\.ilike\./g) ?? [];
+      expect(topLevelConditions).toHaveLength(4);
+    });
+
+    it("4) q con paréntesis ('Juan (Chiclayo)') no rompe la estructura", async () => {
+      await listPublicWorkers({ q: "Juan (Chiclayo)" });
+      const expr = calls.find((c) => c.op === "or")!.args[0] as string;
+      expect(expr).toContain('"%Juan (Chiclayo)%"');
+      const topLevelConditions = expr.match(/\w+\.ilike\./g) ?? [];
+      expect(topLevelConditions).toHaveLength(4);
+    });
+
+    it("5) q con comillas dobles literales se escapa sin romper el valor", async () => {
+      await listPublicWorkers({ q: 'Juan "El Rayo"' });
+      const expr = calls.find((c) => c.op === "or")!.args[0] as string;
+      expect(expr).toContain('%Juan \\"El Rayo\\"%');
+      const topLevelConditions = expr.match(/\w+\.ilike\./g) ?? [];
+      expect(topLevelConditions).toHaveLength(4);
+    });
+
+    it("q combinando coma + paréntesis + espacio ('electricista, Chiclayo (urgente)') sigue siendo 4 condiciones", async () => {
+      await listPublicWorkers({ q: "electricista, Chiclayo (urgente)" });
+      const expr = calls.find((c) => c.op === "or")!.args[0] as string;
+      const topLevelConditions = expr.match(/\w+\.ilike\./g) ?? [];
+      expect(topLevelConditions).toHaveLength(4);
+      expect(expr).toContain('"%electricista, Chiclayo (urgente)%"');
+    });
   });
 });
