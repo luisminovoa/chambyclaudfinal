@@ -6,6 +6,7 @@ import { updateProfile, upsertWorkerProfileDetails } from "@/lib/actions/profile
 import { refreshProfileStats } from "@/lib/profile-stats";
 import { SkillsSelector } from "@/components/profile/SkillsSelector";
 import { CATEGORY_NAMES } from "@/lib/categories";
+import { CITY_NAMES, normalizeCity } from "@/lib/cities";
 import type { Profile, WorkerProfileDetails, AvailabilityStatus, ProfileStats } from "@/lib/types";
 
 const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
@@ -27,7 +28,11 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
 
   const [bio, setBio] = useState(profile.bio ?? "");
   const [phone, setPhone] = useState(profile.phone ?? "");
-  const [city, setCity] = useState(profile.city ?? "");
+  // normalizeCity(): compatibilidad con valores históricos de profiles.city
+  // que no coinciden exactamente con CITY_NAMES (p. ej. "CHICLAYO") — solo
+  // afecta qué opción se muestra seleccionada en el <select>, nunca se
+  // escribe en BD hasta que el usuario guarda explícitamente (Fase C4-D).
+  const [city, setCity] = useState(normalizeCity(profile.city) ?? "");
   const [category, setCategory] = useState(profile.category ?? "");
   const [skills, setSkills] = useState<string[]>(profile.skills ?? []);
 
@@ -138,14 +143,20 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
             <label htmlFor="city" className="label">
               Ciudad
             </label>
-            <input
+            <select
               id="city"
-              type="text"
+              name="city"
               className="input w-full"
-              placeholder="Lima, Arequipa, Trujillo…"
               value={city}
               onChange={(e) => setCity(e.target.value)}
-            />
+            >
+              <option value="">Selecciona tu ciudad</option>
+              {CITY_NAMES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Category */}

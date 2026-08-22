@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/Toaster";
 import { Badge } from "@/components/ui/Badge";
 import { updateProfile } from "@/lib/actions/profile";
 import { refreshProfileStats } from "@/lib/profile-stats";
+import { CITY_NAMES, normalizeCity } from "@/lib/cities";
 import type { EmployerType, Profile, ProfileStats } from "@/lib/types";
 
 type EmployerProfileFields = Pick<
@@ -54,7 +55,11 @@ export function EmployerInfoTab({
 
   const [fullName, setFullName] = useState(profile.full_name);
   const [phone, setPhone] = useState(profile.phone ?? "");
-  const [city, setCity] = useState(profile.city ?? "");
+  // normalizeCity(): compatibilidad con valores históricos de profiles.city
+  // que no coinciden exactamente con CITY_NAMES (p. ej. "CHICLAYO") — solo
+  // afecta qué opción se muestra seleccionada en el <select>, nunca se
+  // escribe en BD hasta que el usuario guarda explícitamente (Fase C4-D).
+  const [city, setCity] = useState(normalizeCity(profile.city) ?? "");
   const [district, setDistrict] = useState(profile.district ?? "");
   const [bio, setBio] = useState(profile.bio ?? "");
 
@@ -159,14 +164,20 @@ export function EmployerInfoTab({
             <label htmlFor="employer_city" className="label">
               Ciudad
             </label>
-            <input
+            <select
               id="employer_city"
-              type="text"
+              name="city"
               className="input w-full"
-              placeholder="Lima, Arequipa, Trujillo…"
               value={city}
               onChange={(e) => setCity(e.target.value)}
-            />
+            >
+              <option value="">Selecciona tu ciudad</option>
+              {CITY_NAMES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>

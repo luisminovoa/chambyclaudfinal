@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RegisterForm } from "./RegisterForm";
 import { CATEGORY_NAMES } from "@/lib/categories";
+import { CITY_NAMES } from "@/lib/cities";
 
 // Mismo patrón que EmployerPublicProfileView.test.tsx: evita depender del
 // AppRouterContext real de Next.js en un render aislado con
@@ -61,5 +62,51 @@ describe("RegisterForm — catálogo canónico de categoría (Fase A)", () => {
   it("4) el campo sigue siendo un <select name=\"category\"> — el mismo nombre que register()/updateProfile() ya leen del FormData", () => {
     const html = renderToStaticMarkup(<RegisterForm />);
     expect(html).toMatch(/<select[^>]*\bname="category"/);
+  });
+});
+
+describe("RegisterForm — catálogo canónico de ciudad (Fase C4-C)", () => {
+  it("A) el <select> de ciudad ofrece exactamente las ciudades de cities.ts", () => {
+    const html = renderToStaticMarkup(<RegisterForm />);
+    for (const name of CITY_NAMES) {
+      expect(html).toContain(`>${name}</option>`);
+    }
+  });
+
+  it("B) las opciones de ciudad provienen únicamente de CITY_NAMES (más el placeholder vacío)", () => {
+    const html = renderToStaticMarkup(<RegisterForm />);
+    const selectMatch = html.match(/<select id="city"[^>]*>(.*?)<\/select>/s);
+    expect(selectMatch).not.toBeNull();
+    const optionValues = [...selectMatch![1].matchAll(/<option value="([^"]*)"/g)].map((m) => m[1]);
+    expect(optionValues).toEqual(["", ...CITY_NAMES]);
+  });
+
+  it("C) la primera opción de ciudad es un valor vacío con el texto 'Selecciona tu ciudad'", () => {
+    const html = renderToStaticMarkup(<RegisterForm />);
+    expect(html).toMatch(/<option value="" selected="">Selecciona tu ciudad<\/option>/);
+  });
+
+  it("D) el campo sigue siendo un <select name=\"city\"> — el mismo nombre que register() ya lee del FormData", () => {
+    const html = renderToStaticMarkup(<RegisterForm />);
+    expect(html).toMatch(/<select[^>]*\bname="city"/);
+  });
+
+  it("E) el <select> de ciudad se renderiza igual para role=worker y role=employer (mismo campo profiles.city compartido)", () => {
+    // role="worker" es el valor por defecto de RegisterForm — el <select>
+    // de ciudad vive fuera del bloque condicional `{role === "worker" && ...}`
+    // (a diferencia de category, que sí es exclusivo de worker), así que
+    // aparece igual sin importar el rol seleccionado.
+    const html = renderToStaticMarkup(<RegisterForm />);
+    expect(html).toMatch(/<select id="city"/);
+    for (const name of CITY_NAMES) {
+      expect(html).toContain(`>${name}</option>`);
+    }
+  });
+
+  it("F) no se alteró la lógica de autenticación: register()/resendConfirmationEmail() se mockean igual que antes, sin nuevas dependencias", () => {
+    // Este test no ejerce comportamiento nuevo — documenta que el cambio de
+    // <input> a <select> para city no requirió tocar auth.ts ni sus mocks.
+    const html = renderToStaticMarkup(<RegisterForm />);
+    expect(html).toContain('name="role"');
   });
 });

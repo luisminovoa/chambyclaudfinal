@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Search, MapPin, LayoutGrid, Clock, X, ChevronDown } from "lucide-react";
 import { AVAILABILITY_LABELS, AVAILABILITY_VALUES } from "@/lib/types";
 import type { AvailabilityStatus } from "@/lib/types";
+import { CITY_NAMES } from "@/lib/cities";
 
 /**
  * Filtros del directorio de trabajadores (/workers). Mismo patrón visual
@@ -93,13 +94,20 @@ export function WorkerSearchFilters({ categories }: { categories: string[] }) {
         </label>
         <div className="relative">
           <MapPin className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
+          <select
             id="worker-filter-city"
-            className="input !pl-11"
-            placeholder="Ej. Lima, Chiclayo..."
+            className="input cursor-pointer appearance-none !pl-11 pr-10"
             value={city}
             onChange={(e) => setCity(e.target.value)}
-          />
+          >
+            <option value="">Todas las ciudades</option>
+            {CITY_NAMES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
         </div>
       </div>
       <div className="flex-1 sm:min-w-[190px]">
