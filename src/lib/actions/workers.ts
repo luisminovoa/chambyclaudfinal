@@ -272,6 +272,20 @@ async function fetchWorkerPublicProfile(
  * en fetchWorkerPublicProfile() de esta misma función y en Home
  * (src/app/page.tsx) para el empleador de cada job.
  */
+// Fase C4-G1 (corrige P1/G1 de la auditoría C4-G): antes había un único
+// límite (60) aplicado en SQL por created_at DESC, ANTES de calcular
+// computeWorkerQualityScore() — el ranking solo podía reordenar lo que ese
+// corte ya había decidido incluir, así que un perfil de alta calidad pero
+// con created_at antiguo podía quedar excluido sin que el ranking llegara
+// siquiera a evaluarlo. Separar los dos límites resuelve eso sin tocar
+// public_workers, sin RPC ni migración: CANDIDATE_POOL_LIMIT acota cuánto
+// trae la consulta SQL (deliberadamente muy por encima de cualquier tamaño
+// conocido o previsible de Production — ver auditoría C4-G1), y
+// DISPLAY_LIMIT preserva exactamente el tamaño de resultado visible de
+// siempre (60), aplicado DESPUÉS de rankear en memoria.
+const CANDIDATE_POOL_LIMIT = 500;
+const DISPLAY_LIMIT = 60;
+
 export async function listPublicWorkers(
   filters: WorkerDirectoryFilters
 ): Promise<PublicWorkerListing[]> {
@@ -310,29 +324,37 @@ export async function listPublicWorkers(
       );
     }
 
-    const { data: workers } = await query.order("created_at", { ascending: false }).limit(60);
+    const { data: workers } = await query
+      .order("created_at", { ascending: false })
+      .limit(CANDIDATE_POOL_LIMIT);
     const rows = (workers as unknown as Omit<PublicWorkerListing, "ratingSummary">[]) ?? [];
     if (rows.length === 0) return [];
 
     // Ranking de "preparación del perfil" (Fase C3) — se aplica DESPUÉS de
     // los filtros de arriba (category/city/availability/q ya redujeron el
     // conjunto), reordenando en memoria las filas ya obtenidas. Nunca
-    // excluye a nadie, solo cambia el orden. Empate → created_at DESC
-    // (mismo criterio que ya usaba la consulta, ahora como desempate
-    // explícito en vez de único criterio de orden).
+    // excluye a nadie dentro del pool de candidatos, solo cambia el orden.
+    // Empate → created_at DESC (mismo criterio que ya usaba la consulta,
+    // ahora como desempate explícito en vez de único criterio de orden).
     const ranked = [...rows].sort((a, b) => {
       const scoreDiff = computeWorkerQualityScore(b) - computeWorkerQualityScore(a);
       if (scoreDiff !== 0) return scoreDiff;
       return b.created_at.localeCompare(a.created_at);
     });
 
-    const ids = ranked.map((r) => r.id);
+    // El corte a lo que realmente se devuelve ocurre AQUÍ, después de
+    // rankear todo el pool de candidatos — no en la consulta SQL (Fase
+    // C4-G1). rating_summary se consulta solo para estos DISPLAY_LIMIT
+    // ids, nunca para el pool completo de CANDIDATE_POOL_LIMIT.
+    const visibleWorkers = ranked.slice(0, DISPLAY_LIMIT);
+
+    const ids = visibleWorkers.map((r) => r.id);
     const { data: ratings } = await supabase.from("rating_summary").select("*").in("profile_id", ids);
     const ratingById = new Map(
       ((ratings as unknown as RatingSummary[]) ?? []).map((r) => [r.profile_id, r])
     );
 
-    return ranked.map((r) => ({ ...r, ratingSummary: ratingById.get(r.id) ?? null }));
+    return visibleWorkers.map((r) => ({ ...r, ratingSummary: ratingById.get(r.id) ?? null }));
   } catch (err) {
     // Mismo mecanismo que getWorkerPublicProfile(): supabase-js puede
     // lanzar ante fallas de red/timeout — la página trata esto como

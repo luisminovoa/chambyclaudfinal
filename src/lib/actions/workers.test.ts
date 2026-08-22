@@ -29,12 +29,20 @@ let authenticated = true;
 let calls: Call[] = [];
 let ratingRows: { profile_id: string; average_score: number; total_ratings: number }[] = [];
 let mockRows: WorkerRow[] = [WORKER_ROW];
+// Capturados aparte de `calls` (Fase C4-G1) para no romper los tests
+// existentes que hacen `expect(calls).toEqual([])` cuando no hay filtros —
+// .limit() y la consulta a rating_summary se ejecutan SIEMPRE, con o sin
+// filtros, así que mezclarlos en `calls` habría alterado esas aserciones.
+let limitCalls: number[] = [];
+let ratingQueryCalls: { col: string; ids: string[] }[] = [];
 
 function reset() {
   authenticated = true;
   calls = [];
   ratingRows = [];
   mockRows = [WORKER_ROW];
+  limitCalls = [];
+  ratingQueryCalls = [];
 }
 
 /**
@@ -65,7 +73,10 @@ function makeWorkersBuilder() {
       return builder;
     },
     order: () => builder,
-    limit: () => builder,
+    limit: (n: number) => {
+      limitCalls.push(n);
+      return builder;
+    },
     then: (resolve: (v: { data: unknown }) => void) => resolve({ data: mockRows }),
   };
   return builder;
@@ -81,7 +92,10 @@ vi.mock("@/lib/supabase/server", () => ({
       if (table === "rating_summary") {
         return {
           select: () => ({
-            in: async () => ({ data: ratingRows }),
+            in: async (col: string, ids: string[]) => {
+              ratingQueryCalls.push({ col, ids });
+              return { data: ratingRows };
+            },
           }),
         };
       }
@@ -341,6 +355,158 @@ describe("listPublicWorkers", () => {
         args: ["category", ["Logística y almacén", "Almacenero"]],
       });
       expect(calls.some((c) => c.op === "or")).toBe(true);
+    });
+  });
+
+  // ============================================================
+  // Fase C4-G1 — ranking global (corrige P1/G1 de la auditoría C4-G):
+  // CANDIDATE_POOL_LIMIT (SQL) separado de DISPLAY_LIMIT (post-ranking).
+  // Antes, el LIMIT de 60 se aplicaba en SQL por created_at DESC antes de
+  // rankear, así que el ranking solo reordenaba lo que ese corte ya había
+  // decidido incluir. Estos tests demuestran que ahora el ranking actúa
+  // sobre todo el pool de candidatos devuelto por la consulta, y que el
+  // corte a 60 ocurre recién después.
+  // ============================================================
+  describe("ranking global — CANDIDATE_POOL_LIMIT / DISPLAY_LIMIT (Fase C4-G1)", () => {
+    function emptyWorker(id: string, createdAt: string): WorkerRow {
+      return {
+        id,
+        full_name: `Reciente ${id}`,
+        avatar_url: null,
+        city: null,
+        category: null,
+        skills: [],
+        bio: null,
+        created_at: createdAt,
+        professional_title: null,
+        availability: null,
+        years_experience: null,
+        hourly_rate: null,
+        daily_rate: null,
+      };
+    }
+
+    function fullWorker(id: string, createdAt: string): WorkerRow {
+      return {
+        id,
+        full_name: `Completo ${id}`,
+        avatar_url: null,
+        city: "Lima",
+        category: "Electricista",
+        skills: ["Soldadura"],
+        bio: "Electricista con experiencia",
+        created_at: createdAt,
+        professional_title: "Electricista industrial",
+        availability: "inmediata",
+        years_experience: 5,
+        hourly_rate: 30,
+        daily_rate: null,
+      };
+    }
+
+    it("Test 1 — un trabajador excelente pero antiguo aparece en el resultado final aunque 61 workers recientes de score bajo lo superen en created_at", async () => {
+      const recentEmptyWorkers = Array.from({ length: 61 }, (_, i) =>
+        emptyWorker(`w-recent-${i}`, `2026-06-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`)
+      );
+      const oldExcellentWorker = fullWorker("w-old-excellent", "2015-01-01T00:00:00Z");
+      // El worker excelente antiguo va AL FINAL del array — con el bug de
+      // C4-G G1, un .limit(60) por created_at en SQL lo habría dejado fuera
+      // del pool antes de que el ranking existiera; aquí simula que sigue
+      // estando en el pool de candidatos (mock = lo que la consulta SQL
+      // devolvería con CANDIDATE_POOL_LIMIT=500) y debe ganar el ranking.
+      mockRows = [...recentEmptyWorkers, oldExcellentWorker];
+
+      const result = await listPublicWorkers({});
+
+      expect(result.some((w) => w.id === "w-old-excellent")).toBe(true);
+      expect(result[0].id).toBe("w-old-excellent");
+    });
+
+    it("Test 2 — con más de 60 candidatos, el resultado final tiene máximo 60 y el primero es el de mayor score", async () => {
+      const workers = Array.from({ length: 70 }, (_, i) =>
+        i === 0
+          ? fullWorker("w-best", "2020-01-01T00:00:00Z")
+          : emptyWorker(`w-low-${i}`, `2026-01-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`)
+      );
+      mockRows = workers;
+
+      const result = await listPublicWorkers({});
+
+      expect(result.length).toBeLessThanOrEqual(60);
+      expect(result[0].id).toBe("w-best");
+    });
+
+    it("Test 3 — empate de score entre 2 candidatos se desempata con created_at DESC (más reciente primero)", async () => {
+      const tieOld = fullWorker("w-tie-old", "2020-01-01T00:00:00Z");
+      const tieNew = fullWorker("w-tie-new", "2026-06-01T00:00:00Z");
+      mockRows = [tieOld, tieNew];
+
+      const result = await listPublicWorkers({});
+
+      expect(result.map((w) => w.id)).toEqual(["w-tie-new", "w-tie-old"]);
+    });
+
+    it("Test 4 — la consulta SQL sigue pidiendo .limit(500) (CANDIDATE_POOL_LIMIT), incluso con 501 candidatos mockeados", async () => {
+      mockRows = Array.from({ length: 501 }, (_, i) =>
+        emptyWorker(`w-${i}`, `2026-01-01T00:00:00Z`)
+      );
+
+      await listPublicWorkers({});
+
+      expect(limitCalls).toEqual([500]);
+    });
+
+    it("Test 5 — rating_summary se consulta únicamente para los workers finales visibles (máx. 60 ids), nunca para el pool completo de candidatos", async () => {
+      mockRows = Array.from({ length: 100 }, (_, i) =>
+        emptyWorker(`w-${i}`, `2026-01-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`)
+      );
+
+      const result = await listPublicWorkers({});
+
+      expect(ratingQueryCalls).toHaveLength(1);
+      expect(ratingQueryCalls[0].col).toBe("profile_id");
+      expect(ratingQueryCalls[0].ids.length).toBeLessThanOrEqual(60);
+      expect(ratingQueryCalls[0].ids.sort()).toEqual(result.map((w) => w.id).sort());
+    });
+
+    it("Test 6 — los filtros (category con alias, city, availability, q) siguen aplicándose exactamente igual tras separar los límites", async () => {
+      mockRows = [WORKER_ROW];
+      await listPublicWorkers({
+        category: "Gasfitero",
+        city: "Chiclayo",
+        availability: "inmediata",
+        q: "urgente",
+      });
+
+      expect(calls).toContainEqual({ op: "in", args: ["category", ["Gasfitero", "Plomero"]] });
+      expect(calls).toContainEqual({ op: "ilike", args: ["city", "%Chiclayo%"] });
+      expect(calls).toContainEqual({ op: "eq", args: ["availability", "inmediata"] });
+      expect(calls.some((c) => c.op === "or")).toBe(true);
+    });
+
+    it("Test 7 — un worker sin worker_profile_details (score 0) sigue apareciendo en el resultado, solo queda al final", async () => {
+      const withoutDetails = emptyWorker("w-sin-detalles", "2026-01-01T00:00:00Z");
+      mockRows = [fullWorker("w-con-detalles", "2020-01-01T00:00:00Z"), withoutDetails];
+
+      const result = await listPublicWorkers({});
+
+      expect(result.some((w) => w.id === "w-sin-detalles")).toBe(true);
+      expect(result[result.length - 1].id).toBe("w-sin-detalles");
+    });
+
+    it("Test 8 — Home (listPublicWorkers({}).slice(0, 6)) recibe el resultado completo ya ordenado por calidad, así que tomar los primeros 6 sigue dando los mejores trabajadores", async () => {
+      const workers = [
+        emptyWorker("w-peor", "2026-06-01T00:00:00Z"),
+        fullWorker("w-mejor", "2015-01-01T00:00:00Z"),
+        { ...emptyWorker("w-medio", "2026-01-01T00:00:00Z"), category: "Electricista" },
+      ];
+      mockRows = workers;
+
+      const result = await listPublicWorkers({});
+      const top6 = result.slice(0, 6);
+
+      expect(top6[0].id).toBe("w-mejor");
+      expect(top6.map((w) => w.id)).toEqual(result.map((w) => w.id));
     });
   });
 });
