@@ -10,6 +10,8 @@ import {
   Paintbrush,
   Car,
   Shield,
+  Briefcase,
+  Boxes,
   LayoutGrid,
   type LucideIcon,
 } from "lucide-react";
@@ -31,6 +33,8 @@ export const CATEGORIES: Category[] = [
   { name: "Pintor", icon: Paintbrush },
   { name: "Chofer", icon: Car },
   { name: "Seguridad", icon: Shield },
+  { name: "Administrativo", icon: Briefcase },
+  { name: "Logística y almacén", icon: Boxes },
   { name: "Otro", icon: LayoutGrid },
 ];
 

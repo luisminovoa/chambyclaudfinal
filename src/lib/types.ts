@@ -41,6 +41,65 @@ export interface Profile {
 export type PublicWorkerSummary = Pick<Profile, "id" | "full_name" | "avatar_url" | "category" | "city">;
 
 /**
+ * Perfil de trabajador para "Ver perfil" (getWorkerPublicProfile(), Fase 2
+ * del directorio de trabajadores) — mismas columnas que expone
+ * public.public_workers (0037_public_workers_directory.sql), nunca phone/
+ * role/is_active/updated_at. El viewer puede ser el propio trabajador, un
+ * admin, un empleador con relación de postulación, o cualquier empleador
+ * autenticado consultando a un trabajador activo — ninguno de esos casos
+ * necesita más columnas que estas para renderizar WorkerPublicProfileView.
+ */
+export type WorkerDiscoveryProfile = Pick<
+  Profile,
+  "id" | "full_name" | "avatar_url" | "city" | "category" | "skills" | "bio" | "created_at"
+>;
+
+/**
+ * Subconjunto seguro de worker_profile_details para el mismo flujo —
+ * nunca whatsapp/birth_date/address/district/work_radius_km, sea cual sea
+ * el viewer autorizado.
+ */
+export type WorkerDiscoveryDetails = Pick<
+  WorkerProfileDetails,
+  "professional_title" | "availability" | "years_experience" | "hourly_rate" | "daily_rate" | "languages"
+>;
+
+/**
+ * Una fila del directorio de trabajadores (Fase 3) — exactamente las 13
+ * columnas de public.public_workers (0037_public_workers_directory.sql)
+ * más el resumen de calificación (rating_summary, ya pública desde
+ * 0001_init.sql, resuelta aparte porque no vive en la vista). Nunca
+ * phone/whatsapp/birth_date/address/district: esas columnas no existen
+ * en public_workers, así que ni siquiera pueden pedirse por error.
+ */
+export interface PublicWorkerListing {
+  id: string;
+  full_name: string;
+  avatar_url: string | null;
+  city: string | null;
+  category: string | null;
+  skills: string[];
+  bio: string | null;
+  created_at: string;
+  professional_title: string | null;
+  availability: AvailabilityStatus | null;
+  years_experience: number | null;
+  hourly_rate: number | null;
+  daily_rate: number | null;
+  ratingSummary: RatingSummary | null;
+  /** Trabajos completados (jobs.status='completado'), siempre numérico — 0 si no hay ninguno. Fase C4-G3. */
+  jobsCompleted: number;
+}
+
+/** Filtros aceptados por listPublicWorkers() (src/lib/actions/workers.ts). */
+export interface WorkerDirectoryFilters {
+  category?: string;
+  city?: string;
+  availability?: AvailabilityStatus;
+  q?: string;
+}
+
+/**
  * Proyección pública completa — exactamente las columnas de
  * public.public_profiles (0034_harden_profiles_public_access.sql). Nunca
  * incluye phone, business_ruc, role, is_active, district ni updated_at.
@@ -421,6 +480,26 @@ export interface ProfileStats {
 
 // Información profesional ampliada (Fase 1)
 export type AvailabilityStatus = "inmediata" | "una_semana" | "un_mes" | "no_disponible";
+
+/** Todos los valores válidos del enum — única fuente para validar un valor
+ * de origen externo (p.ej. searchParams del directorio de trabajadores)
+ * antes de usarlo en una query. */
+export const AVAILABILITY_VALUES: AvailabilityStatus[] = [
+  "inmediata",
+  "una_semana",
+  "un_mes",
+  "no_disponible",
+];
+
+/** Etiquetas legibles — única fuente para WorkerPublicProfileView (perfil)
+ * y el directorio de trabajadores (filtro + tarjetas), para no mantener
+ * el mismo Record duplicado en dos componentes. */
+export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
+  inmediata: "Disponibilidad inmediata",
+  una_semana: "Disponible en una semana",
+  un_mes: "Disponible en un mes",
+  no_disponible: "No disponible por ahora",
+};
 
 export interface WorkerProfileDetails {
   profile_id: string;

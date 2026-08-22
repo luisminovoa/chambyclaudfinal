@@ -9,6 +9,8 @@ import { register, resendConfirmationEmail, type ActionResult } from "@/lib/acti
 import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 import { useToast } from "@/components/ui/Toaster";
 import { cn } from "@/lib/utils";
+import { CATEGORY_NAMES } from "@/lib/categories";
+import { CITY_NAMES } from "@/lib/cities";
 
 const initialState: ActionResult = {};
 
@@ -255,7 +257,14 @@ export function RegisterForm({ next }: { next?: string }) {
           <label htmlFor="city" className="label">
             Ciudad
           </label>
-          <input id="city" name="city" required className="input" placeholder="Lima" />
+          <select id="city" name="city" required className="input" defaultValue="">
+            <option value="">Selecciona tu ciudad</option>
+            {CITY_NAMES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Categoría (solo worker) */}
@@ -264,12 +273,14 @@ export function RegisterForm({ next }: { next?: string }) {
             <label htmlFor="category" className="label">
               Puesto / oficio principal
             </label>
-            <input
-              id="category"
-              name="category"
-              className="input"
-              placeholder="Electricista, niñera, albañil..."
-            />
+            <select id="category" name="category" className="input" defaultValue="">
+              <option value="">Selecciona tu ocupación</option>
+              {CATEGORY_NAMES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
