@@ -9,6 +9,8 @@ import type {
   RatingSummary,
   WorkerDiscoveryProfile,
   WorkerDiscoveryDetails,
+  PublicWorkerListing,
+  WorkerDirectoryFilters,
 } from "@/lib/types";
 
 export interface WorkerPublicProfile {
@@ -241,4 +243,72 @@ async function fetchWorkerPublicProfile(
     conversationId,
     viewerIsEmployer,
   };
+}
+
+/**
+ * Directorio de trabajadores (Fase 3) — lista pública de trabajadores
+ * activos para que un empleador descubra a quién contratar sin necesitar
+ * una postulación previa (canViewWorkerProfile(), Fase 2). Fuente única:
+ * public.public_workers (0037_public_workers_directory.sql) — ya filtra
+ * role='worker' AND is_active y ya excluye phone/whatsapp/birth_date/
+ * address/district estructuralmente (esas columnas no existen en la
+ * vista). Esta función nunca hace select("*") ni usa createAdminClient():
+ * public_workers solo otorga SELECT a `authenticated` (0037), así que el
+ * cliente de sesión es exactamente el rol correcto — un listado público
+ * no necesita ni debe bypassear RLS con service_role.
+ *
+ * Sin sesión, devuelve [] antes de tocar la base: anon no tiene SELECT
+ * sobre public_workers (0037), así que ni siquiera vale la pena intentar
+ * la consulta — mismo principio que el resto de este archivo (nunca
+ * asumir autorización, siempre partir de "no autenticado = sin acceso").
+ *
+ * rating_summary se resuelve aparte (ya pública desde 0001_init.sql, no
+ * vive en public_workers) — mismo patrón de join en aplicación ya usado
+ * en fetchWorkerPublicProfile() de esta misma función y en Home
+ * (src/app/page.tsx) para el empleador de cada job.
+ */
+export async function listPublicWorkers(
+  filters: WorkerDirectoryFilters
+): Promise<PublicWorkerListing[]> {
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    let query = supabase
+      .from("public_workers")
+      .select(
+        "id, full_name, avatar_url, city, category, skills, bio, created_at, professional_title, availability, years_experience, hourly_rate, daily_rate"
+      );
+
+    if (filters.category) query = query.eq("category", filters.category);
+    if (filters.city) query = query.ilike("city", `%${filters.city}%`);
+    if (filters.availability) query = query.eq("availability", filters.availability);
+    if (filters.q) {
+      const q = filters.q;
+      query = query.or(
+        `full_name.ilike.%${q}%,professional_title.ilike.%${q}%,category.ilike.%${q}%,city.ilike.%${q}%`
+      );
+    }
+
+    const { data: workers } = await query.order("created_at", { ascending: false }).limit(60);
+    const rows = (workers as unknown as Omit<PublicWorkerListing, "ratingSummary">[]) ?? [];
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((r) => r.id);
+    const { data: ratings } = await supabase.from("rating_summary").select("*").in("profile_id", ids);
+    const ratingById = new Map(
+      ((ratings as unknown as RatingSummary[]) ?? []).map((r) => [r.profile_id, r])
+    );
+
+    return rows.map((r) => ({ ...r, ratingSummary: ratingById.get(r.id) ?? null }));
+  } catch (err) {
+    // Mismo mecanismo que getWorkerPublicProfile(): supabase-js puede
+    // lanzar ante fallas de red/timeout — la página trata esto como
+    // "sin resultados", nunca como un error genérico.
+    console.error("[listPublicWorkers] excepción no capturada:", err);
+    return [];
+  }
 }

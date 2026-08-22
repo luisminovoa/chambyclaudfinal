@@ -63,6 +63,14 @@ export default async function HomePage() {
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 4);
 
+  // Mismo modo activo que ya usa Navbar/BottomNav/main-nav.ts —
+  // profile.role, no un sistema paralelo. worker, admin y visitante sin
+  // sesión comparten el comportamiento de trabajador (mismo criterio que
+  // getMainNavItems() en src/lib/main-nav.ts). Reimplementado aquí
+  // (idéntico a d7cb734, PR #27) porque esta rama parte de un historial
+  // distinto al de esa rama — ver informe de Fase 3 para el detalle.
+  const isEmployer = profile?.role === "employer";
+
   return (
     <div>
       {/* Hero */}
@@ -135,7 +143,11 @@ export default async function HomePage() {
             {CATEGORIES.map((cat) => (
               <Link
                 key={cat.name}
-                href={`/jobs?category=${encodeURIComponent(cat.name)}`}
+                href={
+                  isEmployer
+                    ? `/workers?category=${encodeURIComponent(cat.name)}`
+                    : `/jobs?category=${encodeURIComponent(cat.name)}`
+                }
                 className="card card-hover group flex flex-col items-center gap-2.5 px-3 py-5"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary-50 text-primary-600 transition-all duration-200 group-hover:scale-110 group-hover:bg-brand-gradient group-hover:text-white">

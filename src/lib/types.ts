@@ -65,6 +65,39 @@ export type WorkerDiscoveryDetails = Pick<
 >;
 
 /**
+ * Una fila del directorio de trabajadores (Fase 3) — exactamente las 13
+ * columnas de public.public_workers (0037_public_workers_directory.sql)
+ * más el resumen de calificación (rating_summary, ya pública desde
+ * 0001_init.sql, resuelta aparte porque no vive en la vista). Nunca
+ * phone/whatsapp/birth_date/address/district: esas columnas no existen
+ * en public_workers, así que ni siquiera pueden pedirse por error.
+ */
+export interface PublicWorkerListing {
+  id: string;
+  full_name: string;
+  avatar_url: string | null;
+  city: string | null;
+  category: string | null;
+  skills: string[];
+  bio: string | null;
+  created_at: string;
+  professional_title: string | null;
+  availability: AvailabilityStatus | null;
+  years_experience: number | null;
+  hourly_rate: number | null;
+  daily_rate: number | null;
+  ratingSummary: RatingSummary | null;
+}
+
+/** Filtros aceptados por listPublicWorkers() (src/lib/actions/workers.ts). */
+export interface WorkerDirectoryFilters {
+  category?: string;
+  city?: string;
+  availability?: AvailabilityStatus;
+  q?: string;
+}
+
+/**
  * Proyección pública completa — exactamente las columnas de
  * public.public_profiles (0034_harden_profiles_public_access.sql). Nunca
  * incluye phone, business_ruc, role, is_active, district ni updated_at.
@@ -445,6 +478,26 @@ export interface ProfileStats {
 
 // Información profesional ampliada (Fase 1)
 export type AvailabilityStatus = "inmediata" | "una_semana" | "un_mes" | "no_disponible";
+
+/** Todos los valores válidos del enum — única fuente para validar un valor
+ * de origen externo (p.ej. searchParams del directorio de trabajadores)
+ * antes de usarlo en una query. */
+export const AVAILABILITY_VALUES: AvailabilityStatus[] = [
+  "inmediata",
+  "una_semana",
+  "un_mes",
+  "no_disponible",
+];
+
+/** Etiquetas legibles — única fuente para WorkerPublicProfileView (perfil)
+ * y el directorio de trabajadores (filtro + tarjetas), para no mantener
+ * el mismo Record duplicado en dos componentes. */
+export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
+  inmediata: "Disponibilidad inmediata",
+  una_semana: "Disponible en una semana",
+  un_mes: "Disponible en un mes",
+  no_disponible: "No disponible por ahora",
+};
 
 export interface WorkerProfileDetails {
   profile_id: string;

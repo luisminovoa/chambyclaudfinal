@@ -29,9 +29,9 @@ export default async function WorkerProfilePage({ params, searchParams }: Worker
           <EmptyState
             pose="lost"
             title="No podemos mostrar este perfil"
-            description="El trabajador no existe o todavía no tienes acceso a su perfil — solo puedes ver el de trabajadores que postularon a tus publicaciones."
-            actionLabel="Volver al panel"
-            actionHref="/dashboard"
+            description="El trabajador no existe, está inactivo, o todavía no tienes acceso a su perfil — puedes ver a cualquier trabajador activo desde el directorio, o al que haya postulado a tus publicaciones."
+            actionLabel="Buscar trabajadores"
+            actionHref="/workers"
           />
         </Reveal>
       ) : (
