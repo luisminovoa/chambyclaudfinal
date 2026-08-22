@@ -87,6 +87,8 @@ export interface PublicWorkerListing {
   hourly_rate: number | null;
   daily_rate: number | null;
   ratingSummary: RatingSummary | null;
+  /** Trabajos completados (jobs.status='completado'), siempre numérico — 0 si no hay ninguno. Fase C4-G3. */
+  jobsCompleted: number;
 }
 
 /** Filtros aceptados por listPublicWorkers() (src/lib/actions/workers.ts). */

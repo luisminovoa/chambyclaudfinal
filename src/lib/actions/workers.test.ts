@@ -2,7 +2,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { listPublicWorkers } from "./workers";
 import type { PublicWorkerListing } from "@/lib/types";
 
-type WorkerRow = Omit<PublicWorkerListing, "ratingSummary">;
+// jobsCompleted se calcula aparte (agregación batched sobre `jobs`, Fase
+// C4-G3) — nunca viene en la fila cruda de public_workers, así que se
+// excluye también de este tipo de fixture (igual que ratingSummary).
+type WorkerRow = Omit<PublicWorkerListing, "ratingSummary" | "jobsCompleted">;
 
 const WORKER_ROW: WorkerRow = {
   id: "w-1",
@@ -20,6 +23,42 @@ const WORKER_ROW: WorkerRow = {
   daily_rate: null,
 };
 
+function emptyWorker(id: string, createdAt: string): WorkerRow {
+  return {
+    id,
+    full_name: `Reciente ${id}`,
+    avatar_url: null,
+    city: null,
+    category: null,
+    skills: [],
+    bio: null,
+    created_at: createdAt,
+    professional_title: null,
+    availability: null,
+    years_experience: null,
+    hourly_rate: null,
+    daily_rate: null,
+  };
+}
+
+function fullWorker(id: string, createdAt: string): WorkerRow {
+  return {
+    id,
+    full_name: `Completo ${id}`,
+    avatar_url: null,
+    city: "Lima",
+    category: "Electricista",
+    skills: ["Soldadura"],
+    bio: "Electricista con experiencia",
+    created_at: createdAt,
+    professional_title: "Electricista industrial",
+    availability: "inmediata",
+    years_experience: 5,
+    hourly_rate: 30,
+    daily_rate: null,
+  };
+}
+
 interface Call {
   op: string;
   args: unknown[];
@@ -35,6 +74,8 @@ let mockRows: WorkerRow[] = [WORKER_ROW];
 // filtros, así que mezclarlos en `calls` habría alterado esas aserciones.
 let limitCalls: number[] = [];
 let ratingQueryCalls: { col: string; ids: string[] }[] = [];
+let completedJobRows: { assigned_worker_id: string }[] = [];
+let jobsQueryCalls: { ids: string[] }[] = [];
 
 function reset() {
   authenticated = true;
@@ -43,6 +84,8 @@ function reset() {
   mockRows = [WORKER_ROW];
   limitCalls = [];
   ratingQueryCalls = [];
+  completedJobRows = [];
+  jobsQueryCalls = [];
 }
 
 /**
@@ -96,6 +139,18 @@ vi.mock("@/lib/supabase/server", () => ({
               ratingQueryCalls.push({ col, ids });
               return { data: ratingRows };
             },
+          }),
+        };
+      }
+      if (table === "jobs") {
+        return {
+          select: () => ({
+            in: (col: string, ids: string[]) => ({
+              eq: async () => {
+                jobsQueryCalls.push({ ids });
+                return { data: completedJobRows };
+              },
+            }),
           }),
         };
       }
@@ -368,42 +423,6 @@ describe("listPublicWorkers", () => {
   // corte a 60 ocurre recién después.
   // ============================================================
   describe("ranking global — CANDIDATE_POOL_LIMIT / DISPLAY_LIMIT (Fase C4-G1)", () => {
-    function emptyWorker(id: string, createdAt: string): WorkerRow {
-      return {
-        id,
-        full_name: `Reciente ${id}`,
-        avatar_url: null,
-        city: null,
-        category: null,
-        skills: [],
-        bio: null,
-        created_at: createdAt,
-        professional_title: null,
-        availability: null,
-        years_experience: null,
-        hourly_rate: null,
-        daily_rate: null,
-      };
-    }
-
-    function fullWorker(id: string, createdAt: string): WorkerRow {
-      return {
-        id,
-        full_name: `Completo ${id}`,
-        avatar_url: null,
-        city: "Lima",
-        category: "Electricista",
-        skills: ["Soldadura"],
-        bio: "Electricista con experiencia",
-        created_at: createdAt,
-        professional_title: "Electricista industrial",
-        availability: "inmediata",
-        years_experience: 5,
-        hourly_rate: 30,
-        daily_rate: null,
-      };
-    }
-
     it("Test 1 — un trabajador excelente pero antiguo aparece en el resultado final aunque 61 workers recientes de score bajo lo superen en created_at", async () => {
       const recentEmptyWorkers = Array.from({ length: 61 }, (_, i) =>
         emptyWorker(`w-recent-${i}`, `2026-06-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`)
@@ -507,6 +526,90 @@ describe("listPublicWorkers", () => {
 
       expect(top6[0].id).toBe("w-mejor");
       expect(top6.map((w) => w.id)).toEqual(result.map((w) => w.id));
+    });
+  });
+
+  // ============================================================
+  // jobsCompleted — consulta batched sobre `jobs` (Fase C4-G3, auditoría
+  // C4-G2). Nunca una consulta por worker, siempre UNA sola llamada
+  // acotada a `visibleWorkers`, agregada en memoria por
+  // assigned_worker_id.
+  // ============================================================
+  describe("jobsCompleted — consulta batched sobre jobs (Fase C4-G3)", () => {
+    it("D) worker sin jobs completados → jobsCompleted = 0 (nunca undefined/null)", async () => {
+      mockRows = [WORKER_ROW];
+      completedJobRows = [];
+
+      const result = await listPublicWorkers({});
+
+      expect(result[0].jobsCompleted).toBe(0);
+    });
+
+    it("worker con 8 jobs completados → jobsCompleted = 8, contado a partir de la agregación en memoria", async () => {
+      mockRows = [WORKER_ROW];
+      completedJobRows = Array.from({ length: 8 }, () => ({ assigned_worker_id: "w-1" }));
+
+      const result = await listPublicWorkers({});
+
+      expect(result[0].jobsCompleted).toBe(8);
+    });
+
+    it("E) con 70 candidatos (más de DISPLAY_LIMIT), la consulta a jobs se ejecuta UNA sola vez, nunca una por worker", async () => {
+      mockRows = Array.from({ length: 70 }, (_, i) => emptyWorker(`w-${i}`, "2026-01-01T00:00:00Z"));
+
+      await listPublicWorkers({});
+
+      expect(jobsQueryCalls).toHaveLength(1);
+    });
+
+    it("F) la consulta a jobs recibe exactamente los ids de visibleWorkers, no todos los candidatos", async () => {
+      mockRows = Array.from({ length: 70 }, (_, i) => emptyWorker(`w-${i}`, "2026-01-01T00:00:00Z"));
+
+      const result = await listPublicWorkers({});
+
+      expect(jobsQueryCalls[0].ids.sort()).toEqual(result.map((w) => w.id).sort());
+    });
+
+    it("G) nunca consulta jobs para el pool completo de candidatos (con 501 candidatos, sigue acotada a ≤60 ids)", async () => {
+      mockRows = Array.from({ length: 501 }, (_, i) => emptyWorker(`w-${i}`, "2026-01-01T00:00:00Z"));
+
+      await listPublicWorkers({});
+
+      expect(jobsQueryCalls).toHaveLength(1);
+      expect(jobsQueryCalls[0].ids.length).toBeLessThanOrEqual(60);
+    });
+
+    it("H) el ranking global de C4-G1 sigue intacto: un worker excelente y antiguo sigue ganando aunque ahora también se calcule jobsCompleted", async () => {
+      const recentEmptyWorkers = Array.from({ length: 61 }, (_, i) =>
+        emptyWorker(`w-recent-${i}`, `2026-06-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`)
+      );
+      const oldExcellentWorker = fullWorker("w-old-excellent", "2015-01-01T00:00:00Z");
+      mockRows = [...recentEmptyWorkers, oldExcellentWorker];
+
+      const result = await listPublicWorkers({});
+
+      expect(result[0].id).toBe("w-old-excellent");
+    });
+
+    it("I) rating_summary sigue recibiendo únicamente los visibleWorkers, junto a la nueva consulta de jobs, sin duplicarse", async () => {
+      mockRows = Array.from({ length: 70 }, (_, i) => emptyWorker(`w-${i}`, "2026-01-01T00:00:00Z"));
+
+      const result = await listPublicWorkers({});
+
+      expect(ratingQueryCalls).toHaveLength(1);
+      expect(ratingQueryCalls[0].ids.sort()).toEqual(result.map((w) => w.id).sort());
+    });
+
+    it("N) Home (listPublicWorkers({}) sin filtros) devuelve jobsCompleted numérico en cada worker, listo tal cual lo consume page.tsx vía PublicWorkerListing", async () => {
+      mockRows = [WORKER_ROW, { ...WORKER_ROW, id: "w-2" }];
+      completedJobRows = [{ assigned_worker_id: "w-1" }];
+
+      const result = await listPublicWorkers({});
+
+      for (const worker of result) {
+        expect(typeof worker.jobsCompleted).toBe("number");
+        expect(Number.isNaN(worker.jobsCompleted)).toBe(false);
+      }
     });
   });
 });

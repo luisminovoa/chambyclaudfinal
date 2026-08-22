@@ -18,6 +18,11 @@ import type { PublicWorkerListing } from "@/lib/types";
  */
 export function WorkerDirectoryCard({ worker }: { worker: PublicWorkerListing }) {
   const primaryTitle = getWorkerPrimaryTitle(worker, worker);
+  // Evita duplicar la ocupación: cuando no hay professional_title,
+  // primaryTitle YA ES worker.category (ver getWorkerPrimaryTitle) — mostrar
+  // el Badge de categoría en ese caso repite exactamente el mismo texto que
+  // ya aparece en el título. Solo se muestra si aporta información distinta.
+  const showCategoryBadge = Boolean(worker.category) && worker.category !== primaryTitle;
 
   return (
     <Link
@@ -49,7 +54,12 @@ export function WorkerDirectoryCard({ worker }: { worker: PublicWorkerListing })
         ) : (
           <span className="text-xs text-ink-muted">Sin calificaciones aún</span>
         )}
-        {worker.category && <Badge tone="primary">{worker.category}</Badge>}
+        {worker.jobsCompleted > 0 && (
+          <span className="text-xs text-ink-muted">
+            · {worker.jobsCompleted} {worker.jobsCompleted === 1 ? "trabajo" : "trabajos"}
+          </span>
+        )}
+        {showCategoryBadge && <Badge tone="primary">{worker.category}</Badge>}
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">

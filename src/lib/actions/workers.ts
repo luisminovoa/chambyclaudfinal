@@ -354,7 +354,31 @@ export async function listPublicWorkers(
       ((ratings as unknown as RatingSummary[]) ?? []).map((r) => [r.profile_id, r])
     );
 
-    return visibleWorkers.map((r) => ({ ...r, ratingSummary: ratingById.get(r.id) ?? null }));
+    // jobsCompleted (Fase C4-G3, auditoría C4-G2): UNA sola consulta batched
+    // sobre `visibleWorkers` (nunca sobre los CANDIDATE_POOL_LIMIT
+    // candidatos), agregada en memoria — no hay `GROUP BY` per-worker vía
+    // PostgREST sin una vista/RPC nueva, así que se trae una fila por job
+    // completado y se cuenta por `assigned_worker_id`. Cliente de sesión,
+    // sin RLS especial (mismo patrón ya usado por getWorkerPublicProfile()
+    // para un solo worker, aquí extendido a un lote).
+    const { data: completedJobs } = await supabase
+      .from("jobs")
+      .select("assigned_worker_id")
+      .in("assigned_worker_id", ids)
+      .eq("status", "completado");
+    const jobsCompletedById = new Map<string, number>();
+    for (const job of (completedJobs as { assigned_worker_id: string }[] | null) ?? []) {
+      jobsCompletedById.set(
+        job.assigned_worker_id,
+        (jobsCompletedById.get(job.assigned_worker_id) ?? 0) + 1
+      );
+    }
+
+    return visibleWorkers.map((r) => ({
+      ...r,
+      ratingSummary: ratingById.get(r.id) ?? null,
+      jobsCompleted: jobsCompletedById.get(r.id) ?? 0,
+    }));
   } catch (err) {
     // Mismo mecanismo que getWorkerPublicProfile(): supabase-js puede
     // lanzar ante fallas de red/timeout — la página trata esto como

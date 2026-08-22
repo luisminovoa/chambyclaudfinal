@@ -74,6 +74,7 @@ const sampleWorker: PublicWorkerListing = {
   hourly_rate: 30,
   daily_rate: null,
   ratingSummary: null,
+  jobsCompleted: 0,
 };
 
 function mockEmployer() {
