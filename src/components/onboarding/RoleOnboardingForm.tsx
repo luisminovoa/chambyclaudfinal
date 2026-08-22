@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { AlertCircle, ArrowRight, Search, Briefcase, Users } from "lucide-react";
 import { completeGoogleOnboarding } from "@/lib/actions/roles";
 import { cn } from "@/lib/utils";
+import { CITY_NAMES, normalizeCity } from "@/lib/cities";
 
 const initialState: { error?: string } = {};
 
@@ -31,7 +32,13 @@ function SubmitButton({ disabled }: { disabled?: boolean }) {
   );
 }
 
-export function RoleOnboardingForm({ next }: { next?: string }) {
+interface RoleOnboardingFormProps {
+  next?: string;
+  /** profile.city ya existente (caso raro: usuario que vuelve a /onboarding). Fase C4-F. */
+  initialCity?: string | null;
+}
+
+export function RoleOnboardingForm({ next, initialCity }: RoleOnboardingFormProps) {
   const [state, formAction] = useFormState(completeGoogleOnboarding, initialState);
   const [intent, setIntent] = useState<"worker" | "employer" | "both" | null>(null);
 
@@ -75,7 +82,14 @@ export function RoleOnboardingForm({ next }: { next?: string }) {
         <label htmlFor="city" className="label">
           Ciudad <span className="font-normal text-ink-muted">(opcional)</span>
         </label>
-        <input id="city" name="city" className="input" placeholder="Lima" />
+        <select id="city" name="city" className="input" defaultValue={normalizeCity(initialCity) ?? ""}>
+          <option value="">Selecciona tu ciudad</option>
+          {CITY_NAMES.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <SubmitButton disabled={!intent} />

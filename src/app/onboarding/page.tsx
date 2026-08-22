@@ -34,7 +34,7 @@ export default async function OnboardingPage({
             </h1>
             <p className="mt-1 text-sm text-ink-muted">¿Qué quieres hacer en Chamby?</p>
             <div className="mt-6">
-              <RoleOnboardingForm next={searchParams.next} />
+              <RoleOnboardingForm next={searchParams.next} initialCity={profile?.city ?? null} />
             </div>
           </div>
         </div>
