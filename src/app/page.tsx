@@ -63,6 +63,12 @@ export default async function HomePage() {
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .slice(0, 4);
 
+  // Mismo modo activo que ya usa Navbar/BottomNav/main-nav.ts —
+  // profile.role, no un sistema paralelo. worker, admin y visitante sin
+  // sesión comparten el hero de trabajador (mismo criterio que
+  // getMainNavItems() en src/lib/main-nav.ts).
+  const isEmployer = profile?.role === "employer";
+
   return (
     <div>
       {/* Hero */}
@@ -80,21 +86,49 @@ export default async function HomePage() {
                 La app peruana de empleos temporales
               </span>
             </Reveal>
-            <Reveal delay={0.05}>
-              <h1 className="text-balance mx-auto mt-5 max-w-3xl text-4xl font-extrabold leading-[1.1] tracking-tight text-ink sm:text-6xl lg:mx-0">
-                Conecta,{" "}
-                <span className="bg-brand-gradient bg-clip-text text-transparent">chambea</span> y
-                cobra
-              </h1>
-            </Reveal>
-            <Reveal delay={0.1}>
-              <p className="text-balance mx-auto mt-5 max-w-xl text-base text-ink-muted sm:text-lg lg:mx-0">
-                Encuentra trabajos cerca de ti o publica gratis y contrata rápido y seguro, con
-                historial laboral y calificaciones reales.
-              </p>
-            </Reveal>
+            {isEmployer ? (
+              <>
+                <Reveal delay={0.05}>
+                  <h1 className="text-balance mx-auto mt-5 max-w-3xl text-4xl font-extrabold leading-[1.1] tracking-tight text-ink sm:text-6xl lg:mx-0">
+                    Encuentra a la{" "}
+                    <span className="bg-brand-gradient bg-clip-text text-transparent">
+                      persona que necesitas
+                    </span>
+                  </h1>
+                </Reveal>
+                <Reveal delay={0.1}>
+                  <p className="text-balance mx-auto mt-5 max-w-xl text-base text-ink-muted sm:text-lg lg:mx-0">
+                    Publica tu chamba y recibe postulantes de trabajadores verificados, con
+                    historial laboral y calificaciones reales.
+                  </p>
+                </Reveal>
+                <Reveal delay={0.15}>
+                  <div className="mx-auto mt-8 flex max-w-2xl flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start">
+                    <Link href="/jobs/new" className="btn-primary !px-7 !py-3 text-base">
+                      Publicar chamba
+                    </Link>
+                  </div>
+                </Reveal>
+              </>
+            ) : (
+              <>
+                <Reveal delay={0.05}>
+                  <h1 className="text-balance mx-auto mt-5 max-w-3xl text-4xl font-extrabold leading-[1.1] tracking-tight text-ink sm:text-6xl lg:mx-0">
+                    Conecta,{" "}
+                    <span className="bg-brand-gradient bg-clip-text text-transparent">chambea</span> y
+                    cobra
+                  </h1>
+                </Reveal>
+                <Reveal delay={0.1}>
+                  <p className="text-balance mx-auto mt-5 max-w-xl text-base text-ink-muted sm:text-lg lg:mx-0">
+                    Encuentra trabajos cerca de ti o publica gratis y contrata rápido y seguro, con
+                    historial laboral y calificaciones reales.
+                  </p>
+                </Reveal>
 
-            <HeroSearch />
+                <HeroSearch />
+              </>
+            )}
 
             <Reveal delay={0.2}>
               <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-semibold text-ink-muted lg:justify-start">
