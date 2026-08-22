@@ -31,6 +31,15 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
   const [category, setCategory] = useState(profile.category ?? "");
   const [skills, setSkills] = useState<string[]>(profile.skills ?? []);
 
+  // Fase B (perfil del trabajador): ocupación (category) y ciudad (city)
+  // son los dos únicos filtros estructurados del directorio de
+  // trabajadores (listPublicWorkers(), src/lib/actions/workers.ts) — sin
+  // ellos, el trabajador queda invisible ante cualquier búsqueda filtrada.
+  // Se calcula sobre el estado local (no sobre `profile` directamente)
+  // para que el aviso desaparezca en cuanto el trabajador complete el
+  // campo, sin esperar a guardar.
+  const isDiscoverabilityIncomplete = !category || !city;
+
   // Información profesional ampliada (Fase 1)
   const [professionalTitle, setProfessionalTitle] = useState(
     workerDetails?.professional_title ?? ""
@@ -97,7 +106,17 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="card p-5 sm:p-6">
-        <h3 className="mb-5 text-sm font-bold text-ink">Datos personales</h3>
+        <h3 className="mb-1 text-sm font-bold text-ink">Datos personales</h3>
+        <p className="mb-4 text-xs text-ink-muted">
+          Tu ciudad y tu ocupación son lo primero que revisan los empleadores en el
+          directorio de trabajadores.
+        </p>
+        {isDiscoverabilityIncomplete && (
+          <div className="mb-4 rounded-2xl border border-warning-200 bg-warning-50 p-3 text-xs font-medium text-warning-700">
+            Completa tu ocupación y tu ciudad para que los empleadores puedan
+            encontrarte en el directorio.
+          </div>
+        )}
         <div className="space-y-4">
           {/* Phone */}
           <div>

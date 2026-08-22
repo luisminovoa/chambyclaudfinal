@@ -98,3 +98,59 @@ describe("InfoTab — catálogo canónico de categoría (Fase A)", () => {
     expect(html).toContain('<option value="" selected="">Selecciona una especialidad</option>');
   });
 });
+
+describe("InfoTab — ciudad y aviso de completitud para el directorio (Fase B)", () => {
+  it("5) profile.city existente aparece como el value del <input id=\"city\">", () => {
+    const html = renderToStaticMarkup(
+      <InfoTab
+        profile={{ ...baseProfile, city: "Trujillo" }}
+        workerDetails={baseWorkerDetails}
+        onStatsChange={() => {}}
+      />
+    );
+    expect(html).toContain('<input id="city" type="text" class="input w-full" placeholder="Lima, Arequipa, Trujillo…" value="Trujillo"/>');
+  });
+
+  it("6) el campo city es editable: no está deshabilitado ni en solo lectura", () => {
+    const html = renderToStaticMarkup(
+      <InfoTab profile={baseProfile} workerDetails={baseWorkerDetails} onStatsChange={() => {}} />
+    );
+    const cityInputMatch = html.match(/<input id="city"[^>]*>/);
+    expect(cityInputMatch).not.toBeNull();
+    expect(cityInputMatch![0]).not.toContain("disabled");
+    expect(cityInputMatch![0]).not.toContain("readonly");
+  });
+
+  it("10) con category y city completos, NO aparece el aviso de completitud del directorio", () => {
+    const html = renderToStaticMarkup(
+      <InfoTab
+        profile={{ ...baseProfile, category: "Electricista", city: "Lima" }}
+        workerDetails={baseWorkerDetails}
+        onStatsChange={() => {}}
+      />
+    );
+    expect(html).not.toContain("Completa tu ocupación y tu ciudad");
+  });
+
+  it("con category vacía (city presente), SÍ aparece el aviso de completitud del directorio", () => {
+    const html = renderToStaticMarkup(
+      <InfoTab
+        profile={{ ...baseProfile, category: null, city: "Lima" }}
+        workerDetails={baseWorkerDetails}
+        onStatsChange={() => {}}
+      />
+    );
+    expect(html).toContain("Completa tu ocupación y tu ciudad");
+  });
+
+  it("con city vacía (category presente), SÍ aparece el aviso de completitud del directorio", () => {
+    const html = renderToStaticMarkup(
+      <InfoTab
+        profile={{ ...baseProfile, category: "Electricista", city: null }}
+        workerDetails={baseWorkerDetails}
+        onStatsChange={() => {}}
+      />
+    );
+    expect(html).toContain("Completa tu ocupación y tu ciudad");
+  });
+});

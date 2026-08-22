@@ -143,3 +143,33 @@ describe("expandCategoryAliases", () => {
     expect(expandCategoryAliases("Plomero")).toEqual(["Plomero"]);
   });
 });
+
+describe("expandCategoryAliases — Catálogo V2 (C1: Logística y almacén / Almacenero)", () => {
+  it("F) 'Logística y almacén' expande a ['Logística y almacén', 'Almacenero']", () => {
+    expect(expandCategoryAliases("Logística y almacén")).toEqual([
+      "Logística y almacén",
+      "Almacenero",
+    ]);
+  });
+
+  it("G) 'Almacenero' NUNCA se convierte en clave canónica — sigue devolviendo solo ['Almacenero']", () => {
+    expect(expandCategoryAliases("Almacenero")).toEqual(["Almacenero"]);
+  });
+
+  it("H) los 4 aliases anteriores siguen funcionando exactamente igual tras agregar el quinto", () => {
+    expect(expandCategoryAliases("Gasfitero")).toEqual(["Gasfitero", "Plomero"]);
+    expect(expandCategoryAliases("Niñera")).toEqual(["Niñera", "Niñera / Cuidador"]);
+    expect(expandCategoryAliases("Cocinero/a")).toEqual(["Cocinero/a", "Cocinero"]);
+    expect(expandCategoryAliases("Chofer")).toEqual(["Chofer", "Conductor"]);
+  });
+
+  it("I) 'Administrativo' (categoría nueva sin alias) no se contamina con ningún otro alias", () => {
+    expect(expandCategoryAliases("Administrativo")).toEqual(["Administrativo"]);
+  });
+
+  it("I) el alias de 'Logística y almacén' no se filtra hacia categorías sin relación", () => {
+    for (const c of ["Electricista", "Seguridad", "Otro"]) {
+      expect(expandCategoryAliases(c)).toEqual([c]);
+    }
+  });
+});

@@ -81,6 +81,12 @@ const CATEGORY_ALIASES: Record<string, string[]> = {
   Niñera: ["Niñera", "Niñera / Cuidador"],
   "Cocinero/a": ["Cocinero/a", "Cocinero"],
   Chofer: ["Chofer", "Conductor"],
+  // Catálogo V2 (C1): "Almacenero" fue un valor histórico de profiles.category
+  // anterior a la existencia de esta categoría — nunca se convierte en clave
+  // canónica ni obtiene su propia entrada aquí, solo se agrega como alias de
+  // "Logística y almacén" para que un empleador que filtra por la categoría
+  // canónica siga encontrando esos perfiles ya guardados, sin backfill.
+  "Logística y almacén": ["Logística y almacén", "Almacenero"],
 };
 
 /**
