@@ -13,7 +13,14 @@ interface UseChatRealtimeOptions {
   conversationId: string;
   userId: string;
   onMessage: (msg: Message) => void;
-  onMessageRead: (messageId: string) => void;
+  /**
+   * Cambió el cursor de lectura del OTRO participante (Fase C4-G8.2) —
+   * reemplaza el antiguo onMessageRead(messageId) basado en
+   * messages.read_at, que nunca se disparaba (sin política RLS UPDATE
+   * sobre messages, ver auditoría C4-G8/C4-G8.1). last_read_at es "leyó
+   * todo hasta este instante", no un mensaje puntual.
+   */
+  onReadReceipt: (lastReadAt: string) => void;
   onPresenceChange: (state: PresenceState) => void;
   onTypingChange: (isTyping: boolean) => void;
 }
@@ -22,7 +29,7 @@ export function useChatRealtime({
   conversationId,
   userId,
   onMessage,
-  onMessageRead,
+  onReadReceipt,
   onPresenceChange,
   onTypingChange,
 }: UseChatRealtimeOptions) {
@@ -79,18 +86,21 @@ export function useChatRealtime({
       }
     );
 
-    // Read receipts (our messages being marked read by the other party)
+    // Read receipts: cursor de lectura del otro participante (Fase
+    // C4-G8.2) — un upsert en conversation_read_cursors puede llegar como
+    // INSERT (primera vez) o UPDATE (siguientes), por eso "*" en vez de
+    // separar los dos eventos como antes.
     channel.on(
       "postgres_changes" as Parameters<typeof channel.on>[0],
       {
-        event: "UPDATE",
+        event: "*",
         schema: "public",
-        table: "messages",
+        table: "conversation_read_cursors",
         filter: `conversation_id=eq.${conversationId}`,
       },
-      (payload: { new: Message }) => {
-        if (payload.new.read_at && payload.new.sender_id === userId) {
-          onMessageRead(payload.new.id);
+      (payload: { new: { profile_id: string; last_read_at: string } }) => {
+        if (payload.new.profile_id !== userId) {
+          onReadReceipt(payload.new.last_read_at);
         }
       }
     );
@@ -147,7 +157,7 @@ export function useChatRealtime({
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [conversationId, userId, onMessage, onMessageRead, onPresenceChange, onTypingChange]);
+  }, [conversationId, userId, onMessage, onReadReceipt, onPresenceChange, onTypingChange]);
 
   return { isConnected, sendTypingSignal };
 }

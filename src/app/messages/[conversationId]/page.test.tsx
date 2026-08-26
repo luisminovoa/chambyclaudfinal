@@ -21,7 +21,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/components/chat/ChatWindow", () => ({
-  ChatWindow: () => <div data-testid="chat-window" />,
+  ChatWindow: ({ otherParticipantLastReadAt }: { otherParticipantLastReadAt: string | null }) => (
+    <div data-testid="chat-window" data-other-last-read-at={otherParticipantLastReadAt ?? ""} />
+  ),
 }));
 
 vi.mock("@/lib/actions/chat", () => ({
@@ -38,6 +40,7 @@ const baseData = {
   jobId: "job-1",
   jobTitle: "Electricista para local",
   jobStatus: "en_progreso" as const,
+  otherParticipantLastReadAt: null,
 };
 
 describe("/messages/[conversationId] — estado de la chamba en el header (Fase C4-G7B)", () => {
@@ -82,5 +85,14 @@ describe("/messages/[conversationId] — estado de la chamba en el header (Fase 
     const html = renderToStaticMarkup(await ConversationPage({ params: { conversationId: "conv-1" } }));
     expect(html).not.toContain("Ver chamba");
     expect(html).not.toContain("En progreso");
+  });
+
+  it("M. otherParticipantLastReadAt se reenvía a ChatWindow tal cual (Fase C4-G8.2)", async () => {
+    mockGetConversationForChat.mockResolvedValue({
+      ...baseData,
+      otherParticipantLastReadAt: "2024-01-01T10:00:00Z",
+    });
+    const html = renderToStaticMarkup(await ConversationPage({ params: { conversationId: "conv-1" } }));
+    expect(html).toContain('data-other-last-read-at="2024-01-01T10:00:00Z"');
   });
 });

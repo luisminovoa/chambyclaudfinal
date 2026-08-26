@@ -7,14 +7,32 @@ interface MessageBubbleProps {
   message: Message;
   isMine: boolean;
   isOptimistic?: boolean;
+  /** Cursor de lectura del OTRO participante (Fase C4-G8.2) — null si nunca leyó. */
+  otherParticipantLastReadAt: string | null;
 }
 
-function ReadStatus({ message, isMine }: { message: Message; isMine: boolean }) {
+/**
+ * "Leído"/"Enviado" para mensajes propios, derivado del cursor del otro
+ * participante (Fase C4-G8.2) — ya no de message.read_at, que nunca se
+ * actualizaba para usuarios reales (sin política RLS UPDATE sobre
+ * messages, ver auditoría C4-G8/C4-G8.1). Los mensajes recibidos nunca
+ * muestran este estado.
+ */
+function ReadStatus({
+  message,
+  isMine,
+  otherParticipantLastReadAt,
+}: {
+  message: Message;
+  isMine: boolean;
+  otherParticipantLastReadAt: string | null;
+}) {
   if (!isMine) return null;
   if (message.id.startsWith("optimistic-")) {
     return <Clock className="h-3 w-3 text-slate-400" aria-label="Enviando" />;
   }
-  if (message.read_at) {
+  const isRead = otherParticipantLastReadAt !== null && message.created_at <= otherParticipantLastReadAt;
+  if (isRead) {
     return <CheckCheck className="h-3.5 w-3.5 text-primary-400" aria-label="Leído" />;
   }
   return <CheckCheck className="h-3.5 w-3.5 text-slate-300" aria-label="Enviado" />;
@@ -63,7 +81,12 @@ function LocationContent({ metadata }: { metadata: Message["metadata"] }) {
   );
 }
 
-export function MessageBubble({ message, isMine, isOptimistic }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  isMine,
+  isOptimistic,
+  otherParticipantLastReadAt,
+}: MessageBubbleProps) {
   const time = format(new Date(message.created_at), "HH:mm");
 
   return (
@@ -102,7 +125,11 @@ export function MessageBubble({ message, isMine, isOptimistic }: MessageBubblePr
           ].join(" ")}
         >
           <time dateTime={message.created_at}>{time}</time>
-          <ReadStatus message={message} isMine={isMine} />
+          <ReadStatus
+            message={message}
+            isMine={isMine}
+            otherParticipantLastReadAt={otherParticipantLastReadAt}
+          />
         </div>
       </div>
     </div>

@@ -20,7 +20,16 @@ export default async function ConversationPage({ params }: Props) {
 
   if (!data) notFound();
 
-  const { otherUser, currentUserId, initialMessages, initialHasMore, jobTitle, jobId, jobStatus } = data;
+  const {
+    otherUser,
+    currentUserId,
+    initialMessages,
+    initialHasMore,
+    jobTitle,
+    jobId,
+    jobStatus,
+    otherParticipantLastReadAt,
+  } = data;
 
   if (!currentUserId) redirect(`/login?next=/messages/${params.conversationId}`);
 
@@ -68,6 +77,7 @@ export default async function ConversationPage({ params }: Props) {
           otherUser={otherUser}
           initialMessages={initialMessages}
           initialHasMore={initialHasMore}
+          otherParticipantLastReadAt={otherParticipantLastReadAt}
         />
       </div>
     </div>

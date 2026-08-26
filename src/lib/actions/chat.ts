@@ -92,26 +92,33 @@ export async function sendMessage(
   return { success: true, messageId: msg.id };
 }
 
-export async function markRead(conversationId: string): Promise<void> {
+/**
+ * Marca la conversación como leída hasta "ahora" para el usuario actual —
+ * única fuente de verdad de lectura (Fase C4-G8.2, tras la auditoría
+ * C4-G8/C4-G8.1: `messages.read_at` nunca tuvo política RLS UPDATE, así que
+ * el intento de actualizarlo aquí siempre afectaba 0 filas para usuarios
+ * reales; se elimina esa escritura muerta en vez de arreglar esa RLS).
+ * Requiere ser participante real de la conversación — antes no se
+ * verificaba, permitiendo crear/actualizar un cursor propio para una
+ * conversación ajena (H5, C4-G8).
+ */
+export async function markRead(conversationId: string): Promise<ActionResult> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) return { error: "Debes iniciar sesión." };
 
-  const now = new Date().toISOString();
-  await Promise.all([
-    supabase.from("conversation_read_cursors").upsert(
-      { conversation_id: conversationId, profile_id: user.id, last_read_at: now },
-      { onConflict: "conversation_id,profile_id" }
-    ),
-    supabase
-      .from("messages")
-      .update({ read_at: now })
-      .eq("conversation_id", conversationId)
-      .neq("sender_id", user.id)
-      .is("read_at", null),
-  ]);
+  const conv = await assertParticipant(supabase, conversationId, user.id);
+  if (!conv) return { error: "Sin permiso." };
+
+  const { error } = await supabase.from("conversation_read_cursors").upsert(
+    { conversation_id: conversationId, profile_id: user.id, last_read_at: new Date().toISOString() },
+    { onConflict: "conversation_id,profile_id" }
+  );
+
+  if (error) return { error: "No se pudo marcar como leído." };
+  return { success: true };
 }
 
 export async function getMessages(
@@ -336,10 +343,14 @@ export async function getConversations(): Promise<ConversationWithDetails[]> {
 
   const result = typedConvs.map((conv) => {
     const msgs = msgsByConv.get(conv.id) ?? [];
+    // Fuente única: conversation_read_cursors (Fase C4-G8.2). Sin cursor
+    // (conversación nunca abierta por este usuario), todo mensaje del otro
+    // participante cuenta como no leído — ya no se consulta
+    // messages.read_at, que nunca reflejó lecturas reales (ver C4-G8.1).
     const cursor = cursorMap.get(conv.id);
     const unreadCount = cursor
       ? msgs.filter((m) => m.sender_id !== user.id && m.created_at > cursor).length
-      : msgs.filter((m) => m.sender_id !== user.id && !m.read_at).length;
+      : msgs.filter((m) => m.sender_id !== user.id).length;
 
     return {
       ...conv,
@@ -463,6 +474,15 @@ export async function getConversationForChat(conversationId: string): Promise<{
   jobTitle: string | null;
   /** Estado real de jobs.status (Fase C4-G7B) — nunca un estado inventado para conversations. */
   jobStatus: JobStatus | null;
+  /**
+   * Cursor de lectura del OTRO participante (Fase C4-G8.2) — fuente única
+   * para el estado "Leído" por mensaje en MessageBubble. Nunca el cursor de
+   * un tercero: siempre el del participante distinto de currentUserId, en
+   * ESTA conversación, protegido por `cursors_select_participant` (el
+   * viewer ya es participante, RLS lo deja ver el cursor del otro). Null si
+   * ese participante nunca marcó la conversación como leída.
+   */
+  otherParticipantLastReadAt: string | null;
 } | null> {
   const supabase = createClient();
   const {
@@ -483,20 +503,27 @@ export async function getConversationForChat(conversationId: string): Promise<{
   // cliente admin con una lista blanca explícita: nunca select("*"), y
   // nunca phone/business_ruc — ChatWindow/PresenceBar (ambos Client
   // Components) reciben este objeto completo como prop.
-  const [{ data: otherProfile }, { data: jobData }, { data: msgRows }] = await Promise.all([
-    createAdminClient()
-      .from("profiles")
-      .select("id, full_name, avatar_url, role")
-      .eq("id", otherId)
-      .single(),
-    supabase.from("jobs").select("title, status").eq("id", conv.job_id).single(),
-    supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .limit(MESSAGES_PER_PAGE + 1),
-  ]);
+  const [{ data: otherProfile }, { data: jobData }, { data: msgRows }, { data: cursorRow }] =
+    await Promise.all([
+      createAdminClient()
+        .from("profiles")
+        .select("id, full_name, avatar_url, role")
+        .eq("id", otherId)
+        .single(),
+      supabase.from("jobs").select("title, status").eq("id", conv.job_id).single(),
+      supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(MESSAGES_PER_PAGE + 1),
+      supabase
+        .from("conversation_read_cursors")
+        .select("last_read_at")
+        .eq("conversation_id", conversationId)
+        .eq("profile_id", otherId)
+        .maybeSingle(),
+    ]);
 
   if (!otherProfile) return null;
 
@@ -512,5 +539,6 @@ export async function getConversationForChat(conversationId: string): Promise<{
     jobId: conv.job_id ?? null,
     jobTitle: job?.title ?? null,
     jobStatus: job?.status ?? null,
+    otherParticipantLastReadAt: (cursorRow as { last_read_at: string } | null)?.last_read_at ?? null,
   };
 }

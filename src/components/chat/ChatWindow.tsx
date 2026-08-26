@@ -16,6 +16,8 @@ interface ChatWindowProps {
   otherUser: ChatParticipant;
   initialMessages: Message[];
   initialHasMore: boolean;
+  /** Cursor de lectura del OTRO participante (Fase C4-G8.2) — null si nunca leyó. */
+  otherParticipantLastReadAt: string | null;
 }
 
 export function ChatWindow({
@@ -24,9 +26,13 @@ export function ChatWindow({
   otherUser,
   initialMessages,
   initialHasMore,
+  otherParticipantLastReadAt: initialOtherParticipantLastReadAt,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [hasMore, setHasMore] = useState(initialHasMore);
+  const [otherParticipantLastReadAt, setOtherParticipantLastReadAt] = useState<string | null>(
+    initialOtherParticipantLastReadAt
+  );
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [presence, setPresence] = useState<PresenceState>({ online: false, lastSeen: null });
@@ -82,17 +88,17 @@ export function ChatWindow({
     [conversationId, scrollToBottom]
   );
 
-  const handleMessageRead = useCallback((msgId: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === msgId ? { ...m, read_at: new Date().toISOString() } : m))
-    );
+  // Fase C4-G8.2: el cursor solo avanza — un evento desordenado o repetido
+  // nunca debe retroceder el estado "Leído" ya alcanzado.
+  const handleReadReceipt = useCallback((lastReadAt: string) => {
+    setOtherParticipantLastReadAt((prev) => (!prev || lastReadAt > prev ? lastReadAt : prev));
   }, []);
 
   const { isConnected, sendTypingSignal } = useChatRealtime({
     conversationId,
     userId: currentUserId,
     onMessage: handleNewMessage,
-    onMessageRead: handleMessageRead,
+    onReadReceipt: handleReadReceipt,
     onPresenceChange: setPresence,
     onTypingChange: setIsTyping,
   });
@@ -206,6 +212,7 @@ export function ChatWindow({
             messages={messages}
             currentUserId={currentUserId}
             isTyping={isTyping}
+            otherParticipantLastReadAt={otherParticipantLastReadAt}
           />
         </div>
 

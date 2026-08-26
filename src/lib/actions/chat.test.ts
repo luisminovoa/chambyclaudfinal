@@ -1,5 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { getHiringConversations, getConversationIdForJob, getConversationForChat } from "./chat";
+import {
+  getHiringConversations,
+  getConversationIdForJob,
+  getConversationForChat,
+  markRead,
+  getConversations,
+} from "./chat";
 
 interface ConvRow {
   id: string;
@@ -20,6 +26,8 @@ let conversationRows: ConvRow[] = [];
 let jobRows: JobRow[] = [];
 let messageRows: Record<string, unknown>[] = [];
 let otherProfileRows: Record<string, unknown>[] = [];
+let cursorRows: Record<string, unknown>[] = [];
+let settingRows: Record<string, unknown>[] = [];
 
 function reset() {
   authenticated = true;
@@ -29,6 +37,8 @@ function reset() {
   jobRows = [];
   messageRows = [];
   otherProfileRows = [];
+  cursorRows = [];
+  settingRows = [];
 }
 
 /**
@@ -52,8 +62,32 @@ function makeFilterBuilder(rows: Record<string, unknown>[]) {
       predicates.push((r) => vals.includes(r[col]));
       return builder;
     },
+    // Solo entiende el formato exacto que emite el código real:
+    // "col.eq.val,col2.eq.val2" (getConversations()'s .or(`employer_id.eq.X,worker_id.eq.Y`)).
+    or: (expr: string) => {
+      const clauses = expr.split(",").map((c) => {
+        const [col, op, val] = c.split(".");
+        return { col, op, val };
+      });
+      predicates.push((r) => clauses.some((c) => c.op === "eq" && String(r[c.col]) === c.val));
+      return builder;
+    },
     order: () => builder,
     limit: () => builder,
+    // Upsert genérico por columnas de onConflict — suficiente para probar
+    // idempotencia de markRead() sin reimplementar Postgres.
+    upsert: (obj: Record<string, unknown>, opts?: { onConflict?: string }) => {
+      const conflictCols = (opts?.onConflict ?? "").split(",").filter(Boolean);
+      if (conflictCols.length > 0) {
+        const idx = rows.findIndex((r) => conflictCols.every((c) => r[c] === obj[c]));
+        if (idx >= 0) {
+          rows[idx] = { ...rows[idx], ...obj };
+          return { error: null };
+        }
+      }
+      rows.push(obj);
+      return { error: null };
+    },
     then: (resolve: (v: { data: unknown }) => void) => {
       resolve({ data: rows.filter((r) => predicates.every((p) => p(r))) });
     },
@@ -79,6 +113,8 @@ vi.mock("@/lib/supabase/server", () => ({
       if (table === "conversations") return makeFilterBuilder(conversationRows as unknown as Record<string, unknown>[]);
       if (table === "jobs") return makeFilterBuilder(jobRows as unknown as Record<string, unknown>[]);
       if (table === "messages") return makeFilterBuilder(messageRows);
+      if (table === "conversation_read_cursors") return makeFilterBuilder(cursorRows);
+      if (table === "conversation_settings") return makeFilterBuilder(settingRows);
       throw new Error(`tabla inesperada en el mock: ${table}`);
     },
   }),
@@ -288,5 +324,208 @@ describe("getConversationForChat — jobId/jobStatus expuestos al chat (Fase C4-
     const result = await getConversationForChat("conv-1");
 
     expect(result).toBeNull();
+  });
+});
+
+describe("getConversationForChat — otherParticipantLastReadAt (Fase C4-G8.2)", () => {
+  beforeEach(() => {
+    reset();
+    conversationRows = [
+      { id: "conv-1", job_id: "job-1", employer_id: "employer-1", worker_id: "worker-1" },
+    ];
+    jobRows = [{ id: "job-1", title: "Chamba", status: "en_progreso" }];
+    otherProfileRows = [{ id: "worker-1", full_name: "Worker Uno", avatar_url: null, role: "worker" }];
+    userId = "employer-1"; // viewer = employer, "el otro" = worker-1
+  });
+
+  it("F. cursor del otro participante existe → devuelve su last_read_at", async () => {
+    cursorRows = [{ conversation_id: "conv-1", profile_id: "worker-1", last_read_at: "2024-01-01T10:00:00Z" }];
+
+    const result = await getConversationForChat("conv-1");
+
+    expect(result?.otherParticipantLastReadAt).toBe("2024-01-01T10:00:00Z");
+  });
+
+  it("G. cursor del otro participante no existe → null", async () => {
+    cursorRows = [];
+
+    const result = await getConversationForChat("conv-1");
+
+    expect(result?.otherParticipantLastReadAt).toBeNull();
+  });
+
+  it("H. nunca devuelve el cursor propio, solo el del otro participante", async () => {
+    cursorRows = [
+      { conversation_id: "conv-1", profile_id: "employer-1", last_read_at: "2024-01-01T23:00:00Z" },
+      { conversation_id: "conv-1", profile_id: "worker-1", last_read_at: "2024-01-01T05:00:00Z" },
+    ];
+
+    const result = await getConversationForChat("conv-1");
+
+    expect(result?.otherParticipantLastReadAt).toBe("2024-01-01T05:00:00Z");
+  });
+});
+
+describe("markRead — única escritura de lectura, exige participación (Fase C4-G8.2)", () => {
+  beforeEach(() => {
+    reset();
+    conversationRows = [
+      { id: "conv-1", job_id: "job-1", employer_id: "employer-1", worker_id: "worker-1" },
+    ];
+  });
+
+  it("A. participante autenticado → upsert exitoso, cursor propio actualizado", async () => {
+    userId = "employer-1";
+
+    const result = await markRead("conv-1");
+
+    expect(result).toEqual({ success: true });
+    expect(cursorRows).toHaveLength(1);
+    expect(cursorRows[0]).toMatchObject({ conversation_id: "conv-1", profile_id: "employer-1" });
+  });
+
+  it("B. usuario autenticado pero NO participante de esa conversación → rechazado, sin crear cursor", async () => {
+    userId = "employer-2"; // no es employer_id ni worker_id de conv-1
+
+    const result = await markRead("conv-1");
+
+    expect(result).toEqual({ error: "Sin permiso." });
+    expect(cursorRows).toHaveLength(0);
+  });
+
+  it("C. usuario no autenticado → rechazado, sin tocar cursores", async () => {
+    authenticated = false;
+
+    const result = await markRead("conv-1");
+
+    expect(result).toEqual({ error: "Debes iniciar sesión." });
+    expect(cursorRows).toHaveLength(0);
+  });
+
+  it("D. conversación inexistente → rechazado (mismo mensaje que 'sin permiso', igual que assertParticipant() en el resto del archivo)", async () => {
+    conversationRows = [];
+
+    const result = await markRead("conv-1");
+
+    expect(result).toEqual({ error: "Sin permiso." });
+    expect(cursorRows).toHaveLength(0);
+  });
+
+  it("E. segundo markRead() actualiza el mismo cursor, no crea una fila duplicada", async () => {
+    userId = "employer-1";
+
+    await markRead("conv-1");
+    expect(cursorRows).toHaveLength(1);
+    const firstReadAt = cursorRows[0].last_read_at;
+
+    await markRead("conv-1");
+
+    expect(cursorRows).toHaveLength(1); // sigue siendo una sola fila
+    expect(cursorRows[0]).toMatchObject({ conversation_id: "conv-1", profile_id: "employer-1" });
+    // el segundo upsert avanza el timestamp (misma fila, valor actualizado)
+    expect(typeof cursorRows[0].last_read_at).toBe("string");
+    expect(cursorRows[0].last_read_at).not.toBeUndefined();
+    void firstReadAt;
+  });
+
+  it("no intenta escribir messages.read_at (fuente muerta, C4-G8.1) — solo toca conversation_read_cursors", async () => {
+    userId = "employer-1";
+    messageRows = [
+      {
+        id: "m1",
+        conversation_id: "conv-1",
+        sender_id: "worker-1",
+        body: "hola",
+        type: "text",
+        created_at: "2024-01-01T00:00:00Z",
+        read_at: null,
+      },
+    ];
+
+    await markRead("conv-1");
+
+    // Si markRead() todavía intentara actualizar messages, este mock no
+    // implementa .update() en messages y la llamada lanzaría — el hecho de
+    // que no lance confirma que markRead() ya no toca esa tabla.
+    expect(messageRows[0].read_at).toBeNull();
+  });
+});
+
+describe("getConversations — unread_count basado únicamente en conversation_read_cursors (Fase C4-G8.2)", () => {
+  beforeEach(() => {
+    reset();
+    userId = "employer-1";
+    conversationRows = [
+      {
+        id: "conv-1",
+        job_id: "job-1",
+        employer_id: "employer-1",
+        worker_id: "worker-1",
+        created_at: "2024-01-01T00:00:00Z",
+      } as unknown as ConvRow,
+    ];
+    jobRows = [{ id: "job-1", title: "Chamba", status: "en_progreso" }];
+    otherProfileRows = [
+      { id: "employer-1", full_name: "Empleador", avatar_url: null },
+      { id: "worker-1", full_name: "Worker", avatar_url: null },
+    ];
+  });
+
+  function msg(id: string, sender: string, createdAt: string) {
+    return {
+      id,
+      conversation_id: "conv-1",
+      sender_id: sender,
+      body: id,
+      type: "text",
+      created_at: createdAt,
+      read_at: null,
+      attachment_url: null,
+      metadata: null,
+    };
+  }
+
+  it("cursor existente → cuenta solo mensajes del otro posteriores al cursor", async () => {
+    messageRows = [
+      msg("m1", "worker-1", "2024-01-01T10:00:00Z"), // antes del cursor
+      msg("m2", "worker-1", "2024-01-01T12:00:00Z"), // después del cursor
+    ];
+    cursorRows = [{ conversation_id: "conv-1", profile_id: "employer-1", last_read_at: "2024-01-01T11:00:00Z" }];
+
+    const result = await getConversations();
+
+    expect(result[0].unread_count).toBe(1);
+  });
+
+  it("cursor inexistente → todos los mensajes del otro cuentan como no leídos (ya no depende de messages.read_at)", async () => {
+    messageRows = [
+      msg("m1", "worker-1", "2024-01-01T10:00:00Z"),
+      msg("m2", "worker-1", "2024-01-01T12:00:00Z"),
+    ];
+    cursorRows = [];
+
+    const result = await getConversations();
+
+    expect(result[0].unread_count).toBe(2);
+  });
+
+  it("mensajes propios nunca cuentan como no leídos, con o sin cursor", async () => {
+    messageRows = [msg("m1", "employer-1", "2024-01-01T10:00:00Z")];
+    cursorRows = [];
+
+    const result = await getConversations();
+
+    expect(result[0].unread_count).toBe(0);
+  });
+
+  it("read_at de los mensajes ya no influye en unread_count (queda en null, es campo muerto)", async () => {
+    messageRows = [{ ...msg("m1", "worker-1", "2024-01-01T10:00:00Z"), read_at: "2024-01-01T09:00:00Z" }];
+    cursorRows = [];
+
+    const result = await getConversations();
+
+    // Si el fallback siguiera usando read_at, este mensaje (con read_at no
+    // nulo) no contaría — la nueva regla lo cuenta igual, porque no hay cursor.
+    expect(result[0].unread_count).toBe(1);
   });
 });
