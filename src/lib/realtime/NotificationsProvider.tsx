@@ -60,6 +60,13 @@ export function NotificationsProvider({
     if (!userId) return;
 
     const supabase = createClient();
+    const filter = `user_id=eq.${userId}`;
+    // [C4-G8.5J TEMP] G: userId y filtro exactos usados al crear el canal.
+    console.log("[C4-G8.5J TEMP] NotificationsProvider: creando canal", {
+      topic: `user:${userId}`,
+      userId,
+      filter,
+    });
     const channel = supabase.channel(`user:${userId}`);
 
     channel
@@ -69,15 +76,19 @@ export function NotificationsProvider({
           event: "INSERT",
           schema: "public",
           table: "notifications",
-          filter: `user_id=eq.${userId}`,
+          filter,
         },
         (payload) => {
+          // [C4-G8.5J TEMP] F: payload INSERT recibido realmente por el canal.
+          console.log("[C4-G8.5J TEMP] NotificationsProvider: postgres_changes payload recibido", payload);
           const n = payload.new as Notification;
           setUnreadCount((c) => c + 1);
           listenersRef.current.forEach((handler) => handler(n));
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
+        // [C4-G8.5J TEMP] B/C/D/E: status de la suscripción (SUBSCRIBED, CHANNEL_ERROR, TIMED_OUT, CLOSED).
+        console.log("[C4-G8.5J TEMP] NotificationsProvider: subscribe status", status, err ?? "");
         setIsConnected(status === "SUBSCRIBED");
       });
 
