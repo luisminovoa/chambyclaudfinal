@@ -4,6 +4,8 @@ import Link from "next/link";
 import { ChevronLeft, Briefcase } from "lucide-react";
 import { getConversationForChat } from "@/lib/actions/chat";
 import { ChatWindow } from "@/components/chat/ChatWindow";
+import { Badge, jobStatusTone } from "@/components/ui/Badge";
+import { jobStatusLabel } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Chat — Chamby",
@@ -18,7 +20,7 @@ export default async function ConversationPage({ params }: Props) {
 
   if (!data) notFound();
 
-  const { otherUser, currentUserId, initialMessages, initialHasMore, jobTitle } = data;
+  const { otherUser, currentUserId, initialMessages, initialHasMore, jobTitle, jobId, jobStatus } = data;
 
   if (!currentUserId) redirect(`/login?next=/messages/${params.conversationId}`);
 
@@ -37,9 +39,22 @@ export default async function ConversationPage({ params }: Props) {
         {jobTitle && (
           <>
             <span className="text-slate-300">/</span>
-            <span className="flex min-w-0 items-center gap-1.5 truncate text-sm text-ink-muted">
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-ink-muted">
               <Briefcase className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{jobTitle}</span>
+              <span className="min-w-0 truncate">{jobTitle}</span>
+              {jobStatus && (
+                <Badge tone={jobStatusTone(jobStatus)} className="shrink-0">
+                  {jobStatusLabel(jobStatus)}
+                </Badge>
+              )}
+              {jobId && (
+                <Link
+                  href={`/jobs/${jobId}`}
+                  className="shrink-0 text-xs font-semibold text-primary-600 hover:text-primary-700"
+                >
+                  Ver chamba
+                </Link>
+              )}
             </span>
           </>
         )}

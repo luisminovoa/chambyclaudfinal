@@ -12,6 +12,7 @@ import type {
   ChatParticipant,
   Profile,
   Job,
+  JobStatus,
 } from "@/lib/types";
 
 const VALID_TYPES: MessageType[] = ["text", "image", "location", "pdf", "audio", "video"];
@@ -458,7 +459,10 @@ export async function getConversationForChat(conversationId: string): Promise<{
   currentUserId: string;
   initialMessages: Message[];
   initialHasMore: boolean;
+  jobId: string | null;
   jobTitle: string | null;
+  /** Estado real de jobs.status (Fase C4-G7B) — nunca un estado inventado para conversations. */
+  jobStatus: JobStatus | null;
 } | null> {
   const supabase = createClient();
   const {
@@ -485,7 +489,7 @@ export async function getConversationForChat(conversationId: string): Promise<{
       .select("id, full_name, avatar_url, role")
       .eq("id", otherId)
       .single(),
-    supabase.from("jobs").select("title").eq("id", conv.job_id).single(),
+    supabase.from("jobs").select("title, status").eq("id", conv.job_id).single(),
     supabase
       .from("messages")
       .select("*")
@@ -498,12 +502,15 @@ export async function getConversationForChat(conversationId: string): Promise<{
 
   const rows = (msgRows as unknown as Message[]) ?? [];
   const hasMore = rows.length > MESSAGES_PER_PAGE;
+  const job = jobData as unknown as { title: string; status: JobStatus } | null;
 
   return {
     otherUser: otherProfile as unknown as ChatParticipant,
     currentUserId: user.id,
     initialMessages: rows.slice(0, MESSAGES_PER_PAGE).reverse(),
     initialHasMore: hasMore,
-    jobTitle: (jobData as unknown as { title: string } | null)?.title ?? null,
+    jobId: conv.job_id ?? null,
+    jobTitle: job?.title ?? null,
+    jobStatus: job?.status ?? null,
   };
 }

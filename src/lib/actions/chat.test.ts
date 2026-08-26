@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { getHiringConversations, getConversationIdForJob } from "./chat";
+import { getHiringConversations, getConversationIdForJob, getConversationForChat } from "./chat";
 
 interface ConvRow {
   id: string;
@@ -10,6 +10,7 @@ interface ConvRow {
 interface JobRow {
   id: string;
   title: string;
+  status?: string;
 }
 
 let authenticated = true;
@@ -17,6 +18,8 @@ let userId = "employer-1";
 let viewerRole: string | null = "employer";
 let conversationRows: ConvRow[] = [];
 let jobRows: JobRow[] = [];
+let messageRows: Record<string, unknown>[] = [];
+let otherProfileRows: Record<string, unknown>[] = [];
 
 function reset() {
   authenticated = true;
@@ -24,6 +27,8 @@ function reset() {
   viewerRole = "employer";
   conversationRows = [];
   jobRows = [];
+  messageRows = [];
+  otherProfileRows = [];
 }
 
 /**
@@ -48,6 +53,7 @@ function makeFilterBuilder(rows: Record<string, unknown>[]) {
       return builder;
     },
     order: () => builder,
+    limit: () => builder,
     then: (resolve: (v: { data: unknown }) => void) => {
       resolve({ data: rows.filter((r) => predicates.every((p) => p(r))) });
     },
@@ -72,7 +78,14 @@ vi.mock("@/lib/supabase/server", () => ({
       if (table === "profiles") return makeFilterBuilder([{ id: userId, role: viewerRole }]);
       if (table === "conversations") return makeFilterBuilder(conversationRows as unknown as Record<string, unknown>[]);
       if (table === "jobs") return makeFilterBuilder(jobRows as unknown as Record<string, unknown>[]);
+      if (table === "messages") return makeFilterBuilder(messageRows);
       throw new Error(`tabla inesperada en el mock: ${table}`);
+    },
+  }),
+  createAdminClient: () => ({
+    from: (table: string) => {
+      if (table === "profiles") return makeFilterBuilder(otherProfileRows);
+      throw new Error(`tabla inesperada en el mock admin: ${table}`);
     },
   }),
 }));
@@ -210,5 +223,70 @@ describe("getConversationIdForJob — un job puntual (Fase C4-G6, AssignedWorker
   it("11. nunca crea una conversación: solo lee, resuelve null sin insertar nada", async () => {
     conversationRows = [];
     await expect(getConversationIdForJob("job-1")).resolves.toBeNull();
+  });
+});
+
+describe("getConversationForChat — jobId/jobStatus expuestos al chat (Fase C4-G7B)", () => {
+  beforeEach(() => {
+    reset();
+    conversationRows = [
+      { id: "conv-1", job_id: "job-1", employer_id: "employer-1", worker_id: "worker-1" },
+    ];
+    otherProfileRows = [{ id: "worker-1", full_name: "Worker Uno", avatar_url: null, role: "worker" }];
+  });
+
+  it("A. devuelve jobId y jobStatus reales de jobs.status, nunca un valor inventado", async () => {
+    jobRows = [{ id: "job-1", title: "Electricista para local", status: "en_progreso" }];
+
+    const result = await getConversationForChat("conv-1");
+
+    expect(result?.jobId).toBe("job-1");
+    expect(result?.jobStatus).toBe("en_progreso");
+    expect(result?.jobTitle).toBe("Electricista para local");
+  });
+
+  it("B. refleja completado sin alterar el flujo de mensajes (initialMessages sigue resolviendo)", async () => {
+    jobRows = [{ id: "job-1", title: "Electricista para local", status: "completado" }];
+    messageRows = [
+      {
+        id: "m1",
+        conversation_id: "conv-1",
+        sender_id: "worker-1",
+        type: "text",
+        body: "hola",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    const result = await getConversationForChat("conv-1");
+
+    expect(result?.jobStatus).toBe("completado");
+    expect(result?.initialMessages).toHaveLength(1);
+  });
+
+  it("C. refleja cancelado", async () => {
+    jobRows = [{ id: "job-1", title: "Electricista para local", status: "cancelado" }];
+
+    const result = await getConversationForChat("conv-1");
+
+    expect(result?.jobStatus).toBe("cancelado");
+  });
+
+  it("D. usuario no autenticado → null (sin exponer jobId/jobStatus)", async () => {
+    authenticated = false;
+    jobRows = [{ id: "job-1", title: "Electricista para local", status: "abierto" }];
+
+    const result = await getConversationForChat("conv-1");
+
+    expect(result).toBeNull();
+  });
+
+  it("E. usuario no participante de la conversación → null", async () => {
+    userId = "employer-2";
+    jobRows = [{ id: "job-1", title: "Electricista para local", status: "abierto" }];
+
+    const result = await getConversationForChat("conv-1");
+
+    expect(result).toBeNull();
   });
 });
