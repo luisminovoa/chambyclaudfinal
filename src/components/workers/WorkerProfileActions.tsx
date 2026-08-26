@@ -7,6 +7,8 @@ import { ArrowLeft, Check, X, MessageCircle, AlertCircle, Bookmark } from "lucid
 import { updateApplicationStatus } from "@/lib/actions/jobs";
 import { useToast } from "@/components/ui/Toaster";
 import { cn } from "@/lib/utils";
+import { HiringConversations } from "@/components/chat/HiringConversations";
+import type { HiringConversation } from "@/lib/actions/chat";
 
 // Mismo patrón que JobCardActions (src/components/JobCardActions.tsx) para
 // "guardar" un trabajo: bookmark client-only en localStorage, sin tabla
@@ -37,6 +39,14 @@ interface WorkerProfileActionsProps {
   conversationId: string | null;
   /** Solo el empleador dueño del job ve Aceptar/Rechazar — lo decide el server. */
   canManage: boolean;
+  /**
+   * Conversaciones existentes con este trabajador, resueltas por
+   * getHiringConversations() (Fase C4-G6) — solo se usan cuando NO hay
+   * jobId (llegada desde el directorio, sin contexto de una chamba
+   * puntual). Con jobId, el flujo existente (conversationId de ESE job)
+   * sigue mandando exactamente igual.
+   */
+  hiringConversations?: HiringConversation[];
 }
 
 export function WorkerProfileActions({
@@ -46,6 +56,7 @@ export function WorkerProfileActions({
   application,
   conversationId,
   canManage,
+  hiringConversations = [],
 }: WorkerProfileActionsProps) {
   const router = useRouter();
   const toast = useToast();
@@ -115,12 +126,14 @@ export function WorkerProfileActions({
         </Link>
       )}
 
-      {conversationId && (
+      {jobId && conversationId && (
         <Link href={`/messages/${conversationId}`} className="btn-secondary w-full justify-center">
           <MessageCircle className="h-4 w-4" />
-          Iniciar chat
+          💬 Abrir chat
         </Link>
       )}
+
+      {!jobId && <HiringConversations conversations={hiringConversations} />}
 
       <button
         type="button"

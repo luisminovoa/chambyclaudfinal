@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { getEmployerPublicProfile } from "@/lib/actions/employers";
+import { getHiringConversations } from "@/lib/actions/chat";
 import { EmployerPublicProfileView } from "@/components/employers/EmployerPublicProfileView";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Reveal } from "@/components/ui/Reveal";
@@ -14,9 +15,10 @@ interface EmployerProfilePageProps {
 }
 
 export default async function EmployerProfilePage({ params }: EmployerProfilePageProps) {
-  const [{ user }, data] = await Promise.all([
+  const [{ user }, data, hiringConversations] = await Promise.all([
     getCurrentUserAndProfile(),
     getEmployerPublicProfile(params.id),
+    getHiringConversations(params.id),
   ]);
 
   return (
@@ -33,7 +35,11 @@ export default async function EmployerProfilePage({ params }: EmployerProfilePag
         </Reveal>
       ) : (
         <Reveal>
-          <EmployerPublicProfileView data={data} viewerId={user?.id ?? null} />
+          <EmployerPublicProfileView
+            data={data}
+            viewerId={user?.id ?? null}
+            hiringConversations={hiringConversations}
+          />
         </Reveal>
       )}
     </div>

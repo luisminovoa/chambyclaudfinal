@@ -359,6 +359,100 @@ export async function getConversations(): Promise<ConversationWithDetails[]> {
   });
 }
 
+export interface HiringConversation {
+  conversationId: string;
+  jobId: string;
+  jobTitle: string;
+}
+
+/**
+ * Resuelve conversaciones EXISTENTES entre el usuario actual y otro perfil
+ * (Fase C4-G6) — nunca crea una. Se usa en /workers/[workerId] y
+ * /employers/[id] para ofrecer "Abrir chat" cuando ya existe una relación
+ * laboral real (contratación aceptada), sin depender de que la navegación
+ * traiga un jobId explícito.
+ *
+ * Seguridad: no se reimplementa ninguna regla de autorización nueva — se
+ * apoya enteramente en `conversations_select_participant`
+ * (0002_hiring_tracking.sql: `employer_id = auth.uid() or worker_id =
+ * auth.uid() or admin`) usando el cliente de SESIÓN, nunca admin. El
+ * filtro `.eq(employer_id/worker_id, ...)` de abajo es una optimización de
+ * negocio (evita traer conversaciones irrelevantes), no el límite de
+ * seguridad real: aunque se omitiera, RLS igual restringiría el resultado
+ * a filas donde auth.uid() participa — un viewer nunca puede obtener el
+ * conversationId de una conversación ajena por esta vía.
+ *
+ * "1 job = 1 conversation" (constraint `unique` en conversations.job_id,
+ * 0002_hiring_tracking.sql) es lo que permite que dos usuarios con varias
+ * chambas entre sí tengan varias filas aquí — nunca se elige una
+ * arbitrariamente, se devuelven TODAS para que el caller decida cómo
+ * mostrarlas (un solo botón vs. una lista).
+ */
+export async function getHiringConversations(
+  targetProfileId: string
+): Promise<HiringConversation[]> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || user.id === targetProfileId) return [];
+
+  const { data: viewerProfile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const role = (viewerProfile as { role: string } | null)?.role;
+
+  let query = supabase.from("conversations").select("id, job_id");
+  if (role === "employer") {
+    query = query.eq("employer_id", user.id).eq("worker_id", targetProfileId);
+  } else if (role === "worker") {
+    query = query.eq("worker_id", user.id).eq("employer_id", targetProfileId);
+  } else {
+    // admin u otro modo activo: no es parte de la relación laboral, no
+    // corresponde ofrecerle "Abrir chat" desde un perfil ajeno.
+    return [];
+  }
+
+  const { data: convRows } = await query.order("created_at", { ascending: false });
+  const rows = (convRows as { id: string; job_id: string }[] | null) ?? [];
+  if (rows.length === 0) return [];
+
+  const jobIds = rows.map((r) => r.job_id);
+  const { data: jobRows } = await supabase.from("jobs").select("id, title").in("id", jobIds);
+  const titleById = new Map(
+    ((jobRows as { id: string; title: string }[] | null) ?? []).map((j) => [j.id, j.title])
+  );
+
+  return rows.map((r) => ({
+    conversationId: r.id,
+    jobId: r.job_id,
+    jobTitle: titleById.get(r.job_id) ?? "Chamba",
+  }));
+}
+
+/**
+ * Resuelve el conversationId de UN job específico (Fase C4-G6) — usado por
+ * AssignedWorkerCard en /jobs/[id], donde el job ya es conocido y la
+ * relación "1 job = 1 conversation" (constraint unique en
+ * conversations.job_id) hace innecesario cualquier resolver más genérico.
+ * Mismo boundary de seguridad que el resto de este archivo: cliente de
+ * sesión, RLS de `conversations_select_participant` decide qué fila es
+ * visible — null tanto si no hay conversación como si el caller no es
+ * participante.
+ */
+export async function getConversationIdForJob(jobId: string): Promise<string | null> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase.from("conversations").select("id").eq("job_id", jobId).maybeSingle();
+  return (data as { id: string } | null)?.id ?? null;
+}
+
 export async function getConversationForChat(conversationId: string): Promise<{
   otherUser: ChatParticipant;
   currentUserId: string;

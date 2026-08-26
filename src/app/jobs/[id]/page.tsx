@@ -4,6 +4,7 @@ import Link from "next/link";
 import { MapPin, Wallet, CalendarDays, Users, FileText, ChevronRight, PartyPopper } from "lucide-react";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
+import { getConversationIdForJob } from "@/lib/actions/chat";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
 import { ApplyForm } from "@/components/ApplyForm";
@@ -78,7 +79,8 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   // que la RLS de 0034_harden_profiles_public_access.sql ya no permite
   // resolver para un tercero. Ver esa migración: la vista nunca expone
   // phone/business_ruc.
-  const [employerRes, employerRatingRes, stateHistoryRes, assignedWorkerRes] = await Promise.all([
+  const [employerRes, employerRatingRes, stateHistoryRes, assignedWorkerRes, assignedWorkerConversationId] =
+    await Promise.all([
     supabase
       .from("public_profiles")
       .select("id, full_name, avatar_url, city")
@@ -103,6 +105,13 @@ export default async function JobDetailPage({ params }: { params: { id: string }
           .eq("id", jobBase.assigned_worker_id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    // Fase C4-G6: "Abrir chat" en AssignedWorkerCard — solo tiene sentido
+    // consultarlo si hay trabajador asignado y el viewer es participante
+    // real del job (RLS de conversations igual lo exigiría, esto solo evita
+    // la consulta cuando ya sabemos que no aplica).
+    jobBase.assigned_worker_id && (isOwner || isAssignedWorker)
+      ? getConversationIdForJob(jobBase.id)
+      : Promise.resolve(null),
   ]);
 
   const typedJob: JobWithEmployer = {
@@ -353,7 +362,11 @@ export default async function JobDetailPage({ params }: { params: { id: string }
 
             {/* Trabajador asignado */}
             {assignedWorker && (isOwner || isAssignedWorker) && (
-              <AssignedWorkerCard worker={assignedWorker} rating={workerRating} />
+              <AssignedWorkerCard
+                worker={assignedWorker}
+                rating={workerRating}
+                conversationId={assignedWorkerConversationId}
+              />
             )}
 
             {/* Timeline de estados (solo para participantes) */}

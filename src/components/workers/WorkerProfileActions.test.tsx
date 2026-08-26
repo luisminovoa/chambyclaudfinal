@@ -38,11 +38,11 @@ describe("WorkerProfileActions — Guardar trabajador sin jobId (Fase C4-G5)", (
     expect(html).toContain("Guardar trabajador");
   });
 
-  it("B) con jobId=null, 'Iniciar chat' NO aparece", () => {
+  it("B) con jobId=null y sin hiringConversations, '💬 Abrir chat' NO aparece", () => {
     const html = renderToStaticMarkup(
       <WorkerProfileActions {...baseProps} jobId={null} conversationId={null} />
     );
-    expect(html).not.toContain("Iniciar chat");
+    expect(html).not.toContain("Abrir chat");
   });
 
   it("B) con jobId=null, 'Aceptar' NO aparece aunque canManage llegue en true (defensivo)", () => {
@@ -81,11 +81,12 @@ describe("WorkerProfileActions — comportamiento con jobId intacto (Fase C4-G5)
     expect(html).toContain("Guardar trabajador");
   });
 
-  it("D) con jobId válido y conversationId, 'Iniciar chat' sigue apareciendo", () => {
+  it("D) con jobId válido y conversationId, '💬 Abrir chat' sigue apareciendo (antes 'Iniciar chat', renombrado en C4-G6)", () => {
     const html = renderToStaticMarkup(
       <WorkerProfileActions {...baseProps} jobId="job-1" conversationId="conv-1" />
     );
-    expect(html).toContain("Iniciar chat");
+    expect(html).toContain("Abrir chat");
+    expect(html).toMatch(/<a href="\/messages\/conv-1"/);
   });
 
   it("D) con jobId válido, canManage=true y postulación pendiente, Aceptar/Rechazar siguen apareciendo", () => {
@@ -117,5 +118,62 @@ describe("WorkerProfileActions — comportamiento con jobId intacto (Fase C4-G5)
   it("con jobId válido, 'Volver a la publicación' sigue apareciendo", () => {
     const html = renderToStaticMarkup(<WorkerProfileActions {...baseProps} jobId="job-1" />);
     expect(html).toContain("Volver a la publicación");
+  });
+});
+
+describe("WorkerProfileActions — hiringConversations sin jobId (Fase C4-G6)", () => {
+  it("sin conversaciones, no muestra ningún botón de chat", () => {
+    const html = renderToStaticMarkup(
+      <WorkerProfileActions {...baseProps} jobId={null} hiringConversations={[]} />
+    );
+    expect(html).not.toContain("Abrir chat");
+  });
+
+  it("con una sola conversación, muestra un único '💬 Abrir chat' hacia esa conversación", () => {
+    const html = renderToStaticMarkup(
+      <WorkerProfileActions
+        {...baseProps}
+        jobId={null}
+        hiringConversations={[{ conversationId: "conv-1", jobId: "job-1", jobTitle: "Electricista para local" }]}
+      />
+    );
+    expect(html).toContain("💬 Abrir chat");
+    expect(html).toMatch(/<a href="\/messages\/conv-1"/);
+    // Con una sola conversación no se muestra la lista con título de chamba.
+    expect(html).not.toContain("Conversaciones");
+  });
+
+  it("con varias conversaciones, muestra una lista 'Conversaciones' con un botón por chamba — nunca elige una arbitrariamente", () => {
+    const html = renderToStaticMarkup(
+      <WorkerProfileActions
+        {...baseProps}
+        jobId={null}
+        hiringConversations={[
+          { conversationId: "conv-a", jobId: "job-a", jobTitle: "Chamba A" },
+          { conversationId: "conv-b", jobId: "job-b", jobTitle: "Chamba B" },
+        ]}
+      />
+    );
+    expect(html).toContain("Conversaciones");
+    expect(html).toContain("Chamba A");
+    expect(html).toContain("Chamba B");
+    expect(html).toMatch(/<a href="\/messages\/conv-a"/);
+    expect(html).toMatch(/<a href="\/messages\/conv-b"/);
+  });
+
+  it("con jobId presente, hiringConversations se ignora (el flujo de un job puntual manda)", () => {
+    const html = renderToStaticMarkup(
+      <WorkerProfileActions
+        {...baseProps}
+        jobId="job-1"
+        conversationId={null}
+        hiringConversations={[
+          { conversationId: "conv-a", jobId: "job-a", jobTitle: "Chamba A" },
+          { conversationId: "conv-b", jobId: "job-b", jobTitle: "Chamba B" },
+        ]}
+      />
+    );
+    expect(html).not.toContain("Conversaciones");
+    expect(html).not.toContain("Chamba A");
   });
 });
