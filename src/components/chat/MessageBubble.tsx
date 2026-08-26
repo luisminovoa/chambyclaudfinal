@@ -17,6 +17,15 @@ interface MessageBubbleProps {
  * actualizaba para usuarios reales (sin política RLS UPDATE sobre
  * messages, ver auditoría C4-G8/C4-G8.1). Los mensajes recibidos nunca
  * muestran este estado.
+ *
+ * Fase C4-G8.4: "Enviado" y "Leído" antes usaban el mismo ícono
+ * (CheckCheck), diferenciados solo por color — con primary-400 (violeta)
+ * sobre bg-primary-600 el contraste era tan bajo que "Leído" se percibía
+ * más apagado que "Enviado", al revés de lo esperado. Ahora "Enviado" usa
+ * un solo check (Check) y "Leído" usa el doble check (CheckCheck) en
+ * sky-300 — mismo tono "info" ya usado en esta app para chat/estado de
+ * chamba (jobStatusTone() en Badge.tsx), con contraste real contra el
+ * fondo violeta de la burbuja.
  */
 function ReadStatus({
   message,
@@ -33,9 +42,9 @@ function ReadStatus({
   }
   const isRead = otherParticipantLastReadAt !== null && message.created_at <= otherParticipantLastReadAt;
   if (isRead) {
-    return <CheckCheck className="h-3.5 w-3.5 text-primary-400" aria-label="Leído" />;
+    return <CheckCheck className="h-3.5 w-3.5 text-sky-300" aria-label="Leído" />;
   }
-  return <CheckCheck className="h-3.5 w-3.5 text-slate-300" aria-label="Enviado" />;
+  return <Check className="h-3.5 w-3.5 text-slate-300" aria-label="Enviado" />;
 }
 
 function ImageContent({ url, body }: { url: string; body: string }) {
