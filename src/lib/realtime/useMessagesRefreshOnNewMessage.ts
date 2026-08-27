@@ -3,15 +3,17 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useNotificationsContext } from "@/lib/realtime/NotificationsProvider";
-import { shouldRefreshForNotification } from "@/lib/realtime/messages-refresh-decision";
+import { shouldRefreshForNewMessage } from "@/lib/realtime/messages-refresh-decision";
 
 /**
- * Refresca los Server Components de la ruta actual cuando llega una
- * notificación "new_message" (Fase C4-G8.5) — reutiliza el canal único ya
- * existente en NotificationsProvider (topic `user:{userId}`, ya recibe
- * "new_message" de cualquier conversación, ver notify_new_message() en
- * 0004_notifications.sql). No abre ningún canal Realtime nuevo: subscribe()
- * solo agrega un callback más al Set ya existente del Provider.
+ * Refresca los Server Components de la ruta actual cuando llega un
+ * `messages` INSERT relevante (Fase C4-G8.5P) — reutiliza el canal único
+ * ya existente en NotificationsProvider (topic `user:{userId}`), que
+ * ahora también escucha `messages` sin filtro (protegido por
+ * `messages_select_participant`, comprobado funcionando con Realtime, a
+ * diferencia de `notifications` — ver auditoría C4-G8.5B-N). No abre
+ * ningún canal Realtime nuevo: subscribeToNewMessages() solo agrega un
+ * callback más al Set ya existente del Provider.
  *
  * router.refresh() vuelve a ejecutar getConversations()/
  * getMessagesUnreadCount() en el servidor (Server Components, sin caché
@@ -22,15 +24,21 @@ import { shouldRefreshForNotification } from "@/lib/realtime/messages-refresh-de
  */
 export function useMessagesRefreshOnNewMessage() {
   const router = useRouter();
-  const { subscribe } = useNotificationsContext();
+  const { subscribeToNewMessages } = useNotificationsContext();
   const lastRefreshRef = useRef(0);
 
   useEffect(() => {
-    return subscribe((n) => {
+    return subscribeToNewMessages(() => {
       const now = Date.now();
-      if (!shouldRefreshForNotification(n, lastRefreshRef.current, now)) return;
+      if (!shouldRefreshForNewMessage(lastRefreshRef.current, now)) {
+        // eslint-disable-next-line no-console -- C4-G8.5Q: diagnóstico temporal, retirar tras obtener evidencia
+        console.log("[C4-G8.5Q TEMP] refresh bloqueado por debounce");
+        return;
+      }
       lastRefreshRef.current = now;
+      // eslint-disable-next-line no-console -- C4-G8.5Q TEMP
+      console.log("[C4-G8.5Q TEMP] router.refresh ejecutado");
       router.refresh();
     });
-  }, [subscribe, router]);
+  }, [subscribeToNewMessages, router]);
 }
