@@ -29,6 +29,11 @@ export interface Profile {
   business_description: string | null;
   business_ruc: string | null;
   district: string | null;
+  // Ubicación jerárquica Perú (Fase 1, ver src/lib/ubigeo.ts) — nullable:
+  // `city` sigue siendo la fuente de verdad para perfiles que aún no
+  // guardaron con el nuevo LocationSelector.
+  department: string | null;
+  province: string | null;
 }
 
 /**
@@ -140,6 +145,11 @@ export interface Job {
   description: string;
   category: string;
   city: string;
+  // Ubicación jerárquica Perú (Fase 1, ver src/lib/ubigeo.ts) — nullable:
+  // trabajos publicados antes de esta fase no la tienen.
+  department: string | null;
+  province: string | null;
+  district: string | null;
   address: string | null;
   pay_amount: number | null;
   pay_type: PayType;
@@ -504,6 +514,10 @@ export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
 export interface WorkerProfileDetails {
   profile_id: string;
   professional_title: string | null;
+  // Fase 1 (ubicación jerárquica): la ubicación estructurada del
+  // trabajador vive en profiles.department/province/district (igual que
+  // el empleador) — este district queda congelado en su valor histórico,
+  // ver InfoTab.tsx.
   district: string | null;
   address: string | null;
   birth_date: string | null;

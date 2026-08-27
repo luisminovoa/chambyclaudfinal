@@ -6,7 +6,7 @@ import { updateProfile, upsertWorkerProfileDetails } from "@/lib/actions/profile
 import { refreshProfileStats } from "@/lib/profile-stats";
 import { SkillsSelector } from "@/components/profile/SkillsSelector";
 import { CATEGORY_NAMES } from "@/lib/categories";
-import { CITY_NAMES, normalizeCity } from "@/lib/cities";
+import { LocationSelector, type LocationValue } from "@/components/ui/LocationSelector";
 import type { Profile, WorkerProfileDetails, AvailabilityStatus, ProfileStats } from "@/lib/types";
 
 const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
@@ -28,28 +28,31 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
 
   const [bio, setBio] = useState(profile.bio ?? "");
   const [phone, setPhone] = useState(profile.phone ?? "");
-  // normalizeCity(): compatibilidad con valores históricos de profiles.city
-  // que no coinciden exactamente con CITY_NAMES (p. ej. "CHICLAYO") — solo
-  // afecta qué opción se muestra seleccionada en el <select>, nunca se
-  // escribe en BD hasta que el usuario guarda explícitamente (Fase C4-D).
-  const [city, setCity] = useState(normalizeCity(profile.city) ?? "");
+  // Fase 1 (ubicación jerárquica): reemplaza el <select> limitado a
+  // Chiclayo/Trujillo (profile.city) y el distrito de texto libre — ahora
+  // profile.department/province/district, validados contra el catálogo
+  // completo de Perú (src/lib/ubigeo.ts).
+  const [location, setLocation] = useState<LocationValue>({
+    department: profile.department ?? "",
+    province: profile.province ?? "",
+    district: profile.district ?? "",
+  });
   const [category, setCategory] = useState(profile.category ?? "");
   const [skills, setSkills] = useState<string[]>(profile.skills ?? []);
 
-  // Fase B (perfil del trabajador): ocupación (category) y ciudad (city)
-  // son los dos únicos filtros estructurados del directorio de
-  // trabajadores (listPublicWorkers(), src/lib/actions/workers.ts) — sin
-  // ellos, el trabajador queda invisible ante cualquier búsqueda filtrada.
-  // Se calcula sobre el estado local (no sobre `profile` directamente)
-  // para que el aviso desaparezca en cuanto el trabajador complete el
-  // campo, sin esperar a guardar.
-  const isDiscoverabilityIncomplete = !category || !city;
+  // Fase B (perfil del trabajador): ocupación (category) y ubicación son
+  // los filtros estructurados del directorio de trabajadores
+  // (listPublicWorkers(), src/lib/actions/workers.ts) — sin ellos, el
+  // trabajador queda invisible ante cualquier búsqueda filtrada. Se
+  // calcula sobre el estado local (no sobre `profile` directamente) para
+  // que el aviso desaparezca en cuanto el trabajador complete el campo,
+  // sin esperar a guardar.
+  const isDiscoverabilityIncomplete = !category || !location.department;
 
   // Información profesional ampliada (Fase 1)
   const [professionalTitle, setProfessionalTitle] = useState(
     workerDetails?.professional_title ?? ""
   );
-  const [district, setDistrict] = useState(workerDetails?.district ?? "");
   const [address, setAddress] = useState(workerDetails?.address ?? "");
   const [birthDate, setBirthDate] = useState(workerDetails?.birth_date ?? "");
   const [whatsapp, setWhatsapp] = useState(workerDetails?.whatsapp ?? "");
@@ -75,13 +78,20 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
     const fd = new FormData();
     fd.set("bio", bio);
     fd.set("phone", phone);
-    fd.set("city", city);
+    // `city` se deriva de la provincia elegida — mantiene compatible el
+    // filtro de ciudad existente del directorio de trabajadores
+    // (listPublicWorkers(), limitado hoy a CITY_NAMES) sin pedirle al
+    // trabajador un campo redundante. `department`/`province`/`district`
+    // los valida updateProfile() contra el catálogo completo.
+    fd.set("city", location.province);
+    fd.set("department", location.department);
+    fd.set("province", location.province);
+    fd.set("district", location.district);
     fd.set("category", category);
     fd.set("skills", skills.join(","));
 
     const detailsFd = new FormData();
     detailsFd.set("professional_title", professionalTitle);
-    detailsFd.set("district", district);
     detailsFd.set("address", address);
     detailsFd.set("birth_date", birthDate);
     detailsFd.set("whatsapp", whatsapp);
@@ -113,12 +123,12 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
       <div className="card p-5 sm:p-6">
         <h3 className="mb-1 text-sm font-bold text-ink">Datos personales</h3>
         <p className="mb-4 text-xs text-ink-muted">
-          Tu ciudad y tu ocupación son lo primero que revisan los empleadores en el
+          Tu ubicación y tu ocupación son lo primero que revisan los empleadores en el
           directorio de trabajadores.
         </p>
         {isDiscoverabilityIncomplete && (
           <div className="mb-4 rounded-2xl border border-warning-200 bg-warning-50 p-3 text-xs font-medium text-warning-700">
-            Completa tu ocupación y tu ciudad para que los empleadores puedan
+            Completa tu ocupación y tu ubicación para que los empleadores puedan
             encontrarte en el directorio.
           </div>
         )}
@@ -138,25 +148,16 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
             />
           </div>
 
-          {/* City */}
+          {/* Ubicación (Fase 1: departamento → provincia → distrito) */}
           <div>
-            <label htmlFor="city" className="label">
-              Ciudad
-            </label>
-            <select
-              id="city"
-              name="city"
-              className="input w-full"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-            >
-              <option value="">Selecciona tu ciudad</option>
-              {CITY_NAMES.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
+            <p className="label">Ubicación</p>
+            <LocationSelector
+              idPrefix="worker-location"
+              department={location.department}
+              province={location.province}
+              district={location.district}
+              onChange={setLocation}
+            />
           </div>
 
           {/* Category */}
@@ -199,33 +200,18 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="district" className="label">
-                Distrito
-              </label>
-              <input
-                id="district"
-                type="text"
-                className="input w-full"
-                placeholder="Miraflores, Los Olivos…"
-                value={district}
-                onChange={(e) => setDistrict(e.target.value)}
-              />
-            </div>
-            <div>
-              <label htmlFor="whatsapp" className="label">
-                WhatsApp
-              </label>
-              <input
-                id="whatsapp"
-                type="tel"
-                className="input w-full"
-                placeholder="+51 999 999 999"
-                value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
-              />
-            </div>
+          <div>
+            <label htmlFor="whatsapp" className="label">
+              WhatsApp
+            </label>
+            <input
+              id="whatsapp"
+              type="tel"
+              className="input w-full"
+              placeholder="+51 999 999 999"
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+            />
           </div>
 
           <div>

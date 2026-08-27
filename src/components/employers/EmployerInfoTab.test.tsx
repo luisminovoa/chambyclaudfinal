@@ -1,14 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EmployerInfoTab } from "./EmployerInfoTab";
-import { CITY_NAMES } from "@/lib/cities";
 import { updateProfile } from "@/lib/actions/profile";
 import type { Profile } from "@/lib/types";
 
 // updateProfile() es una Server Action — se mockea para poder aserir que
-// renderizar EmployerInfoTab (sin disparar un submit real) nunca la
-// invoca, ni siquiera con datos históricos de ciudad que requieren
-// normalizeCity() (Fase C4-D).
+// renderizar EmployerInfoTab (sin disparar un submit real) nunca la invoca.
 vi.mock("@/lib/actions/profile", () => ({
   updateProfile: vi.fn(),
 }));
@@ -32,10 +29,12 @@ const baseProfile: Profile = {
   business_description: null,
   business_ruc: null,
   district: null,
+  department: null,
+  province: null,
 };
 
-describe("EmployerInfoTab — catálogo canónico de ciudad (Fase C4-C)", () => {
-  it("A) el campo ciudad renderiza como <select>, no como <input> de texto libre", () => {
+describe("EmployerInfoTab — ubicación jerárquica (Fase 1)", () => {
+  it("A) el campo de ubicación renderiza como LocationSelector (tres <select>), no como el <select> de ciudad limitado", () => {
     const html = renderToStaticMarkup(
       <EmployerInfoTab
         profile={baseProfile}
@@ -44,11 +43,13 @@ describe("EmployerInfoTab — catálogo canónico de ciudad (Fase C4-C)", () => 
         onStatsChange={() => {}}
       />
     );
-    expect(html).toMatch(/<select id="employer_city"/);
-    expect(html).not.toMatch(/<input id="employer_city"/);
+    expect(html).not.toMatch(/<select id="employer_city"/);
+    expect(html).not.toMatch(/<input id="employer_district"/);
+    // 3 <select> de LocationSelector + 1 de "Tipo de empleador".
+    expect((html.match(/<select/g) ?? []).length).toBe(4);
   });
 
-  it("B) las opciones del <select> son exactamente CITY_NAMES", () => {
+  it("B) el departamento ofrece el catálogo completo de Perú, no solo Chiclayo/Trujillo", () => {
     const html = renderToStaticMarkup(
       <EmployerInfoTab
         profile={baseProfile}
@@ -57,114 +58,41 @@ describe("EmployerInfoTab — catálogo canónico de ciudad (Fase C4-C)", () => 
         onStatsChange={() => {}}
       />
     );
-    for (const name of CITY_NAMES) {
-      expect(html).toContain(`>${name}</option>`);
+    for (const dep of ["Lambayeque", "La Libertad", "Lima", "Cusco", "Puno"]) {
+      expect(html).toContain(`>${dep}</option>`);
     }
   });
 
-  it("C) 'Chiclayo' es una opción seleccionable", () => {
+  it("C) profile.department/province/district existentes aparecen preseleccionados", () => {
     const html = renderToStaticMarkup(
       <EmployerInfoTab
-        profile={{ ...baseProfile, city: "Chiclayo" }}
+        profile={{ ...baseProfile, department: "La Libertad", province: "Trujillo", district: "Trujillo" }}
         rucVerified={false}
         onSaved={() => {}}
         onStatsChange={() => {}}
       />
     );
-    expect(html).toMatch(/<option[^>]*value="Chiclayo"[^>]*selected[^>]*>Chiclayo<\/option>/);
-  });
-
-  it("D) el valor existente de profile.city se refleja como seleccionado", () => {
-    const html = renderToStaticMarkup(
-      <EmployerInfoTab
-        profile={{ ...baseProfile, city: "Trujillo" }}
-        rucVerified={false}
-        onSaved={() => {}}
-        onStatsChange={() => {}}
-      />
-    );
+    expect(html).toMatch(/<option[^>]*value="La Libertad"[^>]*selected[^>]*>La Libertad<\/option>/);
     expect(html).toMatch(/<option[^>]*value="Trujillo"[^>]*selected[^>]*>Trujillo<\/option>/);
   });
 
-  it("E) el <select> conserva name=\"city\" — la misma columna/campo que updateProfile() ya lee", () => {
+  it("D) sin ubicación previa, los tres <select> parten vacíos (provincia/distrito deshabilitados)", () => {
     const html = renderToStaticMarkup(
       <EmployerInfoTab
-        profile={baseProfile}
+        profile={{ ...baseProfile, city: null, department: null, province: null, district: null }}
         rucVerified={false}
         onSaved={() => {}}
         onStatsChange={() => {}}
       />
     );
-    expect(html).toMatch(/<select[^>]*id="employer_city"[^>]*name="city"/);
+    const provinceSelect = html.match(/<select[^>]*name="province"[^>]*>/)?.[0] ?? "";
+    expect(provinceSelect).toContain("disabled=\"\"");
   });
 
-  it("la primera opción es un valor vacío con el texto 'Selecciona tu ciudad'", () => {
-    const html = renderToStaticMarkup(
-      <EmployerInfoTab
-        profile={baseProfile}
-        rucVerified={false}
-        onSaved={() => {}}
-        onStatsChange={() => {}}
-      />
-    );
-    expect(html).toContain('<option value="">Selecciona tu ciudad</option>');
-  });
-});
-
-describe("EmployerInfoTab — normalizeCity() con datos históricos (Fase C4-D)", () => {
-  it("'CHICLAYO' (Production) muestra 'Chiclayo' seleccionado, no el placeholder", () => {
-    const html = renderToStaticMarkup(
-      <EmployerInfoTab
-        profile={{ ...baseProfile, city: "CHICLAYO" }}
-        rucVerified={false}
-        onSaved={() => {}}
-        onStatsChange={() => {}}
-      />
-    );
-    expect(html).toMatch(/<option[^>]*value="Chiclayo"[^>]*selected[^>]*>Chiclayo<\/option>/);
-    expect(html).not.toMatch(/<option[^>]*value=""[^>]*selected[^>]*>Selecciona tu ciudad<\/option>/);
-  });
-
-  it("'Chiclayo' (ya canónico) muestra 'Chiclayo' seleccionado", () => {
-    const html = renderToStaticMarkup(
-      <EmployerInfoTab
-        profile={{ ...baseProfile, city: "Chiclayo" }}
-        rucVerified={false}
-        onSaved={() => {}}
-        onStatsChange={() => {}}
-      />
-    );
-    expect(html).toMatch(/<option[^>]*value="Chiclayo"[^>]*selected[^>]*>Chiclayo<\/option>/);
-  });
-
-  it("'Trujillo' muestra 'Trujillo' seleccionado", () => {
-    const html = renderToStaticMarkup(
-      <EmployerInfoTab
-        profile={{ ...baseProfile, city: "Trujillo" }}
-        rucVerified={false}
-        onSaved={() => {}}
-        onStatsChange={() => {}}
-      />
-    );
-    expect(html).toMatch(/<option[^>]*value="Trujillo"[^>]*selected[^>]*>Trujillo<\/option>/);
-  });
-
-  it("null muestra el placeholder 'Selecciona tu ciudad' seleccionado", () => {
-    const html = renderToStaticMarkup(
-      <EmployerInfoTab
-        profile={{ ...baseProfile, city: null }}
-        rucVerified={false}
-        onSaved={() => {}}
-        onStatsChange={() => {}}
-      />
-    );
-    expect(html).toMatch(/<option[^>]*value=""[^>]*selected[^>]*>Selecciona tu ciudad<\/option>/);
-  });
-
-  it("renderizar el formulario (sin submit) nunca dispara updateProfile, ni con 'CHICLAYO' que requiere normalización", () => {
+  it("E) renderizar el formulario (sin submit) nunca dispara updateProfile", () => {
     renderToStaticMarkup(
       <EmployerInfoTab
-        profile={{ ...baseProfile, city: "CHICLAYO" }}
+        profile={{ ...baseProfile, department: "Lambayeque", province: "Chiclayo" }}
         rucVerified={false}
         onSaved={() => {}}
         onStatsChange={() => {}}

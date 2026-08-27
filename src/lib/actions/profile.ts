@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { formatSupabaseError, formatUnknownError } from "@/lib/format-supabase-error";
+import { validateLocationInput } from "@/lib/ubigeo";
 import type {
   ProfilePhoto,
   VerificationDocument,
@@ -70,12 +71,27 @@ export async function updateProfile(formData: FormData): Promise<ActionResult> {
 
   // Identidad empresarial (0030) — mismo criterio de "opcional en el
   // FormData" que full_name: solo EmployerInfoTab.tsx los envía, así que
-  // InfoTab.tsx (worker) nunca los toca. `district` es la excepción: se
-  // trata como el resto de campos de "Información básica" (bio/phone/
-  // city), siempre presente en el FormData de quien lo envía.
+  // InfoTab.tsx (worker) nunca los toca. department/province/district
+  // (Fase 1, ubicación jerárquica) son la excepción: se tratan como el
+  // resto de campos de "Información básica" (bio/phone/city), siempre
+  // presentes en el FormData de quien los envía (hoy, solo
+  // EmployerInfoTab.tsx — InfoTab.tsx envía su propia ubicación por
+  // separado a upsertWorkerProfileDetails()). Se validan juntos contra el
+  // catálogo (src/lib/ubigeo.ts) porque el cliente nunca es una fuente de
+  // verdad confiable.
+  const departmentRaw = formData.get("department") as string | null;
+  const provinceRaw = formData.get("province") as string | null;
   const districtRaw = formData.get("district") as string | null;
-  if (districtRaw !== null) {
-    updates.district = districtRaw.trim() || null;
+  if (departmentRaw !== null || provinceRaw !== null || districtRaw !== null) {
+    const location = validateLocationInput({
+      department: departmentRaw,
+      province: provinceRaw,
+      district: districtRaw,
+    });
+    if ("error" in location) return { error: location.error };
+    updates.department = location.department;
+    updates.province = location.province;
+    updates.district = location.district;
   }
 
   const employerTypeRaw = formData.get("employer_type") as string | null;
@@ -714,7 +730,6 @@ export async function upsertWorkerProfileDetails(formData: FormData): Promise<Ac
   if (!user) return { error: "No autenticado." };
 
   const professional_title = (formData.get("professional_title") as string)?.trim() || null;
-  const district = (formData.get("district") as string)?.trim() || null;
   const address = (formData.get("address") as string)?.trim() || null;
   const birth_date = (formData.get("birth_date") as string) || null;
   const whatsapp = (formData.get("whatsapp") as string)?.trim() || null;
@@ -755,21 +770,33 @@ export async function upsertWorkerProfileDetails(formData: FormData): Promise<Ac
         .slice(0, 10)
     : [];
 
+  const upsertPayload: Record<string, unknown> = {
+    profile_id: user.id,
+    professional_title,
+    address,
+    birth_date,
+    whatsapp,
+    availability: availabilityRaw as AvailabilityStatus,
+    hourly_rate,
+    daily_rate,
+    years_experience,
+    languages,
+    work_radius_km,
+  };
+
+  // Fase 1 (ubicación jerárquica): la ubicación estructurada del
+  // trabajador ahora vive en profiles.department/province/district (ver
+  // updateProfile()) — InfoTab.tsx ya no envía `district` aquí. Se
+  // incluye SOLO si algún caller futuro lo envía explícitamente, para no
+  // sobrescribir con `null` el valor histórico de este `district` en
+  // cada guardado (que ya no pasa por este formulario).
+  const districtRaw = formData.get("district") as string | null;
+  if (districtRaw !== null) {
+    upsertPayload.district = districtRaw.trim() || null;
+  }
+
   try {
-    const { error } = await supabase.from("worker_profile_details").upsert({
-      profile_id: user.id,
-      professional_title,
-      district,
-      address,
-      birth_date,
-      whatsapp,
-      availability: availabilityRaw as AvailabilityStatus,
-      hourly_rate,
-      daily_rate,
-      years_experience,
-      languages,
-      work_radius_km,
-    });
+    const { error } = await supabase.from("worker_profile_details").upsert(upsertPayload);
 
     if (error) return { error: formatSupabaseError(error, "upsertWorkerProfileDetails") };
   } catch (err) {

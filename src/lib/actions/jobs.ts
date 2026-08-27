@@ -5,12 +5,18 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/actions/auth";
+import { validateLocationInput } from "@/lib/ubigeo";
 
 const jobSchema = z.object({
   title: z.string().min(5, "El título debe tener al menos 5 caracteres"),
   description: z.string().min(20, "La descripción debe tener al menos 20 caracteres"),
   category: z.string().min(2, "Indica un puesto o categoría"),
-  city: z.string().min(2, "Indica una ciudad"),
+  // Ubicación jerárquica Perú (Fase 1) — validación de existencia/pertenencia
+  // real contra el catálogo (src/lib/ubigeo.ts) ocurre después del parseo,
+  // zod aquí solo exige que los tres campos vengan no vacíos.
+  department: z.string().min(2, "Selecciona un departamento"),
+  province: z.string().min(2, "Selecciona una provincia"),
+  district: z.string().min(2, "Selecciona un distrito"),
   address: z.string().optional(),
   pay_amount: z.coerce.number().positive().optional().or(z.literal("")),
   pay_type: z.enum(["por_hora", "por_dia", "fijo"]),
@@ -29,7 +35,9 @@ export async function createJob(_prev: ActionResult, formData: FormData): Promis
     title: formData.get("title"),
     description: formData.get("description"),
     category: formData.get("category"),
-    city: formData.get("city"),
+    department: formData.get("department"),
+    province: formData.get("province"),
+    district: formData.get("district"),
     address: formData.get("address") || undefined,
     pay_amount: formData.get("pay_amount") || "",
     pay_type: formData.get("pay_type"),
@@ -40,12 +48,26 @@ export async function createJob(_prev: ActionResult, formData: FormData): Promis
     return { error: parsed.error.errors[0]?.message ?? "Datos inválidos" };
   }
 
-  const { pay_amount, ...rest } = parsed.data;
+  const { pay_amount, department, province, district, ...rest } = parsed.data;
+
+  const location = validateLocationInput({ department, province, district });
+  if ("error" in location) return { error: location.error };
+  if (!location.department || !location.province || !location.district) {
+    return { error: "Selecciona departamento, provincia y distrito." };
+  }
 
   const { error, data } = await supabase
     .from("jobs")
     .insert({
       ...rest,
+      // `city` (NOT NULL) se mantiene por compatibilidad con el resto de
+      // la app (búsqueda, `idx_jobs_city`, JobCard, etc.) — se refleja
+      // desde el distrito, el nivel más específico ya elegido, en vez de
+      // pedirle al empleador un campo redundante.
+      city: location.district,
+      department: location.department,
+      province: location.province,
+      district: location.district,
       pay_amount: pay_amount === "" ? null : pay_amount,
       employer_id: user.id,
     })

@@ -130,8 +130,10 @@ describe("updateProfile() — reutilizada por EmployerInfoTab (worker e employer
     expect(state.updateCalls).toHaveLength(0);
   });
 
-  it("un employer puede actualizar su identidad empresarial (0030)", async () => {
+  it("un employer puede actualizar su identidad empresarial (0030) y su ubicación jerárquica (Fase 1)", async () => {
     const fd = new FormData();
+    fd.set("department", "Lima");
+    fd.set("province", "Lima");
     fd.set("district", "Los Olivos");
     fd.set("employer_type", "company");
     fd.set("business_name", "Ferretería Don Jose SAC");
@@ -143,6 +145,8 @@ describe("updateProfile() — reutilizada por EmployerInfoTab (worker e employer
 
     expect(result).toEqual({ success: true });
     expect(state.updateCalls[0].payload).toMatchObject({
+      department: "Lima",
+      province: "Lima",
       district: "Los Olivos",
       employer_type: "company",
       business_name: "Ferretería Don Jose SAC",
@@ -196,5 +200,46 @@ describe("updateProfile() — reutilizada por EmployerInfoTab (worker e employer
     expect(state.updateCalls[0].payload).not.toHaveProperty("business_name");
     expect(state.updateCalls[0].payload).not.toHaveProperty("business_ruc");
     expect(state.updateCalls[0].payload).not.toHaveProperty("district");
+    expect(state.updateCalls[0].payload).not.toHaveProperty("department");
+    expect(state.updateCalls[0].payload).not.toHaveProperty("province");
+  });
+});
+
+describe("updateProfile() — ubicación jerárquica (Fase 1, validateLocationInput)", () => {
+  beforeEach(reset);
+
+  it("distrito enviado sin departamento/provincia se rechaza — ya no se acepta como texto libre", async () => {
+    const fd = new FormData();
+    fd.set("district", "Los Olivos");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ error: "Selecciona departamento y provincia antes del distrito." });
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("provincia que no pertenece al departamento indicado se rechaza (el cliente no es fuente de verdad)", async () => {
+    const fd = new FormData();
+    fd.set("department", "La Libertad");
+    fd.set("province", "Chiclayo");
+
+    const result = await updateProfile(fd);
+
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("solo departamento (sin provincia/distrito todavía) es válido — guardado progresivo", async () => {
+    const fd = new FormData();
+    fd.set("department", "Lambayeque");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload).toMatchObject({
+      department: "Lambayeque",
+      province: null,
+      district: null,
+    });
   });
 });
