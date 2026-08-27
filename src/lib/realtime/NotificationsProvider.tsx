@@ -416,6 +416,100 @@ export function NotificationsProvider({
     };
   }, [userId, isAdmin]);
 
+  // Fase C4-G8.5Z (experimento, temporal): canal `postgres_changes` de
+  // `messages` idéntico en binding a C4-G8.5R/U, pero cuyo `.subscribe()`
+  // se ejecuta DESPUÉS de confirmar sesión (`getSession()`) y de forzar
+  // explícitamente `realtime.setAuth(session.access_token)` — para
+  // comprobar si esperar la autenticación antes de suscribirse cambia la
+  // entrega del INSERT (ver hipótesis de carrera de C4-G8.5V/W/Y). Solo
+  // afecta a este canal aislado; no toca el `setAuth()` global ni los
+  // canales R/U/V.
+  const zExperimentRanRef = useRef(false);
+  useEffect(() => {
+    if (!userId || zExperimentRanRef.current) return;
+    zExperimentRanRef.current = true;
+
+    let cancelled = false;
+    const supabase = createClient();
+    let experimentChannel: ReturnType<typeof supabase.channel> | null = null;
+
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (cancelled) return;
+
+      if (!session || !session.access_token) {
+        // eslint-disable-next-line no-console -- C4-G8.5Z: diagnóstico temporal, retirar tras obtener evidencia
+        console.log("[C4-G8.5Z TEMP] no authenticated session", {
+          hasSession: Boolean(session),
+        });
+        return;
+      }
+
+      // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
+      console.log("[C4-G8.5Z TEMP] authenticated before channel", {
+        hasSession: true,
+        hasToken: Boolean((supabase.realtime as any).accessTokenValue),
+        timestamp: new Date().toISOString(),
+      });
+
+      await supabase.realtime.setAuth(session.access_token);
+
+      if (cancelled) return;
+
+      // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
+      console.log("[C4-G8.5Z TEMP] token set before subscribe", {
+        hasToken: Boolean((supabase.realtime as any).accessTokenValue),
+        timestamp: new Date().toISOString(),
+      });
+
+      experimentChannel = supabase
+        .channel(`c4-g8-5z-test-${userId}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages" },
+          (payload) => {
+            // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
+            console.log("[C4-G8.5Z TEMP] INSERT RECEIVED", {
+              messageId: payload.new?.id ?? null,
+              conversationId: payload.new?.conversation_id ?? null,
+              senderId: payload.new?.sender_id ?? null,
+              userId,
+            });
+          }
+        );
+
+      if (cancelled) {
+        supabase.removeChannel(experimentChannel);
+        experimentChannel = null;
+        return;
+      }
+
+      // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
+      console.log("[C4-G8.5Z TEMP] BEFORE SUBSCRIBE", {
+        hasToken: Boolean((supabase.realtime as any).accessTokenValue),
+        timestamp: new Date().toISOString(),
+      });
+
+      experimentChannel.subscribe((status, err) => {
+        // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
+        console.log("[C4-G8.5Z TEMP] SUBSCRIBE", {
+          status,
+          error: err?.message ?? null,
+        });
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      if (experimentChannel) {
+        supabase.removeChannel(experimentChannel);
+      }
+    };
+  }, [userId]);
+
   return (
     <NotificationsContext.Provider
       value={{ unreadCount, isConnected, bumpUnread, setUnreadCount, subscribe, subscribeToNewMessages }}
