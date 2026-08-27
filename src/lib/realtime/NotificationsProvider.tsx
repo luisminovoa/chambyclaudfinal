@@ -322,6 +322,13 @@ export function NotificationsProvider({
     // eslint-disable-next-line no-console -- C4-G8.5R: diagnóstico temporal, retirar tras obtener evidencia
     console.log("[C4-G8.5R TEMP] notifications channel created");
 
+    // eslint-disable-next-line no-console -- C4-G8.5Y: diagnóstico temporal, retirar tras obtener evidencia
+    console.log("[C4-G8.5Y TEMP] BEFORE SUBSCRIBE", {
+      channel: "notifications",
+      hasToken: Boolean((supabase.realtime as any).accessTokenValue),
+      timestamp: new Date().toISOString(),
+    });
+
     notificationsChannel.subscribe((status, err) => {
       // eslint-disable-next-line no-console -- C4-G8.5R TEMP
       console.log("[C4-G8.5R TEMP] notifications subscribe status", status, err ?? "");
@@ -385,6 +392,13 @@ export function NotificationsProvider({
         messageListenersRef.current.forEach((handler) => handler(msg));
       }
     );
+
+    // eslint-disable-next-line no-console -- C4-G8.5Y: diagnóstico temporal, retirar tras obtener evidencia
+    console.log("[C4-G8.5Y TEMP] BEFORE SUBSCRIBE", {
+      channel: "messages",
+      hasToken: Boolean((supabase.realtime as any).accessTokenValue),
+      timestamp: new Date().toISOString(),
+    });
 
     messagesChannel.subscribe((status, err) => {
       // eslint-disable-next-line no-console -- C4-G8.5R TEMP
