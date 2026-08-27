@@ -147,6 +147,46 @@ export function NotificationsProvider({
     })();
   }, [userId]);
 
+  // Fase C4-G8.5U (experimento de aislamiento, temporal): canal Realtime
+  // mínimo e independiente, sin ninguna otra lógica de la app (sin
+  // isOwnMessage, sin messageListenersRef, sin router.refresh, sin UI) —
+  // responde únicamente si postgres_changes entrega un INSERT real de
+  // public.messages a este navegador. Bloque autocontenido, removible sin
+  // afectar el resto del componente.
+  const experimentRanRef = useRef(false);
+  useEffect(() => {
+    if (!userId || experimentRanRef.current) return;
+    experimentRanRef.current = true;
+
+    const supabase = createClient();
+    const experimentChannel = supabase
+      .channel(`c4-g8-5u-test-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          // eslint-disable-next-line no-console -- C4-G8.5U: experimento temporal, retirar tras obtener evidencia
+          console.log("[C4-G8.5U TEMP] messages INSERT RECEIVED", {
+            id: payload.new?.id ?? null,
+            conversationId: payload.new?.conversation_id ?? null,
+            senderId: payload.new?.sender_id ?? null,
+            userId,
+          });
+        }
+      )
+      .subscribe((status, err) => {
+        // eslint-disable-next-line no-console -- C4-G8.5U TEMP
+        console.log("[C4-G8.5U TEMP] subscribe status", {
+          status,
+          error: err ? String(err) : null,
+        });
+      });
+
+    return () => {
+      supabase.removeChannel(experimentChannel);
+    };
+  }, [userId]);
+
   // Canal 1 — notifications. Sin cambios de arquitectura respecto a antes
   // de C4-G8.5R: sigue siendo el único canal `user:{userId}` de la app.
   useEffect(() => {
