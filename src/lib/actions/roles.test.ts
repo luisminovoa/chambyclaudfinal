@@ -30,7 +30,13 @@ interface State {
   profileRole: string;
   userRolesWrites: { op: "update" | "insert"; payload: unknown }[];
   profileUpdates: { role: string }[];
-  cityUpdates: { city: string }[];
+  // Antes de C4-G9.2.1 este UPDATE solo podía llevar `city`; ahora puede
+  // incluir además department/province/district en la misma escritura —
+  // se amplía el tipo, no se cambia su nombre, para no reescribir cada
+  // aserción existente que ya usa `cityUpdates`.
+  cityUpdates: Record<string, string>[];
+  /** Fase C4-G9.2.1 (test M): simula un error de BD en el UPDATE de ubicación/ciudad. */
+  forceLocationUpdateError: boolean;
 }
 
 const state: State = {
@@ -40,6 +46,7 @@ const state: State = {
   userRolesWrites: [],
   profileUpdates: [],
   cityUpdates: [],
+  forceLocationUpdateError: false,
 };
 
 function userRolesSelectChain(predicate: (r: RoleRow) => boolean) {
@@ -109,14 +116,18 @@ vi.mock("@/lib/supabase/server", () => ({
               single: async () => ({ data: { role: state.profileRole } }),
             }),
           }),
-          update: (payload: { role: string } | { city: string }) => ({
+          update: (payload: { role: string } | Record<string, string>) => ({
             eq: async () => {
               if ("role" in payload) {
-                const check = evaluateProfilesUpdateCheck(payload.role);
+                const rolePayload = payload as { role: string };
+                const check = evaluateProfilesUpdateCheck(rolePayload.role);
                 if (!check.allowed) return { error: check.error };
-                state.profileUpdates.push(payload);
-                state.profileRole = payload.role;
+                state.profileUpdates.push(rolePayload);
+                state.profileRole = rolePayload.role;
                 return { error: null };
+              }
+              if (state.forceLocationUpdateError) {
+                return { error: { code: "XXOOO", message: "simulated db error" } };
               }
               state.cityUpdates.push(payload);
               return { error: null };
@@ -136,6 +147,7 @@ function reset() {
   state.userRolesWrites = [];
   state.profileUpdates = [];
   state.cityUpdates = [];
+  state.forceLocationUpdateError = false;
 }
 
 function makeFormData(fields: Record<string, string>): FormData {
@@ -434,5 +446,142 @@ describe("completeGoogleOnboarding — normalización de ciudad (Fase C4-F)", ()
     const result = await completeGoogleOnboarding({}, makeFormData({ intent: "worker", city: "Chiclayo" }));
     expect(result).toEqual({ error: "No autenticado." });
     expect(state.cityUpdates).toEqual([]);
+  });
+});
+
+describe("completeGoogleOnboarding — ubicación jerárquica opcional (C4-G9.2.1, Paso 1 de C4-G9.2)", () => {
+  beforeEach(reset);
+
+  // redirect() real de Next.js aborta lanzando NEXT_REDIRECT; el mock de
+  // next/navigation es un no-op (mismo criterio ya documentado en
+  // create-job.test.ts), así que en el camino de éxito la función
+  // simplemente termina sin valor de retorno explícito tras el redirect —
+  // por eso estos tests no afirman sobre `result`, solo sobre lo que
+  // efectivamente quedó en `state.cityUpdates`.
+
+  it("A) ubicación completamente ausente: comportamiento actual conservado (sin department/province/district, solo intent)", async () => {
+    await completeGoogleOnboarding({}, makeFormData({ intent: "worker" }));
+    expect(state.cityUpdates).toEqual([]);
+  });
+
+  it("B) solo department es aceptado (guardado progresivo)", async () => {
+    await completeGoogleOnboarding({}, makeFormData({ intent: "worker", department: "Lambayeque" }));
+    expect(state.cityUpdates).toEqual([{ department: "Lambayeque" }]);
+  });
+
+  it("C) department + province es aceptado", async () => {
+    await completeGoogleOnboarding(
+      {},
+      makeFormData({ intent: "worker", department: "Lambayeque", province: "Chiclayo" })
+    );
+    expect(state.cityUpdates).toEqual([{ department: "Lambayeque", province: "Chiclayo" }]);
+  });
+
+  it("D) department + province + district es aceptado", async () => {
+    await completeGoogleOnboarding(
+      {},
+      makeFormData({
+        intent: "worker",
+        department: "Lambayeque",
+        province: "Chiclayo",
+        district: "Pimentel",
+      })
+    );
+    expect(state.cityUpdates).toEqual([
+      { department: "Lambayeque", province: "Chiclayo", district: "Pimentel" },
+    ]);
+  });
+
+  it("E) province sin department se rechaza, sin escribir nada en profiles", async () => {
+    const result = await completeGoogleOnboarding(
+      {},
+      makeFormData({ intent: "worker", province: "Chiclayo" })
+    );
+    expect(result).toEqual({ error: "Selecciona un departamento antes de la provincia." });
+    expect(state.cityUpdates).toEqual([]);
+  });
+
+  it("F) district sin province se rechaza, sin escribir nada en profiles", async () => {
+    const result = await completeGoogleOnboarding(
+      {},
+      makeFormData({ intent: "worker", department: "Lambayeque", district: "Pimentel" })
+    );
+    expect(result).toEqual({ error: "Selecciona departamento y provincia antes del distrito." });
+    expect(state.cityUpdates).toEqual([]);
+  });
+
+  it("G) province perteneciente a otro department se rechaza (Chiclayo es de Lambayeque, no de La Libertad)", async () => {
+    const result = await completeGoogleOnboarding(
+      {},
+      makeFormData({ intent: "worker", department: "La Libertad", province: "Chiclayo" })
+    );
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.cityUpdates).toEqual([]);
+  });
+
+  it("H) district perteneciente a otra province se rechaza (Pimentel es de Chiclayo, no de Ferreñafe)", async () => {
+    const result = await completeGoogleOnboarding(
+      {},
+      makeFormData({
+        intent: "worker",
+        department: "Lambayeque",
+        province: "Ferreñafe",
+        district: "Pimentel",
+      })
+    );
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.cityUpdates).toEqual([]);
+  });
+
+  it("I) ubicación válida junto con city: profiles recibe los cuatro valores correctos en un solo UPDATE", async () => {
+    await completeGoogleOnboarding(
+      {},
+      makeFormData({
+        intent: "worker",
+        city: "Chiclayo",
+        department: "Lambayeque",
+        province: "Chiclayo",
+        district: "Pimentel",
+      })
+    );
+    expect(state.cityUpdates).toEqual([
+      { city: "Chiclayo", department: "Lambayeque", province: "Chiclayo", district: "Pimentel" },
+    ]);
+  });
+
+  it("J) solo city (sin ubicación jerárquica), como hoy envía RoleOnboardingForm.tsx: comportamiento actual conservado exactamente", async () => {
+    await completeGoogleOnboarding({}, makeFormData({ intent: "worker", city: "CHICLAYO" }));
+    expect(state.cityUpdates).toEqual([{ city: "Chiclayo" }]);
+  });
+
+  it("K) intent=employer sigue activando el rol y el modo activo exactamente igual, sin interferencia de la ubicación jerárquica", async () => {
+    state.roles = [{ role: "employer", active: true }];
+    await completeGoogleOnboarding(
+      {},
+      makeFormData({ intent: "employer", department: "Lambayeque", province: "Chiclayo" })
+    );
+    expect(state.profileUpdates).toEqual([{ role: "employer" }]);
+    expect(state.cityUpdates).toEqual([{ department: "Lambayeque", province: "Chiclayo" }]);
+  });
+
+  it("L) sin usuario autenticado se rechaza antes de validar o tocar ninguna ubicación", async () => {
+    state.user = null;
+    const result = await completeGoogleOnboarding(
+      {},
+      makeFormData({ intent: "worker", department: "Lambayeque" })
+    );
+    expect(result).toEqual({ error: "No autenticado." });
+    expect(state.cityUpdates).toEqual([]);
+  });
+
+  it("M) un error de BD en el UPDATE de ubicación/ciudad se propaga con el mismo mensaje que ya usaba el flujo de solo-ciudad", async () => {
+    state.forceLocationUpdateError = true;
+    const result = await completeGoogleOnboarding(
+      {},
+      makeFormData({ intent: "worker", department: "Lambayeque" })
+    );
+    expect(result).toEqual({
+      error: "No se pudo guardar tu ciudad, pero tu cuenta ya está lista.",
+    });
   });
 });
