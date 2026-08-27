@@ -255,6 +255,47 @@ export function NotificationsProvider({
     };
   }, [userId, isAdmin]);
 
+  // Fase C4-G8.5W (diagnóstico temporal): observa el timing/estado del JWT
+  // del socket de Realtime (RealtimeClient.accessTokenValue) en distintos
+  // momentos del ciclo de vida del Provider, para contrastar contra
+  // useChatRealtime.ts (que sí recibe messages INSERT, confirmado en
+  // C4-G8.5X) — ver hipótesis de carrera cliente/servidor de C4-G8.5V.
+  // Nunca imprime el JWT, solo si existe.
+  const tokenDiagnosticRanRef = useRef(false);
+  useEffect(() => {
+    if (!userId || tokenDiagnosticRanRef.current) return;
+    tokenDiagnosticRanRef.current = true;
+
+    const supabase = createClient();
+
+    // eslint-disable-next-line no-console -- C4-G8.5W: diagnóstico temporal, retirar tras obtener evidencia
+    console.log("[C4-G8.5W TEMP] accessTokenValue at mount", {
+      hasToken: Boolean((supabase.realtime as any).accessTokenValue),
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      // eslint-disable-next-line no-console -- C4-G8.5W TEMP
+      console.log("[C4-G8.5W TEMP] auth event", {
+        event,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    const timeoutId = setTimeout(() => {
+      // eslint-disable-next-line no-console -- C4-G8.5W TEMP
+      console.log("[C4-G8.5W TEMP] accessTokenValue after 3s", {
+        hasToken: Boolean((supabase.realtime as any).accessTokenValue),
+      });
+    }, 3000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeoutId);
+    };
+  }, [userId]);
+
   // Canal 1 — notifications. Sin cambios de arquitectura respecto a antes
   // de C4-G8.5R: sigue siendo el único canal `user:{userId}` de la app.
   useEffect(() => {
@@ -348,6 +389,12 @@ export function NotificationsProvider({
     messagesChannel.subscribe((status, err) => {
       // eslint-disable-next-line no-console -- C4-G8.5R TEMP
       console.log("[C4-G8.5R TEMP] messages subscribe status", status, err ?? "");
+      if (status === "SUBSCRIBED") {
+        // eslint-disable-next-line no-console -- C4-G8.5W TEMP
+        console.log("[C4-G8.5W TEMP] accessTokenValue at SUBSCRIBED", {
+          hasToken: Boolean((supabase.realtime as any).accessTokenValue),
+        });
+      }
     });
 
     return () => {
