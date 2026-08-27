@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { formatSupabaseError, formatUnknownError } from "@/lib/format-supabase-error";
 import { validateLocationInput } from "@/lib/ubigeo";
+import { CATEGORY_NAMES } from "@/lib/categories";
 import type {
   ProfilePhoto,
   VerificationDocument,
@@ -47,6 +48,18 @@ export async function updateProfile(formData: FormData): Promise<ActionResult> {
   const phone = (formData.get("phone") as string) || null;
   const city = (formData.get("city") as string) || null;
   const category = (formData.get("category") as string) || null;
+  // Fase 2.1 (auditoría C4-G9): la UI ya restringe category a
+  // CATEGORY_NAMES (InfoTab.tsx, NewJobForm.tsx), pero el servidor lo
+  // aceptaba como texto libre — un caller que se salte el <select> podía
+  // escribir cualquier valor. Mismo criterio que business_ruc: cadena
+  // vacía/ausente se guarda como null (declarar-y-borrar es válido, no
+  // requiere pertenecer al catálogo); solo un valor no vacío se valida.
+  // No revalida categorías históricas ya guardadas fuera del catálogo —
+  // esta comprobación solo corre sobre la escritura que se está haciendo
+  // ahora mismo.
+  if (category && !CATEGORY_NAMES.includes(category)) {
+    return { error: "Selecciona una categoría válida." };
+  }
   const skillsRaw = formData.get("skills") as string | null;
   const skills = skillsRaw
     ? skillsRaw

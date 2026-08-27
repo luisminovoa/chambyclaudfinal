@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/actions/auth";
 import { validateLocationInput } from "@/lib/ubigeo";
+import { CATEGORY_NAMES } from "@/lib/categories";
 
 const jobSchema = z.object({
   title: z.string().min(5, "El título debe tener al menos 5 caracteres"),
@@ -46,6 +47,14 @@ export async function createJob(_prev: ActionResult, formData: FormData): Promis
 
   if (!parsed.success) {
     return { error: parsed.error.errors[0]?.message ?? "Datos inválidos" };
+  }
+
+  // Fase 2.1 (auditoría C4-G9): zod solo exigía longitud mínima —
+  // cualquier string de 2+ caracteres pasaba, aunque el <select> de
+  // NewJobForm.tsx ya restringe la elección a CATEGORY_NAMES. Cierra la
+  // misma brecha que updateProfile() para category de perfil.
+  if (!CATEGORY_NAMES.includes(parsed.data.category)) {
+    return { error: "Selecciona una categoría válida." };
   }
 
   const { pay_amount, department, province, district, ...rest } = parsed.data;

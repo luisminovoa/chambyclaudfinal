@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { updateProfile } from "./profile";
+import { CATEGORY_NAMES } from "@/lib/categories";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -241,5 +242,90 @@ describe("updateProfile() — ubicación jerárquica (Fase 1, validateLocationIn
       province: null,
       district: null,
     });
+  });
+});
+
+describe("updateProfile() — category validada contra CATEGORY_NAMES (Fase 2.1, cierre C4-G9)", () => {
+  beforeEach(reset);
+
+  it("A) category presente en CATEGORY_NAMES se acepta y se guarda tal cual", async () => {
+    const fd = new FormData();
+    fd.set("category", "Electricista");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload.category).toBe("Electricista");
+  });
+
+  it("B) category fuera de CATEGORY_NAMES se rechaza sin escribir nada en la base", async () => {
+    const fd = new FormData();
+    fd.set("category", "Categoría inventada que no existe");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("C) category ausente del FormData se guarda como null, sin exigir pertenencia al catálogo (mismo criterio que business_ruc: declarar-y-borrar es válido)", async () => {
+    const fd = new FormData();
+    fd.set("bio", "hola");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload.category).toBeNull();
+  });
+
+  it("C.2) category enviada como cadena vacía también se guarda como null sin error (flujo real de EmployerInfoTab.tsx, que no ofrece este campo)", async () => {
+    const fd = new FormData();
+    fd.set("category", "");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload.category).toBeNull();
+  });
+
+  it("D) otros campos válidos (bio/phone/city) se siguen guardando normalmente junto a una category válida", async () => {
+    const fd = new FormData();
+    fd.set("bio", "Electricista con 5 años de experiencia");
+    fd.set("phone", "+51999999999");
+    fd.set("city", "Chiclayo");
+    fd.set("category", "Electricista");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload).toMatchObject({
+      bio: "Electricista con 5 años de experiencia",
+      phone: "+51999999999",
+      city: "Chiclayo",
+      category: "Electricista",
+    });
+  });
+
+  it("G) una category inválida no deja ningún rastro de escritura (ni siquiera parcial) — no se modifica ningún dato histórico", async () => {
+    const fd = new FormData();
+    fd.set("bio", "este bio nunca debería llegar a guardarse");
+    fd.set("category", "No existe en el catálogo");
+
+    await updateProfile(fd);
+
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("todo el catálogo CATEGORY_NAMES (incluido 'Otro', ya presente hoy) es aceptado sin cambios de significado", async () => {
+    for (const cat of CATEGORY_NAMES) {
+      state.updateCalls = [];
+      const fd = new FormData();
+      fd.set("category", cat);
+
+      const result = await updateProfile(fd);
+
+      expect(result).toEqual({ success: true });
+      expect(state.updateCalls[0].payload.category).toBe(cat);
+    }
   });
 });

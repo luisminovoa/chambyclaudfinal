@@ -137,3 +137,17 @@ describe("createJob — ubicación jerárquica (Fase 1)", () => {
     expect(result.error).toBe("No se pudo publicar el trabajo. Intenta nuevamente.");
   });
 });
+
+describe("createJob — category validada contra CATEGORY_NAMES (Fase 2.1, cierre C4-G9)", () => {
+  it("E) category fuera de CATEGORY_NAMES se rechaza antes de tocar la base de datos, aunque cumpla el mínimo de zod (2+ caracteres)", async () => {
+    const result = await createJob({}, buildFormData({ category: "Categoría inventada" }));
+    expect(result.error).toBe("Selecciona una categoría válida.");
+    expect(state.inserted).toHaveLength(0);
+  });
+
+  it("F) category presente en CATEGORY_NAMES se acepta y se inserta tal cual", async () => {
+    await createJob({}, buildFormData({ category: "Gasfitero" }));
+    expect(state.inserted).toHaveLength(1);
+    expect(state.inserted[0].payload.category).toBe("Gasfitero");
+  });
+});
