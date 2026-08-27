@@ -14,12 +14,10 @@ interface NotificationsContextValue {
   subscribe: (handler: (n: Notification) => void) => () => void;
   /**
    * Fase C4-G8.5P: registra un handler para cada `messages` INSERT
-   * relevante para el usuario actual (nunca los propios). Reemplaza la
-   * dependencia de `notifications` postgres_changes para disparar
-   * refresh de unread — ver auditoría C4-G8.5B-N: el Realtime de
-   * `notifications` nunca entregó el evento pese a publicación/RLS/grants
-   * idénticos a `messages` (comprobado con datos reales de Production),
-   * mientras que `messages` sí está demostrado funcionando.
+   * relevante para el usuario actual (nunca los propios) — dispara el
+   * refresh de unread de las vistas de lista/badge (ver
+   * `useMessagesRefreshOnNewMessage`), independiente del canal de
+   * `notifications`.
    */
   subscribeToNewMessages: (handler: (msg: Message) => void) => () => void;
 }
@@ -57,18 +55,43 @@ interface NotificationsProviderProps {
  * Este Provider hace el único supabase.channel()/.on()/.subscribe() para
  * `notifications` de toda la app; useNotifications() ahora se suscribe a
  * este Provider en vez de crear su propio canal — misma forma pública, sin
- * duplicar canal.
+ * duplicar canal. El listener global de `messages` vive en un SEGUNDO
+ * RealtimeChannel independiente (`messages:{userId}`) — ver useEffect más
+ * abajo; compartir un único canal para ambos bindings no era la causa de
+ * nada (descartado con canales aislados en la auditoría C4-G8.5U/V), la
+ * separación es solo por claridad de alcance de cada uno.
  *
- * Fase C4-G8.5R (experimento, temporal): el listener global de `messages`
- * vive en un SEGUNDO RealtimeChannel independiente (`messages:{userId}`),
- * no en este mismo canal — ver useEffect más abajo. Hasta el commit
- * 298f029 (C4-G8.5P/Q) ambos bindings compartían este único canal y el
- * INSERT de `messages` nunca llegó al cliente (sin log
- * `[C4-G8.5Q TEMP] messages INSERT recibido`) pese a RLS/publicación/
- * grants idénticos a los de `notifications` y a los del canal, ya probado
- * funcionando, de useChatRealtime.ts. Este experimento aísla esa variable:
- * ¿el INSERT de `messages` llega cuando está en un canal propio, sin
- * compartir bindings con `notifications`?
+ * CAUSA RAÍZ Y FIX (Fase C4-G8.6): la auditoría C4-G8.5B-Z encontró que
+ * ninguno de los dos canales de este Provider entregaba jamás un INSERT
+ * — pese a RLS/publicación/grants idénticos a los del canal de
+ * `useChatRealtime.ts` (que sí funciona) y pese a un `SELECT` autenticado
+ * real exitoso sobre esas mismas filas (C4-G8.5T). Causa confirmada
+ * leyendo el código instalado de `@supabase/realtime-js`:
+ * `RealtimeChannel.subscribe()` lee `this.socket.accessTokenValue` de
+ * forma SÍNCRONA en el instante exacto de armar el `phx_join` — sin
+ * esperar nada. Como este Provider monta sus canales en el efecto más
+ * temprano posible (root layout, primera carga de página), competía con
+ * la hidratación asíncrona de la sesión de `createBrowserClient()`
+ * (`auth.onAuthStateChange` solo dispara `INITIAL_SESSION`/`SIGNED_IN`
+ * después — ver `_handleTokenChanged` en `@supabase/supabase-js`). El
+ * `phx_join` salía sin `access_token`, uniéndose efectivamente como
+ * `anon`: el canal igual reportaba `SUBSCRIBED` (el join no requiere una
+ * fila visible), pero el servidor de Realtime nunca entregaba nada porque
+ * bajo `anon` ninguna RLS de `messages`/`notifications` deja pasar filas
+ * (`auth.uid()` es `null`). `useChatRealtime.ts` nunca tuvo este problema
+ * porque se monta más tarde (al navegar a una conversación), cuando la
+ * sesión ya está hidratada — esto también implica que el "Realtime de
+ * `notifications` nunca entregó el evento" documentado en fases previas
+ * (C4-G8.5B-N) era el mismo bug, no un problema exclusivo de esa tabla.
+ *
+ * C4-G8.5Z confirmó experimentalmente que esperar `getSession()` y forzar
+ * `realtime.setAuth(session.access_token)` antes de `.subscribe()` sí
+ * entrega el INSERT. Ambos canales de abajo esperan una sesión confirmada
+ * y fuerzan el token en el `RealtimeClient` compartido antes de crear y
+ * suscribir su canal. `TOKEN_REFRESHED`/`SIGNED_OUT` posteriores siguen
+ * gestionados por el mecanismo interno de `@supabase/supabase-js`
+ * (`_handleTokenChanged`), que ya empuja el token actualizado a los
+ * canales unidos sin intervención de este componente.
  */
 export function NotificationsProvider({
   userId,
@@ -99,416 +122,98 @@ export function NotificationsProvider({
     setUnreadCount((c) => Math.max(0, c + delta));
   }, []);
 
-  // Fase C4-G8.5T (diagnóstico temporal, una sola ejecución por sesión de
-  // usuario): confirma con el MISMO createClient() del navegador —
-  // sesión autenticada real, no SQL Editor/service_role — si auth.uid()
-  // de A puede leer vía RLS el mensaje y la notification reales usados en
-  // C4-G8.5S. No crea ningún canal Realtime nuevo, no toca la suscripción
-  // existente, no escribe nada.
-  const diagnosticRanRef = useRef(false);
-  useEffect(() => {
-    if (!userId || diagnosticRanRef.current) return;
-    diagnosticRanRef.current = true;
-
-    const supabase = createClient();
-
-    (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      // eslint-disable-next-line no-console -- C4-G8.5T: diagnóstico temporal, retirar tras obtener evidencia
-      console.log("[C4-G8.5T TEMP] authenticated user", { userId: user?.id ?? null });
-
-      const messagesResult = await supabase
-        .from("messages")
-        .select("id, conversation_id, sender_id, created_at")
-        .eq("id", "832976ee-14ea-48f4-babf-cabefc031cdb")
-        .maybeSingle();
-      // eslint-disable-next-line no-console -- C4-G8.5T TEMP
-      console.log("[C4-G8.5T TEMP] messages SELECT result", {
-        success: !messagesResult.error,
-        found: !!messagesResult.data,
-        errorCode: messagesResult.error?.code ?? null,
-        errorMessage: messagesResult.error?.message ?? null,
-      });
-
-      const notificationsResult = await supabase
-        .from("notifications")
-        .select("id, user_id, type, conversation_id, is_read, created_at")
-        .eq("id", "70b2873e-cf13-4b0b-a0e8-76a8608717da")
-        .maybeSingle();
-      // eslint-disable-next-line no-console -- C4-G8.5T TEMP
-      console.log("[C4-G8.5T TEMP] notifications SELECT result", {
-        success: !notificationsResult.error,
-        found: !!notificationsResult.data,
-        errorCode: notificationsResult.error?.code ?? null,
-        errorMessage: notificationsResult.error?.message ?? null,
-      });
-    })();
-  }, [userId]);
-
-  // Fase C4-G8.5U (experimento de aislamiento, temporal): canal Realtime
-  // mínimo e independiente, sin ninguna otra lógica de la app (sin
-  // isOwnMessage, sin messageListenersRef, sin router.refresh, sin UI) —
-  // responde únicamente si postgres_changes entrega un INSERT real de
-  // public.messages a este navegador. Bloque autocontenido, removible sin
-  // afectar el resto del componente.
-  const experimentRanRef = useRef(false);
-  useEffect(() => {
-    if (!userId || experimentRanRef.current) return;
-    experimentRanRef.current = true;
-
-    const supabase = createClient();
-    const experimentChannel = supabase
-      .channel(`c4-g8-5u-test-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        (payload) => {
-          // eslint-disable-next-line no-console -- C4-G8.5U: experimento temporal, retirar tras obtener evidencia
-          console.log("[C4-G8.5U TEMP] messages INSERT RECEIVED", {
-            id: payload.new?.id ?? null,
-            conversationId: payload.new?.conversation_id ?? null,
-            senderId: payload.new?.sender_id ?? null,
-            userId,
-          });
-        }
-      )
-      .subscribe((status, err) => {
-        // eslint-disable-next-line no-console -- C4-G8.5U TEMP
-        console.log("[C4-G8.5U TEMP] subscribe status", {
-          status,
-          error: err ? String(err) : null,
-        });
-      });
-
-    return () => {
-      supabase.removeChannel(experimentChannel);
-    };
-  }, [userId]);
-
-  // Fase C4-G8.5V (experimento A/B, temporal): dos canales mínimos e
-  // independientes del resto de la app, para aislar si un `filter` de
-  // `conversation_id` cambia la entrega del INSERT respecto a un canal
-  // global sin filter (C4-G8.5U). Sin isOwnMessage, sin
-  // messageListenersRef, sin router.refresh, sin UI. Excluido para admin
-  // con el mismo criterio ya usado en el resto del Provider.
-  const abTestRanRef = useRef(false);
-  useEffect(() => {
-    if (!userId || isAdmin || abTestRanRef.current) return;
-    abTestRanRef.current = true;
-
-    const supabase = createClient();
-
-    const globalChannel = supabase
-      .channel(`c4-g8-5v-global-${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        (payload) => {
-          // eslint-disable-next-line no-console -- C4-G8.5V: experimento temporal, retirar tras obtener evidencia
-          console.log("[C4-G8.5V TEMP] GLOBAL INSERT RECEIVED", {
-            id: payload.new?.id ?? null,
-            conversationId: payload.new?.conversation_id ?? null,
-            senderId: payload.new?.sender_id ?? null,
-          });
-        }
-      )
-      .subscribe((status, err) => {
-        // eslint-disable-next-line no-console -- C4-G8.5V TEMP
-        console.log("[C4-G8.5V TEMP] GLOBAL SUBSCRIBE", {
-          status,
-          error: err ? String(err) : null,
-        });
-      });
-
-    const filteredChannel = supabase
-      .channel(`c4-g8-5v-filtered-${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: "conversation_id=eq.f17058b7-92ff-4102-b14e-1ea4b23af069",
-        },
-        (payload) => {
-          // eslint-disable-next-line no-console -- C4-G8.5V TEMP
-          console.log("[C4-G8.5V TEMP] FILTERED INSERT RECEIVED", {
-            id: payload.new?.id ?? null,
-            conversationId: payload.new?.conversation_id ?? null,
-            senderId: payload.new?.sender_id ?? null,
-          });
-        }
-      )
-      .subscribe((status, err) => {
-        // eslint-disable-next-line no-console -- C4-G8.5V TEMP
-        console.log("[C4-G8.5V TEMP] FILTERED SUBSCRIBE", {
-          status,
-          error: err ? String(err) : null,
-        });
-      });
-
-    return () => {
-      supabase.removeChannel(globalChannel);
-      supabase.removeChannel(filteredChannel);
-    };
-  }, [userId, isAdmin]);
-
-  // Fase C4-G8.5W (diagnóstico temporal): observa el timing/estado del JWT
-  // del socket de Realtime (RealtimeClient.accessTokenValue) en distintos
-  // momentos del ciclo de vida del Provider, para contrastar contra
-  // useChatRealtime.ts (que sí recibe messages INSERT, confirmado en
-  // C4-G8.5X) — ver hipótesis de carrera cliente/servidor de C4-G8.5V.
-  // Nunca imprime el JWT, solo si existe.
-  const tokenDiagnosticRanRef = useRef(false);
-  useEffect(() => {
-    if (!userId || tokenDiagnosticRanRef.current) return;
-    tokenDiagnosticRanRef.current = true;
-
-    const supabase = createClient();
-
-    // eslint-disable-next-line no-console -- C4-G8.5W: diagnóstico temporal, retirar tras obtener evidencia
-    console.log("[C4-G8.5W TEMP] accessTokenValue at mount", {
-      hasToken: Boolean((supabase.realtime as any).accessTokenValue),
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      // eslint-disable-next-line no-console -- C4-G8.5W TEMP
-      console.log("[C4-G8.5W TEMP] auth event", {
-        event,
-        timestamp: new Date().toISOString(),
-      });
-    });
-
-    const timeoutId = setTimeout(() => {
-      // eslint-disable-next-line no-console -- C4-G8.5W TEMP
-      console.log("[C4-G8.5W TEMP] accessTokenValue after 3s", {
-        hasToken: Boolean((supabase.realtime as any).accessTokenValue),
-      });
-    }, 3000);
-
-    return () => {
-      subscription.unsubscribe();
-      clearTimeout(timeoutId);
-    };
-  }, [userId]);
-
-  // Canal 1 — notifications. Sin cambios de arquitectura respecto a antes
-  // de C4-G8.5R: sigue siendo el único canal `user:{userId}` de la app.
+  // Canal 1 — notifications. Solo se crea/suscribe una vez confirmada una
+  // sesión autenticada real (Fase C4-G8.6) — ver el docblock del
+  // componente para la causa raíz que esto corrige.
   useEffect(() => {
     if (!userId) return;
 
-    const supabase = createClient();
-    const notificationsChannel = supabase.channel(`user:${userId}`);
-
-    notificationsChannel.on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "notifications",
-        filter: `user_id=eq.${userId}`,
-      },
-      (payload) => {
-        const n = payload.new as Notification;
-        setUnreadCount((c) => c + 1);
-        listenersRef.current.forEach((handler) => handler(n));
-      }
-    );
-
-    // eslint-disable-next-line no-console -- C4-G8.5R: diagnóstico temporal, retirar tras obtener evidencia
-    console.log("[C4-G8.5R TEMP] notifications channel created");
-
-    // eslint-disable-next-line no-console -- C4-G8.5Y: diagnóstico temporal, retirar tras obtener evidencia
-    console.log("[C4-G8.5Y TEMP] BEFORE SUBSCRIBE", {
-      channel: "notifications",
-      hasToken: Boolean((supabase.realtime as any).accessTokenValue),
-      timestamp: new Date().toISOString(),
-    });
-
-    notificationsChannel.subscribe((status, err) => {
-      // eslint-disable-next-line no-console -- C4-G8.5R TEMP
-      console.log("[C4-G8.5R TEMP] notifications subscribe status", status, err ?? "");
-      setIsConnected(status === "SUBSCRIBED");
-    });
-
-    return () => {
-      supabase.removeChannel(notificationsChannel);
-      setIsConnected(false);
-    };
-  }, [userId]);
-
-  // Canal 2 — messages (Fase C4-G8.5R, experimental/temporal). Canal
-  // independiente del de notifications, topic distinto (`messages:{userId}`)
-  // para no compartir bindings con el canal 1. Sin `filter`: RLS
-  // (messages_select_participant) es quien decide qué filas llegan, igual
-  // que en useChatRealtime.ts. Nunca se registra para admins.
-  useEffect(() => {
-    if (!userId || isAdmin) return;
-
-    const supabase = createClient();
-    const messagesChannel = supabase.channel(`messages:${userId}`);
-
-    // eslint-disable-next-line no-console -- C4-G8.5R: diagnóstico temporal, retirar tras obtener evidencia
-    console.log("[C4-G8.5R TEMP] messages channel created", {
-      topic: `messages:${userId}`,
-      userId,
-      isAdmin,
-    });
-
-    messagesChannel.on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "messages" },
-      (payload) => {
-        const msg = payload.new as Message;
-        // eslint-disable-next-line no-console -- C4-G8.5R TEMP
-        console.log("[C4-G8.5R TEMP] messages INSERT received", {
-          messageId: msg.id,
-          conversationId: msg.conversation_id,
-          senderId: msg.sender_id,
-          userId,
-        });
-        if (isOwnMessage(msg, userId)) {
-          // eslint-disable-next-line no-console -- C4-G8.5R TEMP
-          console.log("[C4-G8.5R TEMP] own message ignored", {
-            messageId: msg.id,
-            senderId: msg.sender_id,
-            userId,
-          });
-          return; // nunca refrescar por mensajes propios
-        }
-        // eslint-disable-next-line no-console -- C4-G8.5R TEMP
-        console.log("[C4-G8.5R TEMP] message from another user", {
-          messageId: msg.id,
-          conversationId: msg.conversation_id,
-        });
-        // eslint-disable-next-line no-console -- C4-G8.5R TEMP
-        console.log("[C4-G8.5R TEMP] messages listener executed", {
-          listeners: messageListenersRef.current.size,
-        });
-        messageListenersRef.current.forEach((handler) => handler(msg));
-      }
-    );
-
-    // eslint-disable-next-line no-console -- C4-G8.5Y: diagnóstico temporal, retirar tras obtener evidencia
-    console.log("[C4-G8.5Y TEMP] BEFORE SUBSCRIBE", {
-      channel: "messages",
-      hasToken: Boolean((supabase.realtime as any).accessTokenValue),
-      timestamp: new Date().toISOString(),
-    });
-
-    messagesChannel.subscribe((status, err) => {
-      // eslint-disable-next-line no-console -- C4-G8.5R TEMP
-      console.log("[C4-G8.5R TEMP] messages subscribe status", status, err ?? "");
-      if (status === "SUBSCRIBED") {
-        // eslint-disable-next-line no-console -- C4-G8.5W TEMP
-        console.log("[C4-G8.5W TEMP] accessTokenValue at SUBSCRIBED", {
-          hasToken: Boolean((supabase.realtime as any).accessTokenValue),
-        });
-      }
-    });
-
-    return () => {
-      supabase.removeChannel(messagesChannel);
-    };
-  }, [userId, isAdmin]);
-
-  // Fase C4-G8.5Z (experimento, temporal): canal `postgres_changes` de
-  // `messages` idéntico en binding a C4-G8.5R/U, pero cuyo `.subscribe()`
-  // se ejecuta DESPUÉS de confirmar sesión (`getSession()`) y de forzar
-  // explícitamente `realtime.setAuth(session.access_token)` — para
-  // comprobar si esperar la autenticación antes de suscribirse cambia la
-  // entrega del INSERT (ver hipótesis de carrera de C4-G8.5V/W/Y). Solo
-  // afecta a este canal aislado; no toca el `setAuth()` global ni los
-  // canales R/U/V.
-  const zExperimentRanRef = useRef(false);
-  useEffect(() => {
-    if (!userId || zExperimentRanRef.current) return;
-    zExperimentRanRef.current = true;
-
     let cancelled = false;
     const supabase = createClient();
-    let experimentChannel: ReturnType<typeof supabase.channel> | null = null;
+    let notificationsChannel: ReturnType<typeof supabase.channel> | null = null;
 
     (async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-
-      if (cancelled) return;
-
-      if (!session || !session.access_token) {
-        // eslint-disable-next-line no-console -- C4-G8.5Z: diagnóstico temporal, retirar tras obtener evidencia
-        console.log("[C4-G8.5Z TEMP] no authenticated session", {
-          hasSession: Boolean(session),
-        });
-        return;
-      }
-
-      // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
-      console.log("[C4-G8.5Z TEMP] authenticated before channel", {
-        hasSession: true,
-        hasToken: Boolean((supabase.realtime as any).accessTokenValue),
-        timestamp: new Date().toISOString(),
-      });
+      if (cancelled || !session?.access_token) return;
 
       await supabase.realtime.setAuth(session.access_token);
-
       if (cancelled) return;
 
-      // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
-      console.log("[C4-G8.5Z TEMP] token set before subscribe", {
-        hasToken: Boolean((supabase.realtime as any).accessTokenValue),
-        timestamp: new Date().toISOString(),
-      });
+      notificationsChannel = supabase.channel(`user:${userId}`);
 
-      experimentChannel = supabase
-        .channel(`c4-g8-5z-test-${userId}`)
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "messages" },
-          (payload) => {
-            // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
-            console.log("[C4-G8.5Z TEMP] INSERT RECEIVED", {
-              messageId: payload.new?.id ?? null,
-              conversationId: payload.new?.conversation_id ?? null,
-              senderId: payload.new?.sender_id ?? null,
-              userId,
-            });
-          }
-        );
+      notificationsChannel.on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          const n = payload.new as Notification;
+          setUnreadCount((c) => c + 1);
+          listenersRef.current.forEach((handler) => handler(n));
+        }
+      );
 
-      if (cancelled) {
-        supabase.removeChannel(experimentChannel);
-        experimentChannel = null;
-        return;
-      }
-
-      // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
-      console.log("[C4-G8.5Z TEMP] BEFORE SUBSCRIBE", {
-        hasToken: Boolean((supabase.realtime as any).accessTokenValue),
-        timestamp: new Date().toISOString(),
-      });
-
-      experimentChannel.subscribe((status, err) => {
-        // eslint-disable-next-line no-console -- C4-G8.5Z TEMP
-        console.log("[C4-G8.5Z TEMP] SUBSCRIBE", {
-          status,
-          error: err?.message ?? null,
-        });
+      notificationsChannel.subscribe((status) => {
+        setIsConnected(status === "SUBSCRIBED");
       });
     })();
 
     return () => {
       cancelled = true;
-      if (experimentChannel) {
-        supabase.removeChannel(experimentChannel);
+      if (notificationsChannel) {
+        supabase.removeChannel(notificationsChannel);
       }
+      setIsConnected(false);
     };
   }, [userId]);
+
+  // Canal 2 — messages. Topic independiente del de notifications; sin
+  // `filter`, RLS (messages_select_participant) decide qué filas llegan,
+  // igual que en useChatRealtime.ts. Nunca se registra para admins. Mismo
+  // mecanismo de espera de sesión que el Canal 1 (Fase C4-G8.6).
+  useEffect(() => {
+    if (!userId || isAdmin) return;
+
+    let cancelled = false;
+    const supabase = createClient();
+    let messagesChannel: ReturnType<typeof supabase.channel> | null = null;
+
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (cancelled || !session?.access_token) return;
+
+      await supabase.realtime.setAuth(session.access_token);
+      if (cancelled) return;
+
+      messagesChannel = supabase.channel(`messages:${userId}`);
+
+      messagesChannel.on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          const msg = payload.new as Message;
+          if (isOwnMessage(msg, userId)) return; // nunca refrescar por mensajes propios
+          messageListenersRef.current.forEach((handler) => handler(msg));
+        }
+      );
+
+      messagesChannel.subscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (messagesChannel) {
+        supabase.removeChannel(messagesChannel);
+      }
+    };
+  }, [userId, isAdmin]);
 
   return (
     <NotificationsContext.Provider

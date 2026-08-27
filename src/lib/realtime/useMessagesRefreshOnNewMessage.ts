@@ -9,10 +9,10 @@ import { shouldRefreshForNewMessage } from "@/lib/realtime/messages-refresh-deci
  * Refresca los Server Components de la ruta actual cuando llega un
  * `messages` INSERT relevante (Fase C4-G8.5P) — se suscribe vía
  * `subscribeToNewMessages()` a NotificationsProvider, sin abrir ningún
- * canal Realtime propio. Desde la Fase C4-G8.5R (experimental) ese
- * listener del Provider vive en un canal `messages:{userId}` separado del
- * canal `user:{userId}` de `notifications` — este hook no depende de cuál
- * sea el canal físico, solo del callback expuesto por el Provider.
+ * canal Realtime propio. Ese listener del Provider vive en un canal
+ * `messages:{userId}` separado del canal `user:{userId}` de
+ * `notifications` — este hook no depende de cuál sea el canal físico,
+ * solo del callback expuesto por el Provider.
  *
  * router.refresh() vuelve a ejecutar getConversations()/
  * getMessagesUnreadCount() en el servidor (Server Components, sin caché
@@ -29,14 +29,8 @@ export function useMessagesRefreshOnNewMessage() {
   useEffect(() => {
     return subscribeToNewMessages(() => {
       const now = Date.now();
-      if (!shouldRefreshForNewMessage(lastRefreshRef.current, now)) {
-        // eslint-disable-next-line no-console -- C4-G8.5R: diagnóstico temporal, retirar tras obtener evidencia
-        console.log("[C4-G8.5R TEMP] refresh blocked by debounce");
-        return;
-      }
+      if (!shouldRefreshForNewMessage(lastRefreshRef.current, now)) return;
       lastRefreshRef.current = now;
-      // eslint-disable-next-line no-console -- C4-G8.5R TEMP
-      console.log("[C4-G8.5R TEMP] router.refresh executed");
       router.refresh();
     });
   }, [subscribeToNewMessages, router]);
