@@ -80,14 +80,6 @@ export function useChatRealtime({
         filter: `conversation_id=eq.${conversationId}`,
       },
       (payload: { new: Message }) => {
-        // eslint-disable-next-line no-console -- C4-G8.5X: diagnóstico temporal, retirar tras obtener evidencia
-        console.log("[C4-G8.5X TEMP] useChatRealtime messages INSERT", {
-          messageId: payload.new.id,
-          conversationId: payload.new.conversation_id,
-          senderId: payload.new.sender_id,
-          userId,
-          isOwn: payload.new.sender_id === userId,
-        });
         if (payload.new.sender_id !== userId) {
           onMessage(payload.new);
         }

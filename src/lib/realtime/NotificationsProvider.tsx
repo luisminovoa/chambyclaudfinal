@@ -57,41 +57,35 @@ interface NotificationsProviderProps {
  * este Provider en vez de crear su propio canal — misma forma pública, sin
  * duplicar canal. El listener global de `messages` vive en un SEGUNDO
  * RealtimeChannel independiente (`messages:{userId}`) — ver useEffect más
- * abajo; compartir un único canal para ambos bindings no era la causa de
- * nada (descartado con canales aislados en la auditoría C4-G8.5U/V), la
- * separación es solo por claridad de alcance de cada uno.
+ * abajo; la separación es solo por claridad de alcance de cada uno, no por
+ * necesidad técnica (compartir un único canal para ambos bindings no era
+ * la causa de que `messages` no entregara eventos).
  *
- * CAUSA RAÍZ Y FIX (Fase C4-G8.6): la auditoría C4-G8.5B-Z encontró que
- * ninguno de los dos canales de este Provider entregaba jamás un INSERT
- * — pese a RLS/publicación/grants idénticos a los del canal de
- * `useChatRealtime.ts` (que sí funciona) y pese a un `SELECT` autenticado
- * real exitoso sobre esas mismas filas (C4-G8.5T). Causa confirmada
- * leyendo el código instalado de `@supabase/realtime-js`:
- * `RealtimeChannel.subscribe()` lee `this.socket.accessTokenValue` de
- * forma SÍNCRONA en el instante exacto de armar el `phx_join` — sin
- * esperar nada. Como este Provider monta sus canales en el efecto más
- * temprano posible (root layout, primera carga de página), competía con
- * la hidratación asíncrona de la sesión de `createBrowserClient()`
- * (`auth.onAuthStateChange` solo dispara `INITIAL_SESSION`/`SIGNED_IN`
- * después — ver `_handleTokenChanged` en `@supabase/supabase-js`). El
- * `phx_join` salía sin `access_token`, uniéndose efectivamente como
- * `anon`: el canal igual reportaba `SUBSCRIBED` (el join no requiere una
- * fila visible), pero el servidor de Realtime nunca entregaba nada porque
- * bajo `anon` ninguna RLS de `messages`/`notifications` deja pasar filas
- * (`auth.uid()` es `null`). `useChatRealtime.ts` nunca tuvo este problema
- * porque se monta más tarde (al navegar a una conversación), cuando la
- * sesión ya está hidratada — esto también implica que el "Realtime de
- * `notifications` nunca entregó el evento" documentado en fases previas
- * (C4-G8.5B-N) era el mismo bug, no un problema exclusivo de esa tabla.
+ * CAUSA RAÍZ Y FIX: ninguno de los dos canales de este Provider entregaba
+ * jamás un INSERT, pese a RLS/publicación/grants idénticos a los del canal
+ * de `useChatRealtime.ts` (que sí funciona) y pese a un `SELECT`
+ * autenticado real exitoso sobre esas mismas filas. La causa:
+ * `RealtimeChannel.subscribe()` (@supabase/realtime-js) lee
+ * `this.socket.accessTokenValue` de forma SÍNCRONA en el instante exacto
+ * de armar el `phx_join` — sin esperar nada. Como este Provider monta sus
+ * canales en el efecto más temprano posible (root layout, primera carga
+ * de página), competía con la hidratación asíncrona de la sesión de
+ * `createBrowserClient()` (`auth.onAuthStateChange` solo dispara
+ * `INITIAL_SESSION`/`SIGNED_IN` después — ver `_handleTokenChanged` en
+ * `@supabase/supabase-js`). El `phx_join` salía sin `access_token`,
+ * uniéndose efectivamente como `anon`: el canal igual reportaba
+ * `SUBSCRIBED` (el join no requiere una fila visible), pero el servidor
+ * de Realtime nunca entregaba nada porque bajo `anon` ninguna RLS de
+ * `messages`/`notifications` deja pasar filas (`auth.uid()` es `null`).
+ * `useChatRealtime.ts` nunca tuvo este problema porque se monta más tarde
+ * (al navegar a una conversación), cuando la sesión ya está hidratada.
  *
- * C4-G8.5Z confirmó experimentalmente que esperar `getSession()` y forzar
- * `realtime.setAuth(session.access_token)` antes de `.subscribe()` sí
- * entrega el INSERT. Ambos canales de abajo esperan una sesión confirmada
- * y fuerzan el token en el `RealtimeClient` compartido antes de crear y
- * suscribir su canal. `TOKEN_REFRESHED`/`SIGNED_OUT` posteriores siguen
- * gestionados por el mecanismo interno de `@supabase/supabase-js`
- * (`_handleTokenChanged`), que ya empuja el token actualizado a los
- * canales unidos sin intervención de este componente.
+ * Fix: ambos canales de abajo esperan `getSession()` y fuerzan
+ * `realtime.setAuth(session.access_token)` antes de crear y suscribir su
+ * canal. `TOKEN_REFRESHED`/`SIGNED_OUT` posteriores siguen gestionados por
+ * el mecanismo interno de `@supabase/supabase-js` (`_handleTokenChanged`),
+ * que ya empuja el token actualizado a los canales unidos sin
+ * intervención de este componente.
  */
 export function NotificationsProvider({
   userId,
