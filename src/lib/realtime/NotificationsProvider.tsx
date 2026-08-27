@@ -99,6 +99,54 @@ export function NotificationsProvider({
     setUnreadCount((c) => Math.max(0, c + delta));
   }, []);
 
+  // Fase C4-G8.5T (diagnóstico temporal, una sola ejecución por sesión de
+  // usuario): confirma con el MISMO createClient() del navegador —
+  // sesión autenticada real, no SQL Editor/service_role — si auth.uid()
+  // de A puede leer vía RLS el mensaje y la notification reales usados en
+  // C4-G8.5S. No crea ningún canal Realtime nuevo, no toca la suscripción
+  // existente, no escribe nada.
+  const diagnosticRanRef = useRef(false);
+  useEffect(() => {
+    if (!userId || diagnosticRanRef.current) return;
+    diagnosticRanRef.current = true;
+
+    const supabase = createClient();
+
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      // eslint-disable-next-line no-console -- C4-G8.5T: diagnóstico temporal, retirar tras obtener evidencia
+      console.log("[C4-G8.5T TEMP] authenticated user", { userId: user?.id ?? null });
+
+      const messagesResult = await supabase
+        .from("messages")
+        .select("id, conversation_id, sender_id, created_at")
+        .eq("id", "832976ee-14ea-48f4-babf-cabefc031cdb")
+        .maybeSingle();
+      // eslint-disable-next-line no-console -- C4-G8.5T TEMP
+      console.log("[C4-G8.5T TEMP] messages SELECT result", {
+        success: !messagesResult.error,
+        found: !!messagesResult.data,
+        errorCode: messagesResult.error?.code ?? null,
+        errorMessage: messagesResult.error?.message ?? null,
+      });
+
+      const notificationsResult = await supabase
+        .from("notifications")
+        .select("id, user_id, type, conversation_id, is_read, created_at")
+        .eq("id", "70b2873e-cf13-4b0b-a0e8-76a8608717da")
+        .maybeSingle();
+      // eslint-disable-next-line no-console -- C4-G8.5T TEMP
+      console.log("[C4-G8.5T TEMP] notifications SELECT result", {
+        success: !notificationsResult.error,
+        found: !!notificationsResult.data,
+        errorCode: notificationsResult.error?.code ?? null,
+        errorMessage: notificationsResult.error?.message ?? null,
+      });
+    })();
+  }, [userId]);
+
   // Canal 1 — notifications. Sin cambios de arquitectura respecto a antes
   // de C4-G8.5R: sigue siendo el único canal `user:{userId}` de la app.
   useEffect(() => {
