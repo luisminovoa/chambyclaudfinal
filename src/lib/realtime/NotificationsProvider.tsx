@@ -43,7 +43,8 @@ interface NotificationsProviderProps {
 }
 
 /**
- * Dueño único del canal Realtime `user:{userId}` para toda la app.
+ * Dueño único del canal Realtime `user:{userId}` (notifications) para toda
+ * la app.
  *
  * Antes, cada componente que llamaba useNotifications() abría su propio
  * canal para el mismo topic. supabase-js reutiliza el canal existente
@@ -53,9 +54,21 @@ interface NotificationsProviderProps {
  * NotificationsPageClient en /notifications, montados a la vez) hacía
  * throw: "cannot add `postgres_changes` callbacks... after subscribe()".
  *
- * Este Provider hace el único supabase.channel()/.on()/.subscribe() de
- * toda la app; useNotifications() ahora se suscribe a este Provider en
- * vez de crear su propio canal — misma forma pública, sin duplicar canal.
+ * Este Provider hace el único supabase.channel()/.on()/.subscribe() para
+ * `notifications` de toda la app; useNotifications() ahora se suscribe a
+ * este Provider en vez de crear su propio canal — misma forma pública, sin
+ * duplicar canal.
+ *
+ * Fase C4-G8.5R (experimento, temporal): el listener global de `messages`
+ * vive en un SEGUNDO RealtimeChannel independiente (`messages:{userId}`),
+ * no en este mismo canal — ver useEffect más abajo. Hasta el commit
+ * 298f029 (C4-G8.5P/Q) ambos bindings compartían este único canal y el
+ * INSERT de `messages` nunca llegó al cliente (sin log
+ * `[C4-G8.5Q TEMP] messages INSERT recibido`) pese a RLS/publicación/
+ * grants idénticos a los de `notifications` y a los del canal, ya probado
+ * funcionando, de useChatRealtime.ts. Este experimento aísla esa variable:
+ * ¿el INSERT de `messages` llega cuando está en un canal propio, sin
+ * compartir bindings con `notifications`?
  */
 export function NotificationsProvider({
   userId,
@@ -86,13 +99,15 @@ export function NotificationsProvider({
     setUnreadCount((c) => Math.max(0, c + delta));
   }, []);
 
+  // Canal 1 — notifications. Sin cambios de arquitectura respecto a antes
+  // de C4-G8.5R: sigue siendo el único canal `user:{userId}` de la app.
   useEffect(() => {
     if (!userId) return;
 
     const supabase = createClient();
-    const channel = supabase.channel(`user:${userId}`);
+    const notificationsChannel = supabase.channel(`user:${userId}`);
 
-    channel.on(
+    notificationsChannel.on(
       "postgres_changes",
       {
         event: "INSERT",
@@ -107,57 +122,80 @@ export function NotificationsProvider({
       }
     );
 
-    // Fase C4-G8.5P: sin `filter` — a diferencia del canal de arriba, no
-    // hay una sola columna que exprese "cualquier conversación mía" en
-    // `messages` (no tiene employer_id/worker_id propios). RLS
-    // (messages_select_participant) es quien realmente decide qué filas
-    // llegan a este socket, exactamente igual que ya ocurre hoy en
-    // useChatRealtime.ts con su canal filtrado por conversation_id —
-    // aquí simplemente no hay filtro adicional de cliente encima de esa
-    // RLS. Nunca se registra para admins (ver isAdmin en las props).
-    if (!isAdmin) {
-      channel.on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        (payload) => {
-          const msg = payload.new as Message;
-          // eslint-disable-next-line no-console -- C4-G8.5Q: diagnóstico temporal, retirar tras obtener evidencia
-          console.log("[C4-G8.5Q TEMP] messages INSERT recibido", {
-            messageId: msg.id,
-            conversationId: msg.conversation_id,
-            senderId: msg.sender_id,
-            userId,
-          });
-          if (isOwnMessage(msg, userId)) {
-            // eslint-disable-next-line no-console -- C4-G8.5Q TEMP
-            console.log("[C4-G8.5Q TEMP] mensaje propio descartado", {
-              messageId: msg.id,
-              senderId: msg.sender_id,
-              userId,
-            });
-            return; // nunca refrescar por mensajes propios
-          }
-          // eslint-disable-next-line no-console -- C4-G8.5Q TEMP
-          console.log("[C4-G8.5Q TEMP] mensaje recibido de otro usuario", {
-            messageId: msg.id,
-            conversationId: msg.conversation_id,
-          });
-          // eslint-disable-next-line no-console -- C4-G8.5Q TEMP
-          console.log("[C4-G8.5Q TEMP] listener ejecutado", {
-            listeners: messageListenersRef.current.size,
-          });
-          messageListenersRef.current.forEach((handler) => handler(msg));
-        }
-      );
-    }
+    // eslint-disable-next-line no-console -- C4-G8.5R: diagnóstico temporal, retirar tras obtener evidencia
+    console.log("[C4-G8.5R TEMP] notifications channel created");
 
-    channel.subscribe((status) => {
+    notificationsChannel.subscribe((status, err) => {
+      // eslint-disable-next-line no-console -- C4-G8.5R TEMP
+      console.log("[C4-G8.5R TEMP] notifications subscribe status", status, err ?? "");
       setIsConnected(status === "SUBSCRIBED");
     });
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(notificationsChannel);
       setIsConnected(false);
+    };
+  }, [userId]);
+
+  // Canal 2 — messages (Fase C4-G8.5R, experimental/temporal). Canal
+  // independiente del de notifications, topic distinto (`messages:{userId}`)
+  // para no compartir bindings con el canal 1. Sin `filter`: RLS
+  // (messages_select_participant) es quien decide qué filas llegan, igual
+  // que en useChatRealtime.ts. Nunca se registra para admins.
+  useEffect(() => {
+    if (!userId || isAdmin) return;
+
+    const supabase = createClient();
+    const messagesChannel = supabase.channel(`messages:${userId}`);
+
+    // eslint-disable-next-line no-console -- C4-G8.5R: diagnóstico temporal, retirar tras obtener evidencia
+    console.log("[C4-G8.5R TEMP] messages channel created", {
+      topic: `messages:${userId}`,
+      userId,
+      isAdmin,
+    });
+
+    messagesChannel.on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "messages" },
+      (payload) => {
+        const msg = payload.new as Message;
+        // eslint-disable-next-line no-console -- C4-G8.5R TEMP
+        console.log("[C4-G8.5R TEMP] messages INSERT received", {
+          messageId: msg.id,
+          conversationId: msg.conversation_id,
+          senderId: msg.sender_id,
+          userId,
+        });
+        if (isOwnMessage(msg, userId)) {
+          // eslint-disable-next-line no-console -- C4-G8.5R TEMP
+          console.log("[C4-G8.5R TEMP] own message ignored", {
+            messageId: msg.id,
+            senderId: msg.sender_id,
+            userId,
+          });
+          return; // nunca refrescar por mensajes propios
+        }
+        // eslint-disable-next-line no-console -- C4-G8.5R TEMP
+        console.log("[C4-G8.5R TEMP] message from another user", {
+          messageId: msg.id,
+          conversationId: msg.conversation_id,
+        });
+        // eslint-disable-next-line no-console -- C4-G8.5R TEMP
+        console.log("[C4-G8.5R TEMP] messages listener executed", {
+          listeners: messageListenersRef.current.size,
+        });
+        messageListenersRef.current.forEach((handler) => handler(msg));
+      }
+    );
+
+    messagesChannel.subscribe((status, err) => {
+      // eslint-disable-next-line no-console -- C4-G8.5R TEMP
+      console.log("[C4-G8.5R TEMP] messages subscribe status", status, err ?? "");
+    });
+
+    return () => {
+      supabase.removeChannel(messagesChannel);
     };
   }, [userId, isAdmin]);
 

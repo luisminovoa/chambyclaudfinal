@@ -7,13 +7,12 @@ import { shouldRefreshForNewMessage } from "@/lib/realtime/messages-refresh-deci
 
 /**
  * Refresca los Server Components de la ruta actual cuando llega un
- * `messages` INSERT relevante (Fase C4-G8.5P) — reutiliza el canal único
- * ya existente en NotificationsProvider (topic `user:{userId}`), que
- * ahora también escucha `messages` sin filtro (protegido por
- * `messages_select_participant`, comprobado funcionando con Realtime, a
- * diferencia de `notifications` — ver auditoría C4-G8.5B-N). No abre
- * ningún canal Realtime nuevo: subscribeToNewMessages() solo agrega un
- * callback más al Set ya existente del Provider.
+ * `messages` INSERT relevante (Fase C4-G8.5P) — se suscribe vía
+ * `subscribeToNewMessages()` a NotificationsProvider, sin abrir ningún
+ * canal Realtime propio. Desde la Fase C4-G8.5R (experimental) ese
+ * listener del Provider vive en un canal `messages:{userId}` separado del
+ * canal `user:{userId}` de `notifications` — este hook no depende de cuál
+ * sea el canal físico, solo del callback expuesto por el Provider.
  *
  * router.refresh() vuelve a ejecutar getConversations()/
  * getMessagesUnreadCount() en el servidor (Server Components, sin caché
@@ -31,13 +30,13 @@ export function useMessagesRefreshOnNewMessage() {
     return subscribeToNewMessages(() => {
       const now = Date.now();
       if (!shouldRefreshForNewMessage(lastRefreshRef.current, now)) {
-        // eslint-disable-next-line no-console -- C4-G8.5Q: diagnóstico temporal, retirar tras obtener evidencia
-        console.log("[C4-G8.5Q TEMP] refresh bloqueado por debounce");
+        // eslint-disable-next-line no-console -- C4-G8.5R: diagnóstico temporal, retirar tras obtener evidencia
+        console.log("[C4-G8.5R TEMP] refresh blocked by debounce");
         return;
       }
       lastRefreshRef.current = now;
-      // eslint-disable-next-line no-console -- C4-G8.5Q TEMP
-      console.log("[C4-G8.5Q TEMP] router.refresh ejecutado");
+      // eslint-disable-next-line no-console -- C4-G8.5R TEMP
+      console.log("[C4-G8.5R TEMP] router.refresh executed");
       router.refresh();
     });
   }, [subscribeToNewMessages, router]);
