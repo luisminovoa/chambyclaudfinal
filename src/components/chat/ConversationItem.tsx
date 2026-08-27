@@ -3,6 +3,8 @@ import { BellOff, Archive } from "lucide-react";
 import { isToday, isYesterday, format } from "date-fns";
 import { es } from "date-fns/locale";
 import { Avatar } from "@/components/ui/Avatar";
+import { Badge, jobStatusTone } from "@/components/ui/Badge";
+import { jobStatusLabel } from "@/lib/utils";
 import type { ConversationWithDetails } from "@/lib/types";
 
 function formatConvTime(iso: string): string {
@@ -99,11 +101,19 @@ export function ConversationItem({ conversation, currentUserId }: ConversationIt
             {messagePreview(conversation, currentUserId)}
           </p>
           {conversation.job && (
-            <span className="shrink-0 truncate text-[10px] text-ink-muted max-w-[80px]">
-              {conversation.job.title.length > 18
-                ? conversation.job.title.slice(0, 18) + "…"
-                : conversation.job.title}
-            </span>
+            <>
+              <span className="shrink-0 truncate text-[10px] text-ink-muted max-w-[80px]">
+                {conversation.job.title.length > 18
+                  ? conversation.job.title.slice(0, 18) + "…"
+                  : conversation.job.title}
+              </span>
+              <Badge
+                tone={jobStatusTone(conversation.job.status)}
+                className="shrink-0 !px-1.5 !py-0.5 text-[9px]"
+              >
+                {jobStatusLabel(conversation.job.status)}
+              </Badge>
+            </>
           )}
         </div>
       </div>

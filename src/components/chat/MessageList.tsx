@@ -11,12 +11,15 @@ interface MessageListProps {
   messages: Message[];
   currentUserId: string;
   isTyping: boolean;
+  /** Cursor de lectura del OTRO participante (Fase C4-G8.2) — null si nunca leyó. */
+  otherParticipantLastReadAt: string | null;
 }
 
 export const MessageList = memo(function MessageList({
   messages,
   currentUserId,
   isTyping,
+  otherParticipantLastReadAt,
 }: MessageListProps) {
   if (messages.length === 0 && !isTyping) {
     return (
@@ -44,6 +47,7 @@ export const MessageList = memo(function MessageList({
         message={msg}
         isMine={msg.sender_id === currentUserId}
         isOptimistic={msg.id.startsWith("optimistic-")}
+        otherParticipantLastReadAt={otherParticipantLastReadAt}
       />
     );
   });

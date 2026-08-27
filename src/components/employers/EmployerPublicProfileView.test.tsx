@@ -124,3 +124,48 @@ describe("EmployerPublicProfileView — acceso a edición y no-exposición de da
     expect(html).not.toContain("20123456789");
   });
 });
+
+describe("EmployerPublicProfileView — hiringConversations (Fase C4-G6)", () => {
+  it("sin hiringConversations (prop omitida), no muestra ninguna sección de chat", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView data={baseData} viewerId="worker-99" />
+    );
+    expect(html).not.toContain("Abrir chat");
+    expect(html).not.toContain("Conversaciones");
+  });
+
+  it("con una sola conversación, muestra '💬 Abrir chat' hacia esa conversación", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView
+        data={baseData}
+        viewerId="worker-99"
+        hiringConversations={[{ conversationId: "conv-1", jobId: "job-1", jobTitle: "Chamba A" }]}
+      />
+    );
+    expect(html).toContain("💬 Abrir chat");
+    expect(html).toMatch(/<a href="\/messages\/conv-1"/);
+  });
+
+  it("con varias chambas entre los mismos usuarios, muestra la lista 'Conversaciones' — nunca elige una arbitrariamente", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView
+        data={baseData}
+        viewerId="worker-99"
+        hiringConversations={[
+          { conversationId: "conv-a", jobId: "job-a", jobTitle: "Chamba A" },
+          { conversationId: "conv-b", jobId: "job-b", jobTitle: "Chamba B" },
+        ]}
+      />
+    );
+    expect(html).toContain("Conversaciones");
+    expect(html).toContain("Chamba A");
+    expect(html).toContain("Chamba B");
+  });
+
+  it("no permite chat solo por visitar el perfil: con hiringConversations=[] (sin contratación real), no hay botón de chat", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView data={baseData} viewerId="worker-99" hiringConversations={[]} />
+    );
+    expect(html).not.toContain("Abrir chat");
+  });
+});

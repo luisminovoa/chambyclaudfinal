@@ -7,17 +7,44 @@ interface MessageBubbleProps {
   message: Message;
   isMine: boolean;
   isOptimistic?: boolean;
+  /** Cursor de lectura del OTRO participante (Fase C4-G8.2) — null si nunca leyó. */
+  otherParticipantLastReadAt: string | null;
 }
 
-function ReadStatus({ message, isMine }: { message: Message; isMine: boolean }) {
+/**
+ * "Leído"/"Enviado" para mensajes propios, derivado del cursor del otro
+ * participante (Fase C4-G8.2) — ya no de message.read_at, que nunca se
+ * actualizaba para usuarios reales (sin política RLS UPDATE sobre
+ * messages, ver auditoría C4-G8/C4-G8.1). Los mensajes recibidos nunca
+ * muestran este estado.
+ *
+ * Fase C4-G8.4: "Enviado" y "Leído" antes usaban el mismo ícono
+ * (CheckCheck), diferenciados solo por color — con primary-400 (violeta)
+ * sobre bg-primary-600 el contraste era tan bajo que "Leído" se percibía
+ * más apagado que "Enviado", al revés de lo esperado. Ahora "Enviado" usa
+ * un solo check (Check) y "Leído" usa el doble check (CheckCheck) en
+ * sky-300 — mismo tono "info" ya usado en esta app para chat/estado de
+ * chamba (jobStatusTone() en Badge.tsx), con contraste real contra el
+ * fondo violeta de la burbuja.
+ */
+function ReadStatus({
+  message,
+  isMine,
+  otherParticipantLastReadAt,
+}: {
+  message: Message;
+  isMine: boolean;
+  otherParticipantLastReadAt: string | null;
+}) {
   if (!isMine) return null;
   if (message.id.startsWith("optimistic-")) {
     return <Clock className="h-3 w-3 text-slate-400" aria-label="Enviando" />;
   }
-  if (message.read_at) {
-    return <CheckCheck className="h-3.5 w-3.5 text-primary-400" aria-label="Leído" />;
+  const isRead = otherParticipantLastReadAt !== null && message.created_at <= otherParticipantLastReadAt;
+  if (isRead) {
+    return <CheckCheck className="h-3.5 w-3.5 text-sky-300" aria-label="Leído" />;
   }
-  return <CheckCheck className="h-3.5 w-3.5 text-slate-300" aria-label="Enviado" />;
+  return <Check className="h-3.5 w-3.5 text-slate-300" aria-label="Enviado" />;
 }
 
 function ImageContent({ url, body }: { url: string; body: string }) {
@@ -63,7 +90,12 @@ function LocationContent({ metadata }: { metadata: Message["metadata"] }) {
   );
 }
 
-export function MessageBubble({ message, isMine, isOptimistic }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  isMine,
+  isOptimistic,
+  otherParticipantLastReadAt,
+}: MessageBubbleProps) {
   const time = format(new Date(message.created_at), "HH:mm");
 
   return (
@@ -102,7 +134,11 @@ export function MessageBubble({ message, isMine, isOptimistic }: MessageBubblePr
           ].join(" ")}
         >
           <time dateTime={message.created_at}>{time}</time>
-          <ReadStatus message={message} isMine={isMine} />
+          <ReadStatus
+            message={message}
+            isMine={isMine}
+            otherParticipantLastReadAt={otherParticipantLastReadAt}
+          />
         </div>
       </div>
     </div>

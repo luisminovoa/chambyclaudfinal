@@ -30,9 +30,9 @@ describe("getMainNavItems — navegación de escritorio por modo activo", () => 
     expect(hrefs("employer")).toContain("/jobs/new");
   });
 
-  it("5. employer NO ve 'Buscar trabajadores' — /workers todavía no existe (PR 3)", () => {
-    expect(labels("employer").join(" ")).not.toMatch(/trabajadores/i);
-    expect(hrefs("employer").some((h) => h.startsWith("/workers"))).toBe(false);
+  it("5. employer ve 'Buscar trabajadores' hacia /workers (Fase 3 del directorio)", () => {
+    expect(labels("employer")).toContain("Buscar trabajadores");
+    expect(hrefs("employer")).toContain("/workers");
   });
 
   it("un visitante sin sesión conserva la navegación de trabajador (comportamiento actual)", () => {
@@ -50,7 +50,7 @@ describe("multirol — la navegación depende del modo activo, no de los roles p
   });
 
   it("7. worker+employer en modo employer ve exactamente la navegación de empleador", () => {
-    expect(labels("employer")).toEqual(["Mis publicaciones", "Publicar trabajo"]);
+    expect(labels("employer")).toEqual(["Buscar trabajadores", "Mis publicaciones", "Publicar trabajo"]);
   });
 
   it("nunca se mezclan los dos modos en la misma barra", () => {
@@ -93,7 +93,7 @@ describe("getBrowseTab — segunda pestaña del BottomNav (móvil)", () => {
     });
   });
 
-  it("employer: la pestaña móvil tampoco enlaza a /workers todavía", () => {
+  it("employer: la pestaña móvil sigue siendo 'Publicaciones', no /workers (decisión de Fase 3: el directorio se agrega al Navbar de escritorio, no reemplaza la pestaña móvil de un solo slot)", () => {
     expect(getBrowseTab("employer").href.startsWith("/workers")).toBe(false);
   });
 

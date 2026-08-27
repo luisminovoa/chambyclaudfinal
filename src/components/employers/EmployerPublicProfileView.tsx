@@ -16,17 +16,22 @@ import { Badge } from "@/components/ui/Badge";
 import { RatingStars } from "@/components/RatingStars";
 import { VerificationBadges } from "@/components/profile/VerificationBadges";
 import { ReportButton } from "@/components/reports/ReportButton";
+import { HiringConversations } from "@/components/chat/HiringConversations";
 import { formatCurrency, payTypeLabel, formatMemberSince } from "@/lib/utils";
 import type { EmployerPublicProfile } from "@/lib/actions/employers";
+import type { HiringConversation } from "@/lib/actions/chat";
 
 const EMPLOYER_TYPE_LABELS = { individual: "Persona", company: "Empresa" } as const;
 
 export function EmployerPublicProfileView({
   data,
   viewerId,
+  hiringConversations = [],
 }: {
   data: EmployerPublicProfile;
   viewerId?: string | null;
+  /** Conversaciones existentes con este empleador — getHiringConversations(), Fase C4-G6. */
+  hiringConversations?: HiringConversation[];
 }) {
   const { profile, stats, ratingSummary, jobsPublished, jobsCompleted, hires, openJobs } = data;
   const earnedBadges = stats?.badges ?? [];
@@ -126,6 +131,15 @@ export function EmployerPublicProfileView({
           </div>
         </div>
       </div>
+
+      {/* Chat: solo si ya existe una relación laboral real (contratación
+          aceptada) con este empleador — nunca por el solo hecho de visitar
+          el perfil. Fase C4-G6. */}
+      {hiringConversations.length > 0 && (
+        <div className="card p-5">
+          <HiringConversations conversations={hiringConversations} />
+        </div>
+      )}
 
       {/* Confianza: trust score + insignias de verificación. Nunca se
           expone el RUC declarado ni ningún documento — solo el resultado

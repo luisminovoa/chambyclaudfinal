@@ -5,6 +5,8 @@ import { useToast } from "@/components/ui/Toaster";
 import { updateProfile, upsertWorkerProfileDetails } from "@/lib/actions/profile";
 import { refreshProfileStats } from "@/lib/profile-stats";
 import { SkillsSelector } from "@/components/profile/SkillsSelector";
+import { CATEGORY_NAMES } from "@/lib/categories";
+import { CITY_NAMES, normalizeCity } from "@/lib/cities";
 import type { Profile, WorkerProfileDetails, AvailabilityStatus, ProfileStats } from "@/lib/types";
 
 const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
@@ -12,25 +14,6 @@ const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] = [
   { value: "una_semana", label: "En una semana" },
   { value: "un_mes", label: "En un mes" },
   { value: "no_disponible", label: "No disponible" },
-];
-
-const CATEGORIES = [
-  "Electricista",
-  "Albañil",
-  "Plomero",
-  "Carpintero",
-  "Pintor",
-  "Niñera / Cuidador",
-  "Limpieza",
-  "Jardinero",
-  "Conductor",
-  "Seguridad",
-  "Cocinero",
-  "Mesero",
-  "Administrativo",
-  "Técnico en computadoras",
-  "Diseñador",
-  "Otro",
 ];
 
 interface InfoTabProps {
@@ -45,9 +28,22 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
 
   const [bio, setBio] = useState(profile.bio ?? "");
   const [phone, setPhone] = useState(profile.phone ?? "");
-  const [city, setCity] = useState(profile.city ?? "");
+  // normalizeCity(): compatibilidad con valores históricos de profiles.city
+  // que no coinciden exactamente con CITY_NAMES (p. ej. "CHICLAYO") — solo
+  // afecta qué opción se muestra seleccionada en el <select>, nunca se
+  // escribe en BD hasta que el usuario guarda explícitamente (Fase C4-D).
+  const [city, setCity] = useState(normalizeCity(profile.city) ?? "");
   const [category, setCategory] = useState(profile.category ?? "");
   const [skills, setSkills] = useState<string[]>(profile.skills ?? []);
+
+  // Fase B (perfil del trabajador): ocupación (category) y ciudad (city)
+  // son los dos únicos filtros estructurados del directorio de
+  // trabajadores (listPublicWorkers(), src/lib/actions/workers.ts) — sin
+  // ellos, el trabajador queda invisible ante cualquier búsqueda filtrada.
+  // Se calcula sobre el estado local (no sobre `profile` directamente)
+  // para que el aviso desaparezca en cuanto el trabajador complete el
+  // campo, sin esperar a guardar.
+  const isDiscoverabilityIncomplete = !category || !city;
 
   // Información profesional ampliada (Fase 1)
   const [professionalTitle, setProfessionalTitle] = useState(
@@ -115,7 +111,17 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="card p-5 sm:p-6">
-        <h3 className="mb-5 text-sm font-bold text-ink">Datos personales</h3>
+        <h3 className="mb-1 text-sm font-bold text-ink">Datos personales</h3>
+        <p className="mb-4 text-xs text-ink-muted">
+          Tu ciudad y tu ocupación son lo primero que revisan los empleadores en el
+          directorio de trabajadores.
+        </p>
+        {isDiscoverabilityIncomplete && (
+          <div className="mb-4 rounded-2xl border border-warning-200 bg-warning-50 p-3 text-xs font-medium text-warning-700">
+            Completa tu ocupación y tu ciudad para que los empleadores puedan
+            encontrarte en el directorio.
+          </div>
+        )}
         <div className="space-y-4">
           {/* Phone */}
           <div>
@@ -137,14 +143,20 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
             <label htmlFor="city" className="label">
               Ciudad
             </label>
-            <input
+            <select
               id="city"
-              type="text"
+              name="city"
               className="input w-full"
-              placeholder="Lima, Arequipa, Trujillo…"
               value={city}
               onChange={(e) => setCity(e.target.value)}
-            />
+            >
+              <option value="">Selecciona tu ciudad</option>
+              {CITY_NAMES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Category */}
@@ -159,7 +171,7 @@ export function InfoTab({ profile, workerDetails, onStatsChange }: InfoTabProps)
               onChange={(e) => setCategory(e.target.value)}
             >
               <option value="">Selecciona una especialidad</option>
-              {CATEGORIES.map((cat) => (
+              {CATEGORY_NAMES.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>

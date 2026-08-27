@@ -67,8 +67,13 @@ const organizationJsonLd = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // getCurrentUserAndProfile() está envuelto en React cache() — Navbar ya lo
   // llama en el mismo request, así que esto no agrega una consulta extra.
-  const { user } = await getCurrentUserAndProfile();
+  const { user, profile } = await getCurrentUserAndProfile();
   const initialUnreadCount = user ? await getUnreadCount() : 0;
+  // Fase C4-G8.5P: los admins quedan excluidos del canal global de
+  // `messages` (ver NotificationsProvider) — con `current_user_role() =
+  // 'admin'` en messages_select_participant, un canal sin filtro les
+  // entregaría cada mensaje de toda la plataforma, no solo los suyos.
+  const isAdmin = profile?.role === "admin";
 
   return (
     <html lang="es" className={inter.variable}>
@@ -80,7 +85,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Saltar al contenido principal
         </a>
         <ToastProvider>
-          <NotificationsProvider userId={user?.id ?? null} initialUnreadCount={initialUnreadCount}>
+          <NotificationsProvider
+            userId={user?.id ?? null}
+            initialUnreadCount={initialUnreadCount}
+            isAdmin={isAdmin}
+          >
             <Navbar />
             <main id="contenido" className="flex-1 pb-24 sm:pb-0">
               {children}

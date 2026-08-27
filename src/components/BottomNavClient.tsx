@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Home, Plus, MessageCircle, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useActivateRole } from "@/components/roles/use-activate-role";
+import { useMessagesRefreshOnNewMessage } from "@/lib/realtime/useMessagesRefreshOnNewMessage";
 import { getBrowseTab } from "@/lib/main-nav";
 import type { UserRole } from "@/lib/types";
 
@@ -27,6 +28,10 @@ export function BottomNavClient({
   // hamburguesa en esta app, el tab central del BottomNav ya es
   // ícono-solo por diseño, así que cumple el mismo requisito.
   const publish = useActivateRole("employer", hasEmployerRole, "/jobs/new");
+  // Fase C4-G8.5: reutiliza el mismo canal de NotificationsProvider que ya
+  // usa NotificationBell — sin esto, messagesUnreadCount solo se
+  // actualizaba en la próxima navegación/F5.
+  useMessagesRefreshOnNewMessage();
 
   const profileHref = isLoggedIn ? (role === "admin" ? "/admin" : "/dashboard") : "/login";
   // Un invitado que quiere publicar vuelve al formulario justo después de registrarse

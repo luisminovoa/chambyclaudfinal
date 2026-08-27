@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MapPin, Briefcase } from "lucide-react";
+import { MapPin, Briefcase, MessageCircle } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { RatingStars } from "@/components/RatingStars";
 import type { PublicWorkerSummary, RatingSummary } from "@/lib/types";
@@ -7,9 +7,11 @@ import type { PublicWorkerSummary, RatingSummary } from "@/lib/types";
 interface AssignedWorkerCardProps {
   worker: PublicWorkerSummary;
   rating: RatingSummary | null;
+  /** conversationId de ESTE job (getConversationIdForJob(), Fase C4-G6) — null si aún no existe. */
+  conversationId?: string | null;
 }
 
-export function AssignedWorkerCard({ worker, rating }: AssignedWorkerCardProps) {
+export function AssignedWorkerCard({ worker, rating, conversationId = null }: AssignedWorkerCardProps) {
   return (
     <div className="mt-6 rounded-2xl border border-primary-100 bg-primary-50/40 p-5">
       <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-primary-600">
@@ -44,6 +46,23 @@ export function AssignedWorkerCard({ worker, rating }: AssignedWorkerCardProps) 
             <p className="mt-1 text-xs text-ink-muted">Sin calificaciones aún</p>
           )}
         </div>
+      </div>
+      <div className="mt-4 flex gap-2">
+        <Link
+          href={`/workers/${worker.id}`}
+          className="btn-secondary flex-1 justify-center !py-2 text-xs"
+        >
+          Ver perfil
+        </Link>
+        {conversationId && (
+          <Link
+            href={`/messages/${conversationId}`}
+            className="btn-secondary flex-1 justify-center !py-2 text-xs"
+          >
+            <MessageCircle className="h-3.5 w-3.5" />
+            💬 Abrir chat
+          </Link>
+        )}
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import type {
   ChatParticipant,
   Profile,
   Job,
+  JobStatus,
 } from "@/lib/types";
 
 const VALID_TYPES: MessageType[] = ["text", "image", "location", "pdf", "audio", "video"];
@@ -91,26 +92,33 @@ export async function sendMessage(
   return { success: true, messageId: msg.id };
 }
 
-export async function markRead(conversationId: string): Promise<void> {
+/**
+ * Marca la conversación como leída hasta "ahora" para el usuario actual —
+ * única fuente de verdad de lectura (Fase C4-G8.2, tras la auditoría
+ * C4-G8/C4-G8.1: `messages.read_at` nunca tuvo política RLS UPDATE, así que
+ * el intento de actualizarlo aquí siempre afectaba 0 filas para usuarios
+ * reales; se elimina esa escritura muerta en vez de arreglar esa RLS).
+ * Requiere ser participante real de la conversación — antes no se
+ * verificaba, permitiendo crear/actualizar un cursor propio para una
+ * conversación ajena (H5, C4-G8).
+ */
+export async function markRead(conversationId: string): Promise<ActionResult> {
   const supabase = createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) return { error: "Debes iniciar sesión." };
 
-  const now = new Date().toISOString();
-  await Promise.all([
-    supabase.from("conversation_read_cursors").upsert(
-      { conversation_id: conversationId, profile_id: user.id, last_read_at: now },
-      { onConflict: "conversation_id,profile_id" }
-    ),
-    supabase
-      .from("messages")
-      .update({ read_at: now })
-      .eq("conversation_id", conversationId)
-      .neq("sender_id", user.id)
-      .is("read_at", null),
-  ]);
+  const conv = await assertParticipant(supabase, conversationId, user.id);
+  if (!conv) return { error: "Sin permiso." };
+
+  const { error } = await supabase.from("conversation_read_cursors").upsert(
+    { conversation_id: conversationId, profile_id: user.id, last_read_at: new Date().toISOString() },
+    { onConflict: "conversation_id,profile_id" }
+  );
+
+  if (error) return { error: "No se pudo marcar como leído." };
+  return { success: true };
 }
 
 export async function getMessages(
@@ -335,10 +343,14 @@ export async function getConversations(): Promise<ConversationWithDetails[]> {
 
   const result = typedConvs.map((conv) => {
     const msgs = msgsByConv.get(conv.id) ?? [];
+    // Fuente única: conversation_read_cursors (Fase C4-G8.2). Sin cursor
+    // (conversación nunca abierta por este usuario), todo mensaje del otro
+    // participante cuenta como no leído — ya no se consulta
+    // messages.read_at, que nunca reflejó lecturas reales (ver C4-G8.1).
     const cursor = cursorMap.get(conv.id);
     const unreadCount = cursor
       ? msgs.filter((m) => m.sender_id !== user.id && m.created_at > cursor).length
-      : msgs.filter((m) => m.sender_id !== user.id && !m.read_at).length;
+      : msgs.filter((m) => m.sender_id !== user.id).length;
 
     return {
       ...conv,
@@ -359,12 +371,118 @@ export async function getConversations(): Promise<ConversationWithDetails[]> {
   });
 }
 
+export interface HiringConversation {
+  conversationId: string;
+  jobId: string;
+  jobTitle: string;
+}
+
+/**
+ * Resuelve conversaciones EXISTENTES entre el usuario actual y otro perfil
+ * (Fase C4-G6) — nunca crea una. Se usa en /workers/[workerId] y
+ * /employers/[id] para ofrecer "Abrir chat" cuando ya existe una relación
+ * laboral real (contratación aceptada), sin depender de que la navegación
+ * traiga un jobId explícito.
+ *
+ * Seguridad: no se reimplementa ninguna regla de autorización nueva — se
+ * apoya enteramente en `conversations_select_participant`
+ * (0002_hiring_tracking.sql: `employer_id = auth.uid() or worker_id =
+ * auth.uid() or admin`) usando el cliente de SESIÓN, nunca admin. El
+ * filtro `.eq(employer_id/worker_id, ...)` de abajo es una optimización de
+ * negocio (evita traer conversaciones irrelevantes), no el límite de
+ * seguridad real: aunque se omitiera, RLS igual restringiría el resultado
+ * a filas donde auth.uid() participa — un viewer nunca puede obtener el
+ * conversationId de una conversación ajena por esta vía.
+ *
+ * "1 job = 1 conversation" (constraint `unique` en conversations.job_id,
+ * 0002_hiring_tracking.sql) es lo que permite que dos usuarios con varias
+ * chambas entre sí tengan varias filas aquí — nunca se elige una
+ * arbitrariamente, se devuelven TODAS para que el caller decida cómo
+ * mostrarlas (un solo botón vs. una lista).
+ */
+export async function getHiringConversations(
+  targetProfileId: string
+): Promise<HiringConversation[]> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || user.id === targetProfileId) return [];
+
+  const { data: viewerProfile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const role = (viewerProfile as { role: string } | null)?.role;
+
+  let query = supabase.from("conversations").select("id, job_id");
+  if (role === "employer") {
+    query = query.eq("employer_id", user.id).eq("worker_id", targetProfileId);
+  } else if (role === "worker") {
+    query = query.eq("worker_id", user.id).eq("employer_id", targetProfileId);
+  } else {
+    // admin u otro modo activo: no es parte de la relación laboral, no
+    // corresponde ofrecerle "Abrir chat" desde un perfil ajeno.
+    return [];
+  }
+
+  const { data: convRows } = await query.order("created_at", { ascending: false });
+  const rows = (convRows as { id: string; job_id: string }[] | null) ?? [];
+  if (rows.length === 0) return [];
+
+  const jobIds = rows.map((r) => r.job_id);
+  const { data: jobRows } = await supabase.from("jobs").select("id, title").in("id", jobIds);
+  const titleById = new Map(
+    ((jobRows as { id: string; title: string }[] | null) ?? []).map((j) => [j.id, j.title])
+  );
+
+  return rows.map((r) => ({
+    conversationId: r.id,
+    jobId: r.job_id,
+    jobTitle: titleById.get(r.job_id) ?? "Chamba",
+  }));
+}
+
+/**
+ * Resuelve el conversationId de UN job específico (Fase C4-G6) — usado por
+ * AssignedWorkerCard en /jobs/[id], donde el job ya es conocido y la
+ * relación "1 job = 1 conversation" (constraint unique en
+ * conversations.job_id) hace innecesario cualquier resolver más genérico.
+ * Mismo boundary de seguridad que el resto de este archivo: cliente de
+ * sesión, RLS de `conversations_select_participant` decide qué fila es
+ * visible — null tanto si no hay conversación como si el caller no es
+ * participante.
+ */
+export async function getConversationIdForJob(jobId: string): Promise<string | null> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase.from("conversations").select("id").eq("job_id", jobId).maybeSingle();
+  return (data as { id: string } | null)?.id ?? null;
+}
+
 export async function getConversationForChat(conversationId: string): Promise<{
   otherUser: ChatParticipant;
   currentUserId: string;
   initialMessages: Message[];
   initialHasMore: boolean;
+  jobId: string | null;
   jobTitle: string | null;
+  /** Estado real de jobs.status (Fase C4-G7B) — nunca un estado inventado para conversations. */
+  jobStatus: JobStatus | null;
+  /**
+   * Cursor de lectura del OTRO participante (Fase C4-G8.2) — fuente única
+   * para el estado "Leído" por mensaje en MessageBubble. Nunca el cursor de
+   * un tercero: siempre el del participante distinto de currentUserId, en
+   * ESTA conversación, protegido por `cursors_select_participant` (el
+   * viewer ya es participante, RLS lo deja ver el cursor del otro). Null si
+   * ese participante nunca marcó la conversación como leída.
+   */
+  otherParticipantLastReadAt: string | null;
 } | null> {
   const supabase = createClient();
   const {
@@ -385,31 +503,42 @@ export async function getConversationForChat(conversationId: string): Promise<{
   // cliente admin con una lista blanca explícita: nunca select("*"), y
   // nunca phone/business_ruc — ChatWindow/PresenceBar (ambos Client
   // Components) reciben este objeto completo como prop.
-  const [{ data: otherProfile }, { data: jobData }, { data: msgRows }] = await Promise.all([
-    createAdminClient()
-      .from("profiles")
-      .select("id, full_name, avatar_url, role")
-      .eq("id", otherId)
-      .single(),
-    supabase.from("jobs").select("title").eq("id", conv.job_id).single(),
-    supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .limit(MESSAGES_PER_PAGE + 1),
-  ]);
+  const [{ data: otherProfile }, { data: jobData }, { data: msgRows }, { data: cursorRow }] =
+    await Promise.all([
+      createAdminClient()
+        .from("profiles")
+        .select("id, full_name, avatar_url, role")
+        .eq("id", otherId)
+        .single(),
+      supabase.from("jobs").select("title, status").eq("id", conv.job_id).single(),
+      supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(MESSAGES_PER_PAGE + 1),
+      supabase
+        .from("conversation_read_cursors")
+        .select("last_read_at")
+        .eq("conversation_id", conversationId)
+        .eq("profile_id", otherId)
+        .maybeSingle(),
+    ]);
 
   if (!otherProfile) return null;
 
   const rows = (msgRows as unknown as Message[]) ?? [];
   const hasMore = rows.length > MESSAGES_PER_PAGE;
+  const job = jobData as unknown as { title: string; status: JobStatus } | null;
 
   return {
     otherUser: otherProfile as unknown as ChatParticipant,
     currentUserId: user.id,
     initialMessages: rows.slice(0, MESSAGES_PER_PAGE).reverse(),
     initialHasMore: hasMore,
-    jobTitle: (jobData as unknown as { title: string } | null)?.title ?? null,
+    jobId: conv.job_id ?? null,
+    jobTitle: job?.title ?? null,
+    jobStatus: job?.status ?? null,
+    otherParticipantLastReadAt: (cursorRow as { last_read_at: string } | null)?.last_read_at ?? null,
   };
 }

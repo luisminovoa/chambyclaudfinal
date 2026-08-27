@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Briefcase, Plus, Search } from "lucide-react";
+import { Briefcase, Plus, Search, Users } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 
 export interface MainNavItem {
@@ -30,11 +30,16 @@ const WORKER_NAV_ITEMS: MainNavItem[] = [
 ];
 
 /**
- * "Buscar trabajadores" (/workers) NO está aquí a propósito: esa ruta
- * todavía no existe. Se agrega junto con el directorio, no antes — un
- * enlace a una ruta inexistente es peor que no tener el enlace.
+ * "Buscar trabajadores" (/workers) — agregado en la Fase 3 del directorio
+ * de trabajadores, ahora que la ruta existe de verdad
+ * (src/app/workers/page.tsx). Antes deliberadamente no estaba aquí (ver
+ * historial): un enlace a una ruta inexistente es peor que no tener el
+ * enlace — el test "9. ningún enlace apunta a una ruta inexistente"
+ * (main-nav.test.ts) sigue verificando esto contra el árbol real de
+ * src/app en cada cambio.
  */
 const EMPLOYER_NAV_ITEMS: MainNavItem[] = [
+  { href: "/workers", label: "Buscar trabajadores", icon: Users },
   { href: "/dashboard/employer", label: "Mis publicaciones", icon: Briefcase },
   { href: "/jobs/new", label: "Publicar trabajo", icon: Plus },
 ];

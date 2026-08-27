@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { switchRoleAction, getUserRoles } from "./roles";
+import { switchRoleAction, getUserRoles, completeGoogleOnboarding } from "./roles";
 import { createClient } from "@/lib/supabase/server";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -30,6 +30,7 @@ interface State {
   profileRole: string;
   userRolesWrites: { op: "update" | "insert"; payload: unknown }[];
   profileUpdates: { role: string }[];
+  cityUpdates: { city: string }[];
 }
 
 const state: State = {
@@ -38,6 +39,7 @@ const state: State = {
   profileRole: "worker",
   userRolesWrites: [],
   profileUpdates: [],
+  cityUpdates: [],
 };
 
 function userRolesSelectChain(predicate: (r: RoleRow) => boolean) {
@@ -107,12 +109,16 @@ vi.mock("@/lib/supabase/server", () => ({
               single: async () => ({ data: { role: state.profileRole } }),
             }),
           }),
-          update: (payload: { role: string }) => ({
+          update: (payload: { role: string } | { city: string }) => ({
             eq: async () => {
-              const check = evaluateProfilesUpdateCheck(payload.role);
-              if (!check.allowed) return { error: check.error };
-              state.profileUpdates.push(payload);
-              state.profileRole = payload.role;
+              if ("role" in payload) {
+                const check = evaluateProfilesUpdateCheck(payload.role);
+                if (!check.allowed) return { error: check.error };
+                state.profileUpdates.push(payload);
+                state.profileRole = payload.role;
+                return { error: null };
+              }
+              state.cityUpdates.push(payload);
               return { error: null };
             },
           }),
@@ -129,6 +135,13 @@ function reset() {
   state.profileRole = "worker";
   state.userRolesWrites = [];
   state.profileUpdates = [];
+  state.cityUpdates = [];
+}
+
+function makeFormData(fields: Record<string, string>): FormData {
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
+  return fd;
 }
 
 describe("switchRoleAction — reglas de negocio de roles (contra una simulación fiel de profiles_update_own, 0018)", () => {
@@ -372,5 +385,54 @@ describe("switchRoleAction — reglas de negocio de roles (contra una simulació
     }
 
     expect(state.userRolesWrites).toEqual([]);
+  });
+});
+
+describe("completeGoogleOnboarding — normalización de ciudad (Fase C4-F)", () => {
+  beforeEach(reset);
+
+  it("ciudad ausente/vacía: no se ejecuta ningún UPDATE de city (sigue siendo opcional)", async () => {
+    await completeGoogleOnboarding({}, makeFormData({ intent: "worker" }));
+    expect(state.cityUpdates).toEqual([]);
+  });
+
+  it("ciudad ya canónica ('Chiclayo') se guarda tal cual", async () => {
+    await completeGoogleOnboarding({}, makeFormData({ intent: "worker", city: "Chiclayo" }));
+    expect(state.cityUpdates).toEqual([{ city: "Chiclayo" }]);
+  });
+
+  it("variante de mayúsculas ('CHICLAYO') se normaliza server-side a 'Chiclayo' antes de guardar", async () => {
+    await completeGoogleOnboarding({}, makeFormData({ intent: "worker", city: "CHICLAYO" }));
+    expect(state.cityUpdates).toEqual([{ city: "Chiclayo" }]);
+  });
+
+  it("variante con espacios (' trujillo ') se normaliza a 'Trujillo'", async () => {
+    await completeGoogleOnboarding({}, makeFormData({ intent: "worker", city: " trujillo " }));
+    expect(state.cityUpdates).toEqual([{ city: "Trujillo" }]);
+  });
+
+  it("G) una ciudad fuera del catálogo ('Lima') nunca se guarda silenciosamente como Chiclayo/Trujillo — se conserva tal cual, sin inventar", async () => {
+    await completeGoogleOnboarding({}, makeFormData({ intent: "worker", city: "Lima" }));
+    expect(state.cityUpdates).toEqual([{ city: "Lima" }]);
+  });
+
+  it("intent=employer sigue activando el modo empleador exactamente igual, sin interferencia de la normalización de ciudad", async () => {
+    state.roles = [{ role: "employer", active: true }];
+    await completeGoogleOnboarding({}, makeFormData({ intent: "employer", city: "CHICLAYO" }));
+    expect(state.profileUpdates).toEqual([{ role: "employer" }]);
+    expect(state.cityUpdates).toEqual([{ city: "Chiclayo" }]);
+  });
+
+  it("intent inválido/ausente se rechaza antes de tocar city", async () => {
+    const result = await completeGoogleOnboarding({}, makeFormData({ city: "Chiclayo" }));
+    expect(result).toEqual({ error: "Selecciona una opción para continuar." });
+    expect(state.cityUpdates).toEqual([]);
+  });
+
+  it("sin usuario autenticado se rechaza antes de tocar city", async () => {
+    state.user = null;
+    const result = await completeGoogleOnboarding({}, makeFormData({ intent: "worker", city: "Chiclayo" }));
+    expect(result).toEqual({ error: "No autenticado." });
+    expect(state.cityUpdates).toEqual([]);
   });
 });

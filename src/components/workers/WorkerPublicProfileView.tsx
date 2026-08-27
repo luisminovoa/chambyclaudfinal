@@ -16,14 +16,7 @@ import { ReportButton } from "@/components/reports/ReportButton";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import { formatMemberSince } from "@/lib/utils";
 import type { WorkerPublicProfile } from "@/lib/actions/workers";
-import type { AvailabilityStatus } from "@/lib/types";
-
-const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
-  inmediata: "Disponibilidad inmediata",
-  una_semana: "Disponible en una semana",
-  un_mes: "Disponible en un mes",
-  no_disponible: "No disponible por ahora",
-};
+import { AVAILABILITY_LABELS } from "@/lib/types";
 
 export function WorkerPublicProfileView({
   data,

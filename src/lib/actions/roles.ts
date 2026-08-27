@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeCity } from "@/lib/cities";
 import type { UserRole } from "@/lib/types";
 
 type Ok = { success: true };
@@ -163,8 +164,15 @@ export async function completeGoogleOnboarding(
     if ("error" in switchResult) return switchResult;
   }
 
+  // normalizeCity() (Fase C4-D): el <select> del onboarding ya restringe
+  // la UI al catálogo, pero esta Server Action no depende únicamente de
+  // eso — reutiliza la misma normalización que InfoTab/EmployerInfoTab
+  // para que una variante histórica (p. ej. "CHICLAYO") llegue a BD en su
+  // forma canónica. Nunca inventa una ciudad para un valor fuera del
+  // catálogo (lo conserva tal cual, igual que en el resto de la app), y
+  // preserva el comportamiento existente de ciudad vacía/ausente = opcional.
   const cityValue = formData.get("city");
-  const city = typeof cityValue === "string" && cityValue.trim().length > 0 ? cityValue.trim() : null;
+  const city = normalizeCity(typeof cityValue === "string" ? cityValue : null);
   if (city) {
     const { error } = await supabase.from("profiles").update({ city }).eq("id", user.id);
     if (error) return { error: "No se pudo guardar tu ciudad, pero tu cuenta ya está lista." };

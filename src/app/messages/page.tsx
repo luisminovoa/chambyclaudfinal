@@ -4,6 +4,7 @@ import { MessageSquare } from "lucide-react";
 import { getConversations } from "@/lib/actions/chat";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { ConversationItem } from "@/components/chat/ConversationItem";
+import { MessagesListRefresher } from "@/components/chat/MessagesListRefresher";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Reveal } from "@/components/ui/Reveal";
 
@@ -24,6 +25,7 @@ export default async function MessagesPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+      <MessagesListRefresher />
       <Reveal>
         <div className="flex items-center gap-3">
           <h1 className="flex-1 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">

@@ -7,6 +7,8 @@ import { ArrowLeft, Check, X, MessageCircle, AlertCircle, Bookmark } from "lucid
 import { updateApplicationStatus } from "@/lib/actions/jobs";
 import { useToast } from "@/components/ui/Toaster";
 import { cn } from "@/lib/utils";
+import { HiringConversations } from "@/components/chat/HiringConversations";
+import type { HiringConversation } from "@/lib/actions/chat";
 
 // Mismo patrón que JobCardActions (src/components/JobCardActions.tsx) para
 // "guardar" un trabajo: bookmark client-only en localStorage, sin tabla
@@ -23,13 +25,28 @@ function readSavedWorkers(): string[] {
 }
 
 interface WorkerProfileActionsProps {
-  jobId: string;
+  /**
+   * null cuando se llega desde el directorio (/workers → card → perfil,
+   * sin ?job=) — Fase C4-G5. En ese caso solo "Guardar trabajador" debe
+   * quedar disponible; el resto de acciones ya dependen de datos que solo
+   * existen con un job real (application/conversationId/canManage), así
+   * que se ocultan solas sin necesidad de una condición extra aquí.
+   */
+  jobId: string | null;
   workerId: string;
   workerName: string;
   application: { id: string; status: string } | null;
   conversationId: string | null;
   /** Solo el empleador dueño del job ve Aceptar/Rechazar — lo decide el server. */
   canManage: boolean;
+  /**
+   * Conversaciones existentes con este trabajador, resueltas por
+   * getHiringConversations() (Fase C4-G6) — solo se usan cuando NO hay
+   * jobId (llegada desde el directorio, sin contexto de una chamba
+   * puntual). Con jobId, el flujo existente (conversationId de ESE job)
+   * sigue mandando exactamente igual.
+   */
+  hiringConversations?: HiringConversation[];
 }
 
 export function WorkerProfileActions({
@@ -39,6 +56,7 @@ export function WorkerProfileActions({
   application,
   conversationId,
   canManage,
+  hiringConversations = [],
 }: WorkerProfileActionsProps) {
   const router = useRouter();
   const toast = useToast();
@@ -62,7 +80,7 @@ export function WorkerProfileActions({
   }
 
   function handleReject() {
-    if (!application) return;
+    if (!application || !jobId) return;
     setConfirmingAccept(false);
     startTransition(async () => {
       const result = await updateApplicationStatus(application.id, "rechazado");
@@ -76,7 +94,7 @@ export function WorkerProfileActions({
   }
 
   function handleAcceptConfirmed() {
-    if (!application) return;
+    if (!application || !jobId) return;
     setConfirmingAccept(false);
     startTransition(async () => {
       const result = await updateApplicationStatus(application.id, "aceptado");
@@ -89,24 +107,33 @@ export function WorkerProfileActions({
     });
   }
 
-  const canDecide = canManage && application?.status === "pendiente";
+  // Boolean(jobId) es una comprobación defensiva, no solo incidental: sin
+  // jobId, canManage ya llega en false desde getWorkerPublicProfile() (solo
+  // se calcula dentro de la rama `if (jobId)`), pero este componente no debe
+  // depender de que el caller mantenga esa invariante — Aceptar/Rechazar
+  // nunca deben aparecer sin un job real, sea cual sea el valor de canManage.
+  const canDecide = Boolean(jobId) && canManage && application?.status === "pendiente";
 
   return (
     <div className="card space-y-3 p-5">
-      <Link
-        href={`/jobs/${jobId}`}
-        className="flex items-center gap-1.5 text-sm font-semibold text-ink-muted transition-colors hover:text-ink"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Volver a la publicación
-      </Link>
-
-      {conversationId && (
-        <Link href={`/messages/${conversationId}`} className="btn-secondary w-full justify-center">
-          <MessageCircle className="h-4 w-4" />
-          Iniciar chat
+      {jobId && (
+        <Link
+          href={`/jobs/${jobId}`}
+          className="flex items-center gap-1.5 text-sm font-semibold text-ink-muted transition-colors hover:text-ink"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Volver a la publicación
         </Link>
       )}
+
+      {jobId && conversationId && (
+        <Link href={`/messages/${conversationId}`} className="btn-secondary w-full justify-center">
+          <MessageCircle className="h-4 w-4" />
+          💬 Abrir chat
+        </Link>
+      )}
+
+      {!jobId && <HiringConversations conversations={hiringConversations} />}
 
       <button
         type="button"
