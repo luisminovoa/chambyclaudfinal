@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
+import { CATEGORY_NAMES } from "@/lib/categories";
 
 const loginSchema = z.object({
   email: z.string().email("Ingresa un correo válido"),
@@ -118,6 +119,23 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
   }
 
   const { fullName, email, password, role, city, category } = parsed.data;
+
+  // Fase C4-G9.3 (cierre de la brecha detectada en C4-G9.2.3.1): mismo
+  // criterio ya usado en updateProfile()/createJob() (Fase 2.1) — zod
+  // (registerSchema) solo exige que category sea un string opcional,
+  // cualquier caller que se salte el <select> de RegisterForm.tsx podía
+  // registrar una categoría inexistente. Se valida aquí, ANTES de
+  // signUp(), para que una categoría inválida no cree la cuenta ni
+  // dispare handle_new_user(). Respeta exactamente la semántica ya
+  // existente más abajo (`category: role === "worker" ? category : null`):
+  // para employer la categoría siempre se descarta, así que no tiene
+  // sentido validarla — solo se comprueba cuando role es "worker" y
+  // category viene no vacía ("Otro" ya es un valor válido de
+  // CATEGORY_NAMES, sin cambios de semántica).
+  if (role === "worker" && category && !CATEGORY_NAMES.includes(category)) {
+    return { error: "Selecciona una categoría válida." };
+  }
+
   const supabase = createClient();
 
   const { data, error } = await supabase.auth.signUp({
