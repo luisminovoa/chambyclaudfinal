@@ -187,6 +187,74 @@ export function NotificationsProvider({
     };
   }, [userId]);
 
+  // Fase C4-G8.5V (experimento A/B, temporal): dos canales mínimos e
+  // independientes del resto de la app, para aislar si un `filter` de
+  // `conversation_id` cambia la entrega del INSERT respecto a un canal
+  // global sin filter (C4-G8.5U). Sin isOwnMessage, sin
+  // messageListenersRef, sin router.refresh, sin UI. Excluido para admin
+  // con el mismo criterio ya usado en el resto del Provider.
+  const abTestRanRef = useRef(false);
+  useEffect(() => {
+    if (!userId || isAdmin || abTestRanRef.current) return;
+    abTestRanRef.current = true;
+
+    const supabase = createClient();
+
+    const globalChannel = supabase
+      .channel(`c4-g8-5v-global-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          // eslint-disable-next-line no-console -- C4-G8.5V: experimento temporal, retirar tras obtener evidencia
+          console.log("[C4-G8.5V TEMP] GLOBAL INSERT RECEIVED", {
+            id: payload.new?.id ?? null,
+            conversationId: payload.new?.conversation_id ?? null,
+            senderId: payload.new?.sender_id ?? null,
+          });
+        }
+      )
+      .subscribe((status, err) => {
+        // eslint-disable-next-line no-console -- C4-G8.5V TEMP
+        console.log("[C4-G8.5V TEMP] GLOBAL SUBSCRIBE", {
+          status,
+          error: err ? String(err) : null,
+        });
+      });
+
+    const filteredChannel = supabase
+      .channel(`c4-g8-5v-filtered-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: "conversation_id=eq.f17058b7-92ff-4102-b14e-1ea4b23af069",
+        },
+        (payload) => {
+          // eslint-disable-next-line no-console -- C4-G8.5V TEMP
+          console.log("[C4-G8.5V TEMP] FILTERED INSERT RECEIVED", {
+            id: payload.new?.id ?? null,
+            conversationId: payload.new?.conversation_id ?? null,
+            senderId: payload.new?.sender_id ?? null,
+          });
+        }
+      )
+      .subscribe((status, err) => {
+        // eslint-disable-next-line no-console -- C4-G8.5V TEMP
+        console.log("[C4-G8.5V TEMP] FILTERED SUBSCRIBE", {
+          status,
+          error: err ? String(err) : null,
+        });
+      });
+
+    return () => {
+      supabase.removeChannel(globalChannel);
+      supabase.removeChannel(filteredChannel);
+    };
+  }, [userId, isAdmin]);
+
   // Canal 1 — notifications. Sin cambios de arquitectura respecto a antes
   // de C4-G8.5R: sigue siendo el único canal `user:{userId}` de la app.
   useEffect(() => {
