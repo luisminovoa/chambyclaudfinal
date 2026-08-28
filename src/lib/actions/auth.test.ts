@@ -103,6 +103,31 @@ function buildFormData(overrides: Record<string, string> = {}): FormData {
   return fd;
 }
 
+/**
+ * Igual que buildFormData(), pero SIN incluir `city` en absoluto — Fase
+ * C4-G9.2.3.3: `city` dejó de ser obligatoria en registerSchema, así que
+ * este es el escenario real que la futura UI de ubicación jerárquica
+ * producirá (un caller que nunca ofrece un <select> de ciudad). No se
+ * reutiliza buildFormData({city: ""}) porque `""` y "campo ausente" deben
+ * comportarse igual (ambos colapsan a `undefined` antes de zod), pero
+ * aquí se prueba explícitamente el caso "ausente" para no dejarlo sin
+ * cubrir.
+ */
+function buildFormDataNoCity(overrides: Record<string, string> = {}): FormData {
+  const fd = new FormData();
+  const defaults: Record<string, string> = {
+    fullName: "Juan Pérez",
+    email: "juan@example.com",
+    password: "password123",
+    confirmPassword: "password123",
+    role: "worker",
+  };
+  for (const [key, value] of Object.entries({ ...defaults, ...overrides })) {
+    fd.set(key, value);
+  }
+  return fd;
+}
+
 beforeEach(() => {
   state.signUpCalls = [];
   state.signUpError = null;
@@ -390,5 +415,156 @@ describe("register() — seguridad (C4-G9.2.3.1)", () => {
   it("AB) auth.ts nunca importa createAdminClient() — verificación estática del código fuente, no solo del mock (un comentario explicando por qué NO se usa no cuenta como uso real, por eso se busca específicamente el import, no cualquier mención del nombre)", () => {
     const source = readFileSync(new URL("./auth.ts", import.meta.url), "utf-8");
     expect(source).not.toMatch(/import\s*\{[^}]*\bcreateAdminClient\b[^}]*\}\s*from/);
+  });
+});
+
+/**
+ * Fase C4-G9.2.3.3 — `city` deja de ser obligatoria en registerSchema.
+ * Regla final: si hay ubicación nueva (department presente), city se
+ * deriva SIEMPRE de ella (district || province || ""), sin importar si
+ * también llegó una `city` histórica; si NO hay ubicación nueva, se
+ * conserva la `city` histórica tal cual (incluida una `city` ausente,
+ * que da como resultado ""). Ninguna combinación queda rechazada por
+ * falta de `city` — la única razón de rechazo sigue siendo una jerarquía
+ * de ubicación inválida (provincia/distrito que no pertenece al nivel
+ * superior), exactamente igual que antes de esta fase.
+ */
+describe("register() — city ya no es obligatoria cuando se usa Ubigeo (C4-G9.2.3.3)", () => {
+  it("A) city antigua válida SIN ubicación nueva: aceptada, se preserva tal cual (flujo actual de RegisterForm.tsx, sin regresión)", async () => {
+    await register({}, buildFormData({ city: "Chiclayo" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("Chiclayo");
+  });
+
+  it("B) ubicación completa SIN city: aceptada, city derivada del district", async () => {
+    await register(
+      {},
+      buildFormDataNoCity({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("Pimentel");
+  });
+
+  it("C) department + province SIN city: aceptada, city = province", async () => {
+    await register({}, buildFormDataNoCity({ department: "Lambayeque", province: "Chiclayo" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("Chiclayo");
+  });
+
+  it("D) solo department SIN city: aceptada, city = '' (no se inventa ningún valor a partir de nada)", async () => {
+    await register({}, buildFormDataNoCity({ department: "Lambayeque" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("");
+  });
+
+  it("E) sin city Y sin ubicación: comportamiento evaluado explícitamente — SE ACEPTA (no se rechaza el registro por esto), city termina en '' porque no existe ninguna de las dos fuentes. Documentado deliberadamente: profiles.city es nullable, no NOT NULL, así que una cadena vacía es un valor válido, no un dato corrupto.", async () => {
+    const result = await register({}, buildFormDataNoCity());
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("");
+    // No hay ningún error asociado a la ausencia de city/ubicación — el
+    // registro continúa (con sesión, sigue hasta redirect(); el `result`
+    // no se afirma aquí por el mismo motivo ya documentado en el resto
+    // del archivo: redirect() es un no-op mockeado).
+    void result;
+  });
+
+  it("F) ubicación inválida SIN city: se rechaza ANTES de signUp(), igual que con city presente", async () => {
+    const result = await register(
+      {},
+      buildFormDataNoCity({ department: "Lambayeque", province: "Ferreñafe", district: "Pimentel" })
+    );
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("G) category inválida SIN city: sigue rechazándose antes de signUp() (C4-G9.3 intacta, sin interferencia de la ausencia de city)", async () => {
+    const result = await register(
+      {},
+      buildFormDataNoCity({ role: "worker", category: "Categoría inventada" })
+    );
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("H) category válida + ubicación válida, sin city: ambas se aceptan juntas", async () => {
+    await register(
+      {},
+      buildFormDataNoCity({
+        role: "worker",
+        category: "Electricista",
+        department: "Lambayeque",
+        province: "Chiclayo",
+      })
+    );
+    expect(state.signUpCalls).toHaveLength(1);
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.category).toBe("Electricista");
+    expect(metadata.city).toBe("Chiclayo");
+  });
+
+  it("I) el metadata final SIEMPRE incluye la clave `city` (nunca se elimina), con el valor correcto en cada escenario", async () => {
+    await register({}, buildFormDataNoCity({ department: "Lambayeque" }));
+    expect(state.signUpCalls[0].options.data).toHaveProperty("city", "");
+
+    state.signUpCalls = [];
+    await register({}, buildFormData({ city: "Trujillo" }));
+    expect(state.signUpCalls[0].options.data).toHaveProperty("city", "Trujillo");
+  });
+
+  it("J) metadata no contiene una ubicación inválida (el registro nunca llega a construir el metadata cuando la jerarquía es inválida)", async () => {
+    await register({}, buildFormDataNoCity({ department: "La Libertad", province: "Chiclayo" }));
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("K) data.session === null, sin city, con ubicación: NO se ejecuta UPDATE, needsEmailConfirmation se mantiene intacto", async () => {
+    state.hasSession = false;
+    const result = await register(
+      {},
+      buildFormDataNoCity({ department: "Lambayeque", province: "Chiclayo" })
+    );
+    expect(result).toEqual({ needsEmailConfirmation: true });
+    expect(state.profileUpdateCalls).toHaveLength(0);
+  });
+
+  it("L) data.session !== null, sin city, con ubicación: el UPDATE de profiles se ejecuta correctamente", async () => {
+    state.hasSession = true;
+    await register({}, buildFormDataNoCity({ department: "Lambayeque", province: "Chiclayo" }));
+    expect(state.profileUpdateCalls).toEqual([
+      { payload: { department: "Lambayeque", province: "Chiclayo", district: null }, eqId: "new-user-id" },
+    ]);
+  });
+
+  it("M) employer + ubicación, sin city: comportamiento correcto (category se descarta a null, ubicación se valida y persiste igual que para worker)", async () => {
+    await register(
+      {},
+      buildFormDataNoCity({ role: "employer", department: "Lambayeque", province: "Chiclayo" })
+    );
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.role).toBe("employer");
+    expect(metadata.category).toBeNull();
+    expect(metadata.city).toBe("Chiclayo");
+    expect(state.profileUpdateCalls).toEqual([
+      { payload: { department: "Lambayeque", province: "Chiclayo", district: null }, eqId: "new-user-id" },
+    ]);
+  });
+
+  it("N) worker + ubicación + category, sin city: los tres conviven correctamente en un solo registro", async () => {
+    await register(
+      {},
+      buildFormDataNoCity({
+        role: "worker",
+        category: "Gasfitero",
+        department: "Lambayeque",
+        province: "Chiclayo",
+        district: "Pimentel",
+      })
+    );
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.role).toBe("worker");
+    expect(metadata.category).toBe("Gasfitero");
+    expect(metadata.city).toBe("Pimentel");
+    expect(metadata.department).toBe("Lambayeque");
+    expect(metadata.province).toBe("Chiclayo");
+    expect(metadata.district).toBe("Pimentel");
   });
 });

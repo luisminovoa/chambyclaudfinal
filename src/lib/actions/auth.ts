@@ -23,12 +23,18 @@ const registerSchema = z
     password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres"),
     confirmPassword: z.string(),
     role: z.enum(["worker", "employer"]),
-    // Se mantiene obligatoria por compatibilidad con RegisterForm.tsx
-    // (que todavía envía su <select> de CITY_NAMES, sin cambios en esta
-    // fase) — no se vuelve opcional aunque pueda derivarse de la
-    // ubicación jerárquica, para no romper la validación actual del
-    // formulario existente.
-    city: z.string().min(2, "Ingresa tu ciudad"),
+    // Fase C4-G9.2.3.3: deja de exigirse `min(2)` — city ya no es
+    // obligatoria a nivel de schema. RegisterForm.tsx (sin cambios en
+    // esta fase) sigue enviando un valor real desde su <select> de
+    // CITY_NAMES, así que el flujo actual sigue funcionando exactamente
+    // igual (una cadena no vacía sigue pasando este `optional()` sin
+    // problema). La razón del cambio: un futuro caller que use
+    // department/province/district ya no puede garantizar una `city` no
+    // vacía (p. ej. "solo departamento" deriva city=""), y profiles.city
+    // es nullable (no exige NOT NULL) — no hay ninguna razón para seguir
+    // rechazando esa combinación aquí. La regla de negocio real de qué
+    // vale como `city` final vive en deriveRegisterCity(), no en zod.
+    city: z.string().optional(),
     category: z.string().optional(),
     // Fase C4-G9.2.3.1: department/province/district son opcionales —
     // RegisterForm.tsx todavía no los envía (eso es un paso posterior,
@@ -65,17 +71,22 @@ export type ActionResult = {
 };
 
 /**
- * Deriva `city` (NOT NULL en profiles, leída por el resto de la app) para
- * el registro por email/contraseña — Fase C4-G9.2.3.1.
+ * Deriva `city` (columna nullable en profiles, leída por el resto de la
+ * app — NO es NOT NULL, así que una cadena vacía es un valor válido y
+ * deliberado, no un error) para el registro por email/contraseña — Fase
+ * C4-G9.2.3.1, ajustada en C4-G9.2.3.3.
  *
  * Prioridad: si el caller envió `department` (señal de que interactuó con
  * la ubicación jerárquica, aunque sea parcialmente), la ubicación nueva
  * manda por completo — `district || province || ""` — incluso si eso da
- * una cadena vacía (solo departamento, sin provincia todavía). Si NO se
+ * una cadena vacía (solo departamento, sin provincia todavía: NUNCA se
+ * inventa un valor a partir de la city histórica en ese caso). Si NO se
  * envió ningún `department`, se conserva íntegra la `city` histórica que
  * ya manda RegisterForm.tsx (compatibilidad total con el formulario
- * actual, que no envía ubicación jerárquica en esta fase). Mismo criterio
- * de derivación (`district || province`) ya usado en
+ * actual, que no envía ubicación jerárquica en esta fase) — incluida una
+ * `city` histórica vacía si tampoco se envió (ambas fuentes ausentes ⇒
+ * resultado "", aceptado explícitamente, no rechazado: ver C4-G9.2.3.3).
+ * Mismo criterio de derivación (`district || province`) ya usado en
  * RoleOnboardingForm.tsx/InfoTab.tsx/NewJobForm.tsx — no se reinventa la
  * lógica, solo se decide cuál de las dos fuentes (ubicación nueva vs.
  * city histórica) tiene prioridad en este flujo concreto, que es el único
@@ -148,7 +159,13 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
     password: formData.get("password"),
     confirmPassword: formData.get("confirmPassword"),
     role: formData.get("role"),
-    city: formData.get("city"),
+    // Fase C4-G9.2.3.3: mismo tratamiento que category/department/etc. —
+    // `formData.get()` devuelve `null` cuando el campo está ausente, y
+    // `z.string().optional()` solo acepta `undefined` (no `null`); sin
+    // este `|| undefined`, un caller que no envíe `city` en absoluto (ya
+    // posible ahora que dejó de ser obligatoria) haría fallar el parseo
+    // en vez de tratarse como "sin city histórica".
+    city: formData.get("city") || undefined,
     category: formData.get("category") || undefined,
     department: formData.get("department") || undefined,
     province: formData.get("province") || undefined,
@@ -193,7 +210,11 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
   });
   if ("error" in location) return { error: location.error };
 
-  const effectiveCity = deriveRegisterCity(location, city);
+  // Fase C4-G9.2.3.3: `city` ya es opcional en el schema — `?? ""` cubre
+  // el caso "sin city y sin ubicación" (E de C4-G9.2.3.3), que se acepta
+  // explícitamente en vez de rechazarse: sin ninguna de las dos fuentes,
+  // el resultado es una city vacía, nunca un error ni un valor inventado.
+  const effectiveCity = deriveRegisterCity(location, city ?? "");
 
   const supabase = createClient();
 
