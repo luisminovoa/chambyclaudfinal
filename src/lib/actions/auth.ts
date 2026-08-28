@@ -5,7 +5,8 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 import { CATEGORY_NAMES } from "@/lib/categories";
-import { validateLocationInput, type NormalizedLocation } from "@/lib/ubigeo";
+import { validateLocationInput } from "@/lib/ubigeo";
+import { deriveRegisterCity } from "@/lib/location";
 
 const loginSchema = z.object({
   email: z.string().email("Ingresa un correo válido"),
@@ -69,35 +70,6 @@ export type ActionResult = {
   success?: boolean;
   needsEmailConfirmation?: boolean;
 };
-
-/**
- * Deriva `city` (columna nullable en profiles, leída por el resto de la
- * app — NO es NOT NULL, así que una cadena vacía es un valor válido y
- * deliberado, no un error) para el registro por email/contraseña — Fase
- * C4-G9.2.3.1, ajustada en C4-G9.2.3.3.
- *
- * Prioridad: si el caller envió `department` (señal de que interactuó con
- * la ubicación jerárquica, aunque sea parcialmente), la ubicación nueva
- * manda por completo — `district || province || ""` — incluso si eso da
- * una cadena vacía (solo departamento, sin provincia todavía: NUNCA se
- * inventa un valor a partir de la city histórica en ese caso). Si NO se
- * envió ningún `department`, se conserva íntegra la `city` histórica que
- * ya manda RegisterForm.tsx (compatibilidad total con el formulario
- * actual, que no envía ubicación jerárquica en esta fase) — incluida una
- * `city` histórica vacía si tampoco se envió (ambas fuentes ausentes ⇒
- * resultado "", aceptado explícitamente, no rechazado: ver C4-G9.2.3.3).
- * Mismo criterio de derivación (`district || province`) ya usado en
- * RoleOnboardingForm.tsx/InfoTab.tsx/NewJobForm.tsx — no se reinventa la
- * lógica, solo se decide cuál de las dos fuentes (ubicación nueva vs.
- * city histórica) tiene prioridad en este flujo concreto, que es el único
- * que todavía combina ambas.
- */
-export function deriveRegisterCity(location: NormalizedLocation, historicalCity: string): string {
-  if (location.department) {
-    return location.district || location.province || "";
-  }
-  return historicalCity;
-}
 
 /**
  * Devuelve `next` solo si es una ruta interna segura (previene open redirects).

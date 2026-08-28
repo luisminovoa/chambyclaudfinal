@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
-import { register, deriveRegisterCity } from "./auth";
+import { register } from "./auth";
+import { deriveRegisterCity } from "@/lib/location";
 import { CATEGORY_NAMES } from "@/lib/categories";
 import type { NormalizedLocation } from "@/lib/ubigeo";
 
