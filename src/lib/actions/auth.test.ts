@@ -23,10 +23,28 @@ import type { NormalizedLocation } from "@/lib/ubigeo";
 
 vi.mock("next/navigation", () => ({ redirect: () => {} }));
 
+/**
+ * Fase C4-G10.2: getOrigin() (auth.ts) lee el header `origin` vía
+ * next/headers — fuera de un request real de Next.js, `headers()` lanza
+ * ("called outside a request scope"). Se mockea con un origin de prueba
+ * fijo y deliberadamente distinto de cualquier dominio real de Netlify/
+ * Vercel usado en el código (nunca "chambyclaudfinal.vercel.app" ni
+ * "chambyclaudfinal.netlify.app") — justamente para poder comprobar que
+ * emailRedirectTo depende de ESTE valor dinámico, no de un fallback
+ * hardcodeado (ver test K).
+ */
+const TEST_ORIGIN = "https://deploy-preview-77--chamby-test.netlify.app";
+
+vi.mock("next/headers", () => ({
+  headers: () => ({
+    get: (key: string) => (key === "origin" ? TEST_ORIGIN : null),
+  }),
+}));
+
 interface SignUpCall {
   email: string;
   password: string;
-  options: { data: Record<string, unknown> };
+  options: { data: Record<string, unknown>; emailRedirectTo?: string };
 }
 
 interface ProfileUpdateCall {
@@ -567,5 +585,118 @@ describe("register() — city ya no es obligatoria cuando se usa Ubigeo (C4-G9.2
     expect(metadata.department).toBe("Lambayeque");
     expect(metadata.province).toBe("Chiclayo");
     expect(metadata.district).toBe("Pimentel");
+  });
+});
+
+/**
+ * Fase C4-G10.2 — cierre de la brecha detectada en la auditoría C4-G10.1:
+ * signUp() no especificaba `emailRedirectTo`, así que el enlace de
+ * confirmación de email nunca pasaba por /auth/callback (usaba el Site
+ * URL por defecto de Supabase) — exchangeCodeForSession()/
+ * isNewOAuthUser() nunca corrían para un registro por email, y el
+ * asistente de onboarding (ya construido y probado para Google) nunca se
+ * disparaba. Estos tests inspeccionan directamente los argumentos reales
+ * recibidos por supabase.auth.signUp(), no una cadena aislada.
+ */
+describe("register() — emailRedirectTo apunta a /auth/callback (C4-G10.2)", () => {
+  it("A) signUp() recibe emailRedirectTo como parte de options", async () => {
+    await register({}, buildFormData());
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(typeof state.signUpCalls[0].options.emailRedirectTo).toBe("string");
+  });
+
+  it("B) emailRedirectTo usa el origin real de la request (el mismo que getOrigin() ya usa para requestPasswordReset()), no un valor fijo", async () => {
+    await register({}, buildFormData());
+    expect(state.signUpCalls[0].options.emailRedirectTo).toMatch(new RegExp(`^${TEST_ORIGIN}`));
+  });
+
+  it("C) emailRedirectTo apunta exactamente a /auth/callback (pathname), no a otra ruta", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.origin).toBe(TEST_ORIGIN);
+    expect(url.pathname).toBe("/auth/callback");
+  });
+
+  it("D) un `next` válido queda preservado como query param ?next= en emailRedirectTo", async () => {
+    await register({}, buildFormData({ next: "/dashboard/employer" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("next")).toBe("/dashboard/employer");
+  });
+
+  it("E) un `next` inválido (URL externa) NO se propaga a emailRedirectTo — nunca produce un redirect externo", async () => {
+    await register({}, buildFormData({ next: "https://evil.example.com/phish" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.has("next")).toBe(false);
+    expect(url.origin).toBe(TEST_ORIGIN);
+  });
+
+  it("E.2) un `next` con doble slash (//evil.com, mismo vector que un protocol-relative URL) tampoco se propaga", async () => {
+    await register({}, buildFormData({ next: "//evil.example.com" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.has("next")).toBe(false);
+  });
+
+  it("F) el resto del metadata (role/city/category) continúa exactamente igual junto al nuevo emailRedirectTo", async () => {
+    await register({}, buildFormData({ role: "worker", category: "Electricista", city: "Trujillo" }));
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.role).toBe("worker");
+    expect(metadata.city).toBe("Trujillo");
+    expect(metadata.category).toBe("Electricista");
+  });
+
+  it("G) la validación de category sigue bloqueando ANTES de signUp() (por tanto, sin ningún emailRedirectTo construido para esa llamada)", async () => {
+    const result = await register(
+      {},
+      buildFormData({ role: "worker", category: "Categoría inventada" })
+    );
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("H) la validación de ubicación sigue bloqueando ANTES de signUp()", async () => {
+    const result = await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Ferreñafe", district: "Pimentel" })
+    );
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("I) data.session === null sigue devolviendo needsEmailConfirmation, con emailRedirectTo ya enviado en la llamada a signUp()", async () => {
+    state.hasSession = false;
+    const result = await register({}, buildFormData());
+    expect(result).toEqual({ needsEmailConfirmation: true });
+    expect(state.signUpCalls[0].options.emailRedirectTo).toBeTruthy();
+  });
+
+  it("J) data.session !== null sigue con el comportamiento actual: UPDATE de profiles ejecutado cuando hay ubicación", async () => {
+    state.hasSession = true;
+    await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    expect(state.profileUpdateCalls).toEqual([
+      {
+        payload: { department: "Lambayeque", province: "Chiclayo", district: "Pimentel" },
+        eqId: "new-user-id",
+      },
+    ]);
+  });
+
+  it("K) emailRedirectTo NO contiene ningún dominio de producción hardcodeado (chambyclaudfinal.vercel.app / chambyclaudfinal.netlify.app) — depende exclusivamente del origin dinámico de la request", async () => {
+    await register({}, buildFormData());
+    const emailRedirectTo = state.signUpCalls[0].options.emailRedirectTo!;
+    expect(emailRedirectTo).not.toContain("chambyclaudfinal");
+    expect(emailRedirectTo).not.toContain("localhost");
+    expect(emailRedirectTo.startsWith(TEST_ORIGIN)).toBe(true);
+  });
+
+  it("L) register() sigue funcionando sin ninguna ubicación (caso real actual de RegisterForm.tsx antes de que envíe department/province/district)", async () => {
+    await register({}, buildFormData());
+    expect(state.signUpCalls).toHaveLength(1);
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata).not.toHaveProperty("department");
+    expect(metadata).not.toHaveProperty("province");
+    expect(metadata).not.toHaveProperty("district");
   });
 });

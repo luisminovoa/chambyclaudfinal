@@ -150,6 +150,12 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
 
   const { fullName, email, password, role, city, category, department, province, district } = parsed.data;
 
+  // Fase C4-G10.2: `next` se calcula una sola vez y se reutiliza tanto
+  // para `emailRedirectTo` (más abajo) como para el redirect final de
+  // sesión inmediata — mismo `safeNextPath()` ya usado en login()/el
+  // redirect de éxito de este archivo, sin duplicar la validación.
+  const nextPath = safeNextPath(formData.get("next"));
+
   // Fase C4-G9.3 (cierre de la brecha detectada en C4-G9.2.3.1): mismo
   // criterio ya usado en updateProfile()/createJob() (Fase 2.1) — zod
   // (registerSchema) solo exige que category sea un string opcional,
@@ -190,10 +196,24 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
 
   const supabase = createClient();
 
+  // Fase C4-G10.2 (cierre de la brecha detectada en C4-G10.1): signUp()
+  // no especificaba `emailRedirectTo`, así que el enlace de confirmación
+  // usaba el destino por defecto de Supabase (el Site URL del proyecto),
+  // nunca /auth/callback — por eso exchangeCodeForSession()/
+  // isNewOAuthUser() nunca corrían para un registro por email, y el
+  // asistente de onboarding (ya construido y probado para Google desde
+  // C4-G9.2.1/2.2) nunca se disparaba. Mismo patrón ya usado por
+  // requestPasswordReset() en este mismo archivo: se construye a partir
+  // de getOrigin() (dinámico, nunca un dominio fijo), nunca de una env
+  // var ni de un string hardcodeado de Netlify/Vercel/localhost.
+  const emailRedirectUrl = new URL(`${getOrigin()}/auth/callback`);
+  if (nextPath) emailRedirectUrl.searchParams.set("next", nextPath);
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
+      emailRedirectTo: emailRedirectUrl.toString(),
       data: {
         full_name: fullName,
         role,
@@ -267,7 +287,7 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
     }
   }
 
-  redirect(safeNextPath(formData.get("next")) ?? "/dashboard");
+  redirect(nextPath ?? "/dashboard");
 }
 
 /**
