@@ -10,9 +10,22 @@ import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 import { useToast } from "@/components/ui/Toaster";
 import { cn } from "@/lib/utils";
 import { CATEGORY_NAMES } from "@/lib/categories";
-import { CITY_NAMES } from "@/lib/cities";
+import { LocationSelector, type LocationValue } from "@/components/ui/LocationSelector";
 
 const initialState: ActionResult = {};
+
+/**
+ * Fase C4-G9.2.3.4: deriva `city` del nivel más específico ya elegido —
+ * mismo criterio ya usado en RoleOnboardingForm.tsx (deriveOnboardingCity)
+ * y en register()/auth.ts (deriveRegisterCity), reimplementado aquí como
+ * función local pura para no crear una dependencia de un Client Component
+ * hacia un archivo "use server" (auth.ts no se toca ni se importa en esta
+ * fase). Si no hay ninguna ubicación elegida, o solo departamento (sin
+ * provincia todavía), el resultado es "" — nunca se inventa un valor.
+ */
+export function deriveRegisterCity(location: LocationValue): string {
+  return location.district || location.province || "";
+}
 
 function SubmitButton({ disabled }: { disabled?: boolean }) {
   const { pending } = useFormStatus();
@@ -90,6 +103,18 @@ export function RegisterForm({ next }: { next?: string }) {
   const [showPwd, setShowPwd] = useState(false);
   const pwdMismatch = confirm.length > 0 && pwd !== confirm;
   const pwdTooShort = pwd.length > 0 && pwd.length < 8;
+  // Fase C4-G9.2.3.4: reemplaza el <select id="city"> de CITY_NAMES por
+  // el LocationSelector jerárquico real (src/lib/ubigeo.ts) — mismo
+  // patrón ya usado en InfoTab.tsx/EmployerInfoTab.tsx/RoleOnboardingForm.tsx.
+  // Un registro nuevo siempre arranca vacío: no hay ninguna city histórica
+  // que prellenar en este flujo (a diferencia de RoleOnboardingForm.tsx,
+  // que sí tenía initialCity para el caso de volver a /onboarding).
+  const [location, setLocation] = useState<LocationValue>({
+    department: "",
+    province: "",
+    district: "",
+  });
+  const city = deriveRegisterCity(location);
 
   const loginHref = next ? `/login?next=${encodeURIComponent(next)}` : "/login";
 
@@ -252,19 +277,24 @@ export function RegisterForm({ next }: { next?: string }) {
           )}
         </div>
 
-        {/* Ciudad */}
+        {/* Ubicación (Fase C4-G9.2.3.4: Departamento → Provincia → Distrito, opcional) */}
         <div>
-          <label htmlFor="city" className="label">
-            Ciudad
-          </label>
-          <select id="city" name="city" required className="input" defaultValue="">
-            <option value="">Selecciona tu ciudad</option>
-            {CITY_NAMES.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
+          <p className="label">
+            Ubicación <span className="font-normal text-ink-muted">(opcional)</span>
+          </p>
+          <LocationSelector
+            idPrefix="register-location"
+            department={location.department}
+            province={location.province}
+            district={location.district}
+            onChange={setLocation}
+          />
+          {/* `city` (columna nullable en profiles) ya no se elige
+              directamente — se deriva del nivel más específico elegido.
+              register() (auth.ts, sin cambios en esta fase) ya acepta
+              `city` vacía y valida department/province/district con
+              validateLocationInput(). */}
+          <input type="hidden" name="city" value={city} />
         </div>
 
         {/* Categoría (solo worker) */}
