@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RoleOnboardingForm, deriveOnboardingCity } from "./RoleOnboardingForm";
 
@@ -201,5 +202,72 @@ describe("RoleOnboardingForm — ubicación jerárquica (C4-G9.2.2)", () => {
     const htmlWithout = renderToStaticMarkup(<RoleOnboardingForm />);
     const htmlWith = renderToStaticMarkup(<RoleOnboardingForm initialCity="Chiclayo" />);
     expect(htmlWithout).toBe(htmlWith);
+  });
+});
+
+/**
+ * Fase C4-G10.6 — tests de regresión/documentación, SIN cambios de
+ * producción. La auditoría pre-merge previa (C4-G10.5) concluyó
+ * erróneamente que RoleOnboardingForm.tsx no enviaba department/province/
+ * district al servidor: ese diagnóstico buscó el literal `name="department"`
+ * dentro de ESTE archivo y, al no encontrarlo aquí, asumió que el campo no
+ * existía — sin considerar que LocationSelector.tsx (componente hijo) es
+ * quien realmente define esos `<select>`, y que el `return` completo de
+ * este componente ES el `<form action={formAction}>` (sin ningún elemento
+ * hermano fuera de él). Un componente hijo de React no crea ningún límite
+ * para `new FormData(formElement)`: el navegador serializa TODO control
+ * con `name` que sea descendiente del `<form>` en el DOM final. El test N)
+ * de la suite original ya verificaba esto parcialmente; este bloque lo
+ * hace explícito y nombrado, para que una futura auditoría no repita el
+ * mismo error de método.
+ */
+describe("RoleOnboardingForm — regresión: serialización Ubigeo dentro del <form> nativo (C4-G10.6)", () => {
+  it("includes LocationSelector controls inside the native form", () => {
+    const html = renderToStaticMarkup(<RoleOnboardingForm />);
+    // A) el render entero de RoleOnboardingForm ES un único <form> (ver
+    // línea de retorno del componente) — el mock de useFormState hace que
+    // el atributo renderizado sea `action=""`, pero solo hay UN <form> en
+    // todo el árbol.
+    const formMatches = html.match(/<form\b[^>]*>[\s\S]*?<\/form>/g) ?? [];
+    expect(formMatches).toHaveLength(1);
+    const formHtml = formMatches[0];
+
+    // B/C/D) department/province/district están DENTRO de ese <form>.
+    expect(formHtml).toMatch(/<select[^>]*name="department"/);
+    expect(formHtml).toMatch(/<select[^>]*name="province"/);
+    expect(formHtml).toMatch(/<select[^>]*name="district"/);
+
+    // E) el hidden de city también está dentro del mismo <form>.
+    expect(formHtml).toMatch(/<input type="hidden" name="city"/);
+  });
+
+  it("F) existe exactamente un control por nivel — una sola fuente de verdad (LocationSelector), sin ningún <select>/<input> de ubicación duplicado", () => {
+    const html = renderToStaticMarkup(<RoleOnboardingForm />);
+    expect((html.match(/name="department"/g) ?? []).length).toBe(1);
+    expect((html.match(/name="province"/g) ?? []).length).toBe(1);
+    expect((html.match(/name="district"/g) ?? []).length).toBe(1);
+    expect((html.match(/name="city"/g) ?? []).length).toBe(1);
+  });
+
+  it("G) no existe ningún <select id=\"city\"> residual", () => {
+    const html = renderToStaticMarkup(<RoleOnboardingForm />);
+    expect(html).not.toMatch(/<select id="city"/);
+  });
+
+  it("H) no queda ninguna referencia al catálogo antiguo CITY_NAMES — ni en el HTML renderizado ni como import real del componente (los comentarios pueden mencionarlo como contexto histórico, pero no debe existir un `import { CITY_NAMES }`)", () => {
+    const html = renderToStaticMarkup(<RoleOnboardingForm />);
+    const source = readFileSync(new URL("./RoleOnboardingForm.tsx", import.meta.url), "utf-8");
+    expect(source).not.toMatch(/import\s*\{[^}]*\bCITY_NAMES\b[^}]*\}\s*from/);
+    expect(html).not.toContain("Selecciona tu ciudad");
+  });
+
+  it("la cascada `disabled` de Provincia/Distrito es progresiva, NO una desconexión del <form>: un <select disabled> se excluye del FormData nativo solo mientras su nivel superior está vacío — exactamente la semántica ya aprobada (sin ubicación → province/district ausentes del envío; con department elegido → province ya se habilita; con province elegido → district ya se habilita). Departamento en sí nunca está disabled, así que jamás queda excluido.", () => {
+    const html = renderToStaticMarkup(<RoleOnboardingForm />);
+    const departmentSelect = html.match(/<select[^>]*name="department"[^>]*>/)?.[0] ?? "";
+    const provinceSelect = html.match(/<select[^>]*name="province"[^>]*>/)?.[0] ?? "";
+    const districtSelect = html.match(/<select[^>]*name="district"[^>]*>/)?.[0] ?? "";
+    expect(departmentSelect).not.toContain('disabled=""');
+    expect(provinceSelect).toContain('disabled=""');
+    expect(districtSelect).toContain('disabled=""');
   });
 });
