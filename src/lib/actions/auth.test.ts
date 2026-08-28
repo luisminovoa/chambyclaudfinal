@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
-import { register } from "./auth";
+import { register, resendConfirmationEmail } from "./auth";
 import { deriveRegisterCity } from "@/lib/location";
 import { CATEGORY_NAMES } from "@/lib/categories";
 import type { NormalizedLocation } from "@/lib/ubigeo";
@@ -52,12 +52,20 @@ interface ProfileUpdateCall {
   eqId: string;
 }
 
+interface ResendCall {
+  type: string;
+  email: string;
+  options?: { emailRedirectTo?: string };
+}
+
 interface State {
   signUpCalls: SignUpCall[];
   signUpError: { message: string } | null;
   hasSession: boolean;
   profileUpdateCalls: ProfileUpdateCall[];
   forceProfileUpdateError: boolean;
+  resendCalls: ResendCall[];
+  resendError: { message: string } | null;
 }
 
 const state: State = {
@@ -66,6 +74,8 @@ const state: State = {
   hasSession: true,
   profileUpdateCalls: [],
   forceProfileUpdateError: false,
+  resendCalls: [],
+  resendError: null,
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -83,6 +93,13 @@ vi.mock("@/lib/supabase/server", () => ({
           },
           error: null,
         };
+      },
+      resend: async (params: ResendCall) => {
+        state.resendCalls.push(params);
+        if (state.resendError) {
+          return { data: null, error: state.resendError };
+        }
+        return { data: {}, error: null };
       },
     },
     from: (table: string) => {
@@ -153,6 +170,8 @@ beforeEach(() => {
   state.hasSession = true;
   state.profileUpdateCalls = [];
   state.forceProfileUpdateError = false;
+  state.resendCalls = [];
+  state.resendError = null;
 });
 
 describe("register() — category validada contra CATEGORY_NAMES (Fase C4-G9.3)", () => {
@@ -698,5 +717,178 @@ describe("register() — emailRedirectTo apunta a /auth/callback (C4-G10.2)", ()
     expect(metadata).not.toHaveProperty("department");
     expect(metadata).not.toHaveProperty("province");
     expect(metadata).not.toHaveProperty("district");
+  });
+});
+
+/**
+ * Fase C4-G10.5 — cierre de la brecha detectada en C4-G10.4 (diagnóstico
+ * con datos reales de producción vía Supabase MCP): isNewOAuthUser()
+ * (ventana de 10s, sin cambios en esta fase) es insuficiente para
+ * confirmaciones de email — usuarios reales mostraron gaps de 31.38s y
+ * 884.8s entre created_at y last_sign_in_at, muy por encima de la
+ * ventana. register() y resendConfirmationEmail() ahora agregan
+ * `flow=email_signup` a emailRedirectTo, una señal explícita e
+ * independiente del tiempo, consumida por /auth/callback (route.test.ts)
+ * vía comparación literal — nunca se usa para construir URLs.
+ */
+describe("register() — flow=email_signup en emailRedirectTo (C4-G10.5)", () => {
+  it("A) emailRedirectTo incluye ?flow=email_signup", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("B) el valor de flow es exactamente el literal 'email_signup' (no un booleano, no otra cadena)", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toStrictEqual("email_signup");
+  });
+
+  it("C) flow está presente incluso sin ningún `next` enviado", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.has("next")).toBe(false);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("D) flow y next conviven sin interferirse cuando next es válido", async () => {
+    await register({}, buildFormData({ next: "/dashboard/employer" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+    expect(url.searchParams.get("next")).toBe("/dashboard/employer");
+  });
+
+  it("E) flow sigue presente aunque next sea inválido y se descarte (los dos params son independientes)", async () => {
+    await register({}, buildFormData({ next: "https://evil.example.com/phish" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+    expect(url.searchParams.has("next")).toBe(false);
+  });
+
+  it("F) flow nunca aparece en el metadata (options.data) de signUp() — vive únicamente en la URL de emailRedirectTo", async () => {
+    await register({}, buildFormData());
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata).not.toHaveProperty("flow");
+  });
+
+  it("G) flow no interfiere con el UPDATE de profiles cuando hay sesión y ubicación", async () => {
+    state.hasSession = true;
+    await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    expect(state.profileUpdateCalls).toEqual([
+      {
+        payload: { department: "Lambayeque", province: "Chiclayo", district: "Pimentel" },
+        eqId: "new-user-id",
+      },
+    ]);
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("H) needsEmailConfirmation === true: flow ya viajó en la llamada a signUp() antes de retornar", async () => {
+    state.hasSession = false;
+    const result = await register({}, buildFormData());
+    expect(result).toEqual({ needsEmailConfirmation: true });
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("I) validación fallida (category inválida) impide llegar a signUp(): no hay ningún emailRedirectTo/flow que inspeccionar, comportamiento de seguridad sin cambios", async () => {
+    const result = await register({}, buildFormData({ role: "worker", category: "Categoría inventada" }));
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("J) el pathname y origin de emailRedirectTo no se ven afectados por agregar flow — sigue siendo exactamente /auth/callback sobre el origin dinámico", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.origin).toBe(TEST_ORIGIN);
+    expect(url.pathname).toBe("/auth/callback");
+  });
+
+  it("K) flow es idéntico en todo escenario de ubicación (ausente, parcial, completa) — no depende de qué se envió", async () => {
+    await register({}, buildFormData());
+    const flowNone = new URL(state.signUpCalls[0].options.emailRedirectTo!).searchParams.get("flow");
+
+    state.signUpCalls = [];
+    await register({}, buildFormData({ department: "Lambayeque" }));
+    const flowPartial = new URL(state.signUpCalls[0].options.emailRedirectTo!).searchParams.get("flow");
+
+    state.signUpCalls = [];
+    await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    const flowFull = new URL(state.signUpCalls[0].options.emailRedirectTo!).searchParams.get("flow");
+
+    expect(flowNone).toBe("email_signup");
+    expect(flowPartial).toBe("email_signup");
+    expect(flowFull).toBe("email_signup");
+  });
+
+  it("L) auth.ts no importa isNewOAuthUser() — la señal flow es independiente del heurístico de tiempo, que permanece intacto en auth-new-user.ts (los comentarios pueden mencionarlo como contexto histórico, pero no debe existir un import real)", () => {
+    const source = readFileSync(new URL("./auth.ts", import.meta.url), "utf-8");
+    expect(source).not.toMatch(/import\s*\{[^}]*\bisNewOAuthUser\b[^}]*\}\s*from/);
+  });
+});
+
+describe("resendConfirmationEmail() — flow=email_signup en emailRedirectTo (C4-G10.5)", () => {
+  it("A) resend() recibe options.emailRedirectTo con ?flow=email_signup", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    expect(state.resendCalls).toHaveLength(1);
+    const redirectTo = state.resendCalls[0].options?.emailRedirectTo;
+    expect(typeof redirectTo).toBe("string");
+    const url = new URL(redirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("B) el emailRedirectTo de resend() nunca incluye `next` — resend() no recibe contexto de destino", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    const url = new URL(state.resendCalls[0].options!.emailRedirectTo!);
+    expect(url.searchParams.has("next")).toBe(false);
+  });
+
+  it("C) el emailRedirectTo de resend() usa el mismo origin dinámico que register() (getOrigin()), no un valor fijo", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    const url = new URL(state.resendCalls[0].options!.emailRedirectTo!);
+    expect(url.origin).toBe(TEST_ORIGIN);
+  });
+
+  it("D) el pathname de emailRedirectTo de resend() es exactamente /auth/callback", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    const url = new URL(state.resendCalls[0].options!.emailRedirectTo!);
+    expect(url.pathname).toBe("/auth/callback");
+  });
+
+  it("E) type: 'signup' se preserva sin cambios junto al nuevo options.emailRedirectTo", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    expect(state.resendCalls[0].type).toBe("signup");
+    expect(state.resendCalls[0].email).toBe("juan@example.com");
+  });
+
+  it("F) manejo de errores existente (already confirmed / rate limit / genérico) permanece intacto con el nuevo options presente", async () => {
+    state.resendError = { message: "Email already confirmed" };
+    const r1 = await resendConfirmationEmail("juan@example.com");
+    expect(r1).toEqual({ error: "Este correo ya fue confirmado. Intenta iniciar sesión." });
+
+    state.resendError = { message: "rate limit exceeded" };
+    const r2 = await resendConfirmationEmail("juan@example.com");
+    expect(r2).toEqual({ error: "Espera unos segundos antes de solicitar otro correo." });
+
+    state.resendError = { message: "unexpected provider error" };
+    const r3 = await resendConfirmationEmail("juan@example.com");
+    expect(r3).toEqual({ error: "No se pudo reenviar el correo. Intenta más tarde." });
+
+    state.resendError = null;
+    const r4 = await resendConfirmationEmail("juan@example.com");
+    expect(r4).toEqual({ success: true });
+  });
+
+  it("G) correo inválido sigue rechazándose ANTES de llamar a resend() — sin cambios de esta fase", async () => {
+    const result = await resendConfirmationEmail("no-es-un-correo");
+    expect(result).toEqual({ error: "Correo inválido." });
+    expect(state.resendCalls).toHaveLength(0);
   });
 });

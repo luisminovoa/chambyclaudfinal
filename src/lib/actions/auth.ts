@@ -206,7 +206,16 @@ export async function register(_prev: ActionResult, formData: FormData): Promise
   // requestPasswordReset() en este mismo archivo: se construye a partir
   // de getOrigin() (dinámico, nunca un dominio fijo), nunca de una env
   // var ni de un string hardcodeado de Netlify/Vercel/localhost.
+  // Fase C4-G10.5: `flow=email_signup` es una señal explícita e
+  // independiente del tiempo transcurrido — isNewOAuthUser() (ventana de
+  // 10s, sin cambios en esta fase) se demostró insuficiente para
+  // confirmaciones de email con datos reales de producción (gaps de
+  // 31.38s y 884.8s). /auth/callback la usa únicamente para decidir si
+  // redirige a /onboarding; nunca se reenvía a otra URL ni se usa para
+  // autorizar nada — falsificarla no tiene efecto sin un `code` de sesión
+  // válido previo.
   const emailRedirectUrl = new URL(`${getOrigin()}/auth/callback`);
+  emailRedirectUrl.searchParams.set("flow", "email_signup");
   if (nextPath) emailRedirectUrl.searchParams.set("next", nextPath);
 
   const { data, error } = await supabase.auth.signUp({
@@ -326,7 +335,18 @@ export async function resendConfirmationEmail(email: string): Promise<ActionResu
   if (!parsed.success) return { error: "Correo inválido." };
 
   const supabase = createClient();
-  const { error } = await supabase.auth.resend({ type: "signup", email: parsed.data });
+  // Fase C4-G10.5: mismo `flow=email_signup` que register() — el reenvío
+  // genera un nuevo enlace de confirmación y debe apuntar a /auth/callback
+  // con la misma señal, o el reenviado también fallaría en llegar a
+  // /onboarding. Sin `next`: resend() no tiene contexto de destino propio.
+  const resendRedirectUrl = new URL(`${getOrigin()}/auth/callback`);
+  resendRedirectUrl.searchParams.set("flow", "email_signup");
+
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: parsed.data,
+    options: { emailRedirectTo: resendRedirectUrl.toString() },
+  });
 
   if (error) {
     const msg = error.message.toLowerCase();
