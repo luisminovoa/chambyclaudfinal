@@ -149,137 +149,146 @@ export default async function WorkerDashboardPage() {
         </Reveal>
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      {/* Fase 3 / C4-G12: el perfil es la identidad principal del trabajador
+          y debe ser lo primero que ve, en cualquier viewport — reportado
+          por un usuario real ("la parte de mi perfil debería ser lo
+          principal y salir primero"). Antes vivía al final de un <aside>,
+          después de Postulaciones/Historial/Reputación, sin ningún
+          order-* de Tailwind — el orden DOM ya coincidía con el orden
+          visual en mobile y desktop, así que la corrección es puramente
+          de posición en el árbol (nunca CSS order), para que el orden
+          visual, el orden de lectura de un lector de pantalla y la
+          navegación por teclado sigan siendo el mismo orden. `<main>`
+          reemplaza al `<aside>` artificial que antes alojaba Reputación +
+          Perfil: ya no hay una columna "secundaria", todo el contenido de
+          esta sección es el contenido principal del dashboard. */}
+      <main className="mt-8 space-y-6">
+        {profile && (
           <Reveal>
-            <section className="card p-6" aria-labelledby="postulaciones-activas">
-              <h2 id="postulaciones-activas" className="text-base font-bold text-ink">
-                Postulaciones activas
-              </h2>
-              {activeApps.length === 0 ? (
-                <div className="mt-4">
-                  <EmptyState
-                    pose="search"
-                    title="La hormiguita no encontró postulaciones activas"
-                    description="Explora los trabajos disponibles y postula a tu próxima chamba."
-                    actionLabel="Explorar trabajos"
-                    actionHref="/jobs"
-                  />
-                </div>
-              ) : (
-                <div className="mt-2 divide-y divide-slate-100">
-                  {activeApps.map((app) => (
-                    <Link
-                      key={app.id}
-                      href={`/jobs/${app.job_id}`}
-                      className="-mx-3 flex items-center justify-between gap-3 rounded-2xl px-3 py-3.5 transition-colors duration-200 hover:bg-slate-50"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-ink">{app.job?.title}</p>
-                        <p className="flex items-center gap-1 text-xs text-ink-muted">
-                          <MapPin className="h-3 w-3" />
-                          {app.job?.city} · Postulaste el {formatDate(app.created_at)}
-                        </p>
-                      </div>
-                      <Badge tone={jobStatusTone(app.status)} className="shrink-0">
-                        {applicationStatusLabel(app.status)}
-                      </Badge>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </section>
+            <DashboardProfileCard
+              profile={profile}
+              avatarSrc={avatarSrc}
+              stats={profileStats}
+              photos={profilePhotos as ProfilePhoto[]}
+              documents={verificationDocuments as VerificationDocument[]}
+              workerDetails={workerDetails as WorkerProfileDetails | null}
+              experience={workerExperience as WorkerExperience[]}
+              ratingSummary={ratingSummary}
+            />
           </Reveal>
+        )}
 
-          <Reveal delay={0.05}>
-            <section className="card p-6" aria-labelledby="historial">
-              <h2 id="historial" className="text-base font-bold text-ink">
-                Historial laboral
-              </h2>
-              {history.length === 0 ? (
-                <div className="mt-4">
-                  <EmptyState
-                    pose="briefcase"
-                    title="Tu historial está vacío"
-                    description="Cuando completes trabajos, la hormiguita los guardará aquí para construir tu reputación."
-                  />
-                </div>
-              ) : (
-                <div className="mt-2 divide-y divide-slate-100">
-                  {history.map((app) => (
-                    <Link
-                      key={app.id}
-                      href={`/jobs/${app.job_id}`}
-                      className="-mx-3 flex items-center justify-between gap-3 rounded-2xl px-3 py-3.5 transition-colors duration-200 hover:bg-slate-50"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-ink">{app.job?.title}</p>
-                        <p className="text-xs text-ink-muted">
-                          {app.job?.category} · {formatCurrency(app.job?.pay_amount ?? null)}{" "}
-                          {payTypeLabel(app.job?.pay_type ?? "fijo")}
-                        </p>
-                      </div>
-                      <Badge tone={jobStatusTone(app.job?.status ?? "")} className="shrink-0">
-                        {jobStatusLabel(app.job?.status ?? "")}
-                      </Badge>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </section>
-          </Reveal>
-        </div>
-
-        <aside className="space-y-6">
-          <Reveal delay={0.1}>
-            <section className="card p-6" aria-labelledby="reputacion">
-              <h2 id="reputacion" className="flex items-center gap-2 text-base font-bold text-ink">
-                <Award className="h-5 w-5 text-primary-500" />
-                Mi reputación
-              </h2>
-              <div className="mt-3 flex items-center gap-2">
-                <RatingStars value={Math.round(ratingSummary?.average_score ?? 0)} readOnly />
-                <span className="text-sm font-semibold text-ink-muted">
-                  {ratingSummary ? `${ratingSummary.average_score} / 5` : "Sin calificaciones"}
-                </span>
+        <Reveal delay={0.05}>
+          <section className="card p-6" aria-labelledby="postulaciones-activas">
+            <h2 id="postulaciones-activas" className="text-base font-bold text-ink">
+              Postulaciones activas
+            </h2>
+            {activeApps.length === 0 ? (
+              <div className="mt-4">
+                <EmptyState
+                  pose="search"
+                  title="La hormiguita no encontró postulaciones activas"
+                  description="Explora los trabajos disponibles y postula a tu próxima chamba."
+                  actionLabel="Explorar trabajos"
+                  actionHref="/jobs"
+                />
               </div>
-              <p className="mt-1 text-xs text-ink-muted">
-                {ratingSummary?.total_ratings ?? 0} reseñas totales
-              </p>
+            ) : (
+              <div className="mt-2 divide-y divide-slate-100">
+                {activeApps.map((app) => (
+                  <Link
+                    key={app.id}
+                    href={`/jobs/${app.job_id}`}
+                    className="-mx-3 flex items-center justify-between gap-3 rounded-2xl px-3 py-3.5 transition-colors duration-200 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-ink">{app.job?.title}</p>
+                      <p className="flex items-center gap-1 text-xs text-ink-muted">
+                        <MapPin className="h-3 w-3" />
+                        {app.job?.city} · Postulaste el {formatDate(app.created_at)}
+                      </p>
+                    </div>
+                    <Badge tone={jobStatusTone(app.status)} className="shrink-0">
+                      {applicationStatusLabel(app.status)}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        </Reveal>
 
-              {recentRatings && recentRatings.length > 0 && (
-                <ul className="mt-4 space-y-4 border-t border-slate-100 pt-4">
-                  {(recentRatings as Rating[]).map((r) => (
-                    <li key={r.id} className="text-sm text-ink-muted">
-                      <RatingStars value={r.score} readOnly size="sm" />
-                      {r.comment && (
-                        <p className="mt-1.5 rounded-xl bg-slate-50 px-3 py-2 text-xs italic leading-relaxed">
-                          “{r.comment}”
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </Reveal>
+        <Reveal delay={0.1}>
+          <section className="card p-6" aria-labelledby="historial">
+            <h2 id="historial" className="text-base font-bold text-ink">
+              Historial laboral
+            </h2>
+            {history.length === 0 ? (
+              <div className="mt-4">
+                <EmptyState
+                  pose="briefcase"
+                  title="Tu historial está vacío"
+                  description="Cuando completes trabajos, la hormiguita los guardará aquí para construir tu reputación."
+                />
+              </div>
+            ) : (
+              <div className="mt-2 divide-y divide-slate-100">
+                {history.map((app) => (
+                  <Link
+                    key={app.id}
+                    href={`/jobs/${app.job_id}`}
+                    className="-mx-3 flex items-center justify-between gap-3 rounded-2xl px-3 py-3.5 transition-colors duration-200 hover:bg-slate-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-ink">{app.job?.title}</p>
+                      <p className="text-xs text-ink-muted">
+                        {app.job?.category} · {formatCurrency(app.job?.pay_amount ?? null)}{" "}
+                        {payTypeLabel(app.job?.pay_type ?? "fijo")}
+                      </p>
+                    </div>
+                    <Badge tone={jobStatusTone(app.job?.status ?? "")} className="shrink-0">
+                      {jobStatusLabel(app.job?.status ?? "")}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        </Reveal>
 
-          {profile && (
-            <Reveal delay={0.15}>
-              <DashboardProfileCard
-                profile={profile}
-                avatarSrc={avatarSrc}
-                stats={profileStats}
-                photos={profilePhotos as ProfilePhoto[]}
-                documents={verificationDocuments as VerificationDocument[]}
-                workerDetails={workerDetails as WorkerProfileDetails | null}
-                experience={workerExperience as WorkerExperience[]}
-                ratingSummary={ratingSummary}
-              />
-            </Reveal>
-          )}
-        </aside>
-      </div>
+        <Reveal delay={0.15}>
+          <section className="card p-6" aria-labelledby="reputacion">
+            <h2 id="reputacion" className="flex items-center gap-2 text-base font-bold text-ink">
+              <Award className="h-5 w-5 text-primary-500" />
+              Mi reputación
+            </h2>
+            <div className="mt-3 flex items-center gap-2">
+              <RatingStars value={Math.round(ratingSummary?.average_score ?? 0)} readOnly />
+              <span className="text-sm font-semibold text-ink-muted">
+                {ratingSummary ? `${ratingSummary.average_score} / 5` : "Sin calificaciones"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-ink-muted">
+              {ratingSummary?.total_ratings ?? 0} reseñas totales
+            </p>
+
+            {recentRatings && recentRatings.length > 0 && (
+              <ul className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                {(recentRatings as Rating[]).map((r) => (
+                  <li key={r.id} className="text-sm text-ink-muted">
+                    <RatingStars value={r.score} readOnly size="sm" />
+                    {r.comment && (
+                      <p className="mt-1.5 rounded-xl bg-slate-50 px-3 py-2 text-xs italic leading-relaxed">
+                        “{r.comment}”
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </Reveal>
+      </main>
     </div>
   );
 }
