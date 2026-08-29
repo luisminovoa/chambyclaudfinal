@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { MapPin, Image as ImageIcon, FileText, Star, Briefcase, ShieldCheck, Sparkles } from "lucide-react";
+import { MapPin, Image as ImageIcon, FileText, Star, Briefcase, Sparkles } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { ProfileCompletionBar } from "@/components/profile/ProfileCompletionBar";
+import { VerificationBadges } from "@/components/profile/VerificationBadges";
 import { getProfileCompletionItems, getWorkerPrimaryTitle } from "@/lib/profile-completion";
 import type {
   Profile,
@@ -25,16 +26,6 @@ interface DashboardProfileCardProps {
   ratingSummary: RatingSummary | null;
 }
 
-function verificationBadge(documents: VerificationDocument[]) {
-  if (documents.some((d) => d.status === "verified")) {
-    return { label: "Verificado", tone: "success" as const };
-  }
-  if (documents.some((d) => d.status === "pending")) {
-    return { label: "En revisión", tone: "warning" as const };
-  }
-  return { label: "Sin verificar", tone: "neutral" as const };
-}
-
 export function DashboardProfileCard({
   profile,
   avatarSrc,
@@ -54,9 +45,14 @@ export function DashboardProfileCard({
     documents,
     experience
   );
-  const verification = verificationBadge(documents);
+  const badges = stats?.badges ?? [];
   const isIncomplete = completion < 80;
-  const isFeatured = completion > 90;
+  // Fase 5 / C4-G16: antes era `completion > 90`, un umbral local
+  // desincronizado del real (`top_profile` se otorga con `score >= 80` en
+  // computeAndSaveProfileStats()). Se lee directamente el badge ya
+  // calculado — misma fuente de verdad que VerificationBadges y
+  // VerificationTab, sin recalcular nada aquí.
+  const isFeatured = badges.includes("top_profile");
 
   return (
     <section className="card p-6" aria-labelledby="mi-perfil">
@@ -94,17 +90,18 @@ export function DashboardProfileCard({
         </div>
       )}
 
-      <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-5 text-sm">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 shrink-0 text-slate-400" />
-          <div className="min-w-0">
-            <dt className="text-xs text-ink-muted">Estado</dt>
-            <dd>
-              <Badge tone={verification.tone}>{verification.label}</Badge>
-            </dd>
-          </div>
-        </div>
+      {/* Fase 5 / C4-G16: antes esta card tenía su propio verificationBadge()
+          — un estado agregado ("Verificado"/"En revisión"/"Sin verificar")
+          calculado sobre `documents`, con semántica distinta a las 3
+          insignias documentales independientes que FASE 2 ya construyó.
+          Se reemplaza por el mismo componente que usan ambos perfiles
+          públicos, con el mismo dato (`stats.badges`) ya disponible por
+          props — sin nueva fuente de verdad, sin nueva consulta. */}
+      <div className="mt-5 border-t border-slate-100 pt-5">
+        <VerificationBadges badges={badges} />
+      </div>
 
+      <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-5 text-sm">
         <div className="flex items-center gap-2">
           <ImageIcon className="h-4 w-4 shrink-0 text-slate-400" />
           <div className="min-w-0">
