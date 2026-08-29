@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import { completeJob, cancelJob } from "@/lib/actions/jobs";
 import { useToast } from "@/components/ui/Toaster";
@@ -14,6 +15,7 @@ export function JobActions({ jobId, jobStatus }: JobActionsProps) {
   const [confirmingComplete, setConfirmingComplete] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
   const toast = useToast();
 
   function handleComplete() {
@@ -22,9 +24,17 @@ export function JobActions({ jobId, jobStatus }: JobActionsProps) {
       const result = await completeJob(jobId);
       if (result.error) {
         toast(result.error, "error");
-      } else {
-        toast("Trabajo marcado como completado", "success");
+        return;
       }
+      toast("Trabajo marcado como completado", "success");
+      // Fase 4 / C4-G14: sin esto, este Server Component (la página
+      // /jobs/[id]) nunca vuelve a evaluar `jobCompleted` — el RatingForm
+      // ya condicionado a ese estado (ver page.tsx) quedaba invisible
+      // hasta un reload manual, exactamente el reporte real del usuario
+      // ("al poner completa debe salir la opción de calificar
+      // instantáneamente"). Solo se llama en el camino de éxito: un error
+      // nunca debe simular que el trabajo quedó completado.
+      router.refresh();
     });
   }
 

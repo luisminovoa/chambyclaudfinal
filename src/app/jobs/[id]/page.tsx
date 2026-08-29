@@ -469,7 +469,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
       {/* Calificación mutua al completar */}
       {jobCompleted && user && (isOwner || isAssignedWorker) && (
         <Reveal delay={0.05}>
-          <div className="mt-6">
+          <div id="rating" className="mt-6">
             {isOwner && typedJob.assigned_worker_id && (
               <RatingForm
                 jobId={typedJob.id}

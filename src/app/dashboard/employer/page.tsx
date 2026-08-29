@@ -57,6 +57,32 @@ export default async function EmployerDashboardPage() {
     .maybeSingle();
   const ratingSummary = ratingSummaryRaw as unknown as RatingSummary | null;
 
+  // Fase 4 / C4-G14: solo para decidir si EmployerJobRow muestra el CTA
+  // "Calificar trabajador" — consulta mínima, de solo lectura, filtrada
+  // por `rater_id = user.id` (la sesión real, nunca un valor del
+  // cliente). No se expone score/comment/rated_id: solo el job_id ya
+  // calificado por este empleador, lo mínimo necesario para la UI. La
+  // autorización real de calificar sigue viviendo enteramente en
+  // submitRating() (src/lib/actions/ratings.ts, sin cambios).
+  const completedJobIdsWithWorker = typedJobs
+    .filter((j) => j.status === "completado" && j.assigned_worker_id)
+    .map((j) => j.id);
+
+  const { data: employerRatingsRaw } = await supabase
+    .from("ratings")
+    .select("job_id")
+    .eq("rater_id", user.id)
+    .in(
+      "job_id",
+      completedJobIdsWithWorker.length
+        ? completedJobIdsWithWorker
+        : ["00000000-0000-0000-0000-000000000000"]
+    );
+
+  const ratedJobIds = new Set(
+    ((employerRatingsRaw ?? []) as { job_id: string }[]).map((r) => r.job_id)
+  );
+
   const openCount = typedJobs.filter((j) => j.status === "abierto").length;
   const inProgressCount = typedJobs.filter((j) => j.status === "en_progreso").length;
   const completedCount = typedJobs.filter((j) => j.status === "completado").length;
@@ -159,7 +185,12 @@ export default async function EmployerDashboardPage() {
             ) : (
               <div className="mt-2">
                 {typedJobs.map((job) => (
-                  <EmployerJobRow key={job.id} job={job} applicantsCount={countByJob[job.id] ?? 0} />
+                  <EmployerJobRow
+                    key={job.id}
+                    job={job}
+                    applicantsCount={countByJob[job.id] ?? 0}
+                    alreadyRated={ratedJobIds.has(job.id)}
+                  />
                 ))}
               </div>
             )}

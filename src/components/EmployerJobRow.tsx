@@ -4,26 +4,74 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Users, Trash2, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
-import { updateJobStatus, deleteJob } from "@/lib/actions/jobs";
+import { Users, Trash2, CheckCircle2, XCircle, AlertTriangle, Star } from "lucide-react";
+import { updateJobStatus, completeJob, deleteJob } from "@/lib/actions/jobs";
 import { jobStatusLabel, formatCurrency, payTypeLabel } from "@/lib/utils";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toaster";
 import type { Job } from "@/lib/types";
 
-export function EmployerJobRow({ job, applicantsCount }: { job: Job; applicantsCount: number }) {
+export function EmployerJobRow({
+  job,
+  applicantsCount,
+  alreadyRated,
+}: {
+  job: Job;
+  applicantsCount: number;
+  /**
+   * Fase 4 / C4-G14: true si el empleador ya calificó al trabajador
+   * asignado por este job. Calculada server-side en
+   * EmployerDashboardPage (consulta mínima, solo `job_id`, filtrada por
+   * `rater_id = auth.uid()`) — nunca se envía `rater_id`/`rated_id` desde
+   * el cliente como fuente de autorización; esta prop solo decide si se
+   * MUESTRA el CTA, la autorización real de calificar sigue viviendo
+   * enteramente en submitRating() (src/lib/actions/ratings.ts, sin
+   * cambios en esta fase).
+   */
+  alreadyRated: boolean;
+}) {
   const [isPending, startTransition] = useTransition();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const router = useRouter();
   const toast = useToast();
 
-  function handleStatusChange(status: string) {
+  function handleComplete() {
     startTransition(async () => {
-      await updateJobStatus(job.id, status);
-      toast(status === "completado" ? "Trabajo marcado como completado" : "Trabajo cancelado", "info");
+      // Fase 4 / C4-G14: antes usaba updateJobStatus(job.id, "completado")
+      // — el mismo camino genérico que también permite cancelar. Se
+      // unifica con completeJob() (ya usado en JobActions.tsx, página de
+      // detalle) porque es la única de las dos funciones que además
+      // registra completed_at y una fila en job_state_history; sin este
+      // cambio, un job completado desde el dashboard quedaba con esos dos
+      // campos vacíos aunque completado desde /jobs/[id] sí los llenara.
+      const result = await completeJob(job.id);
+      if (result.error) {
+        toast(result.error, "error");
+        return;
+      }
+      toast("Trabajo marcado como completado", "info");
       router.refresh();
     });
   }
+
+  function handleCancel() {
+    startTransition(async () => {
+      const result = await updateJobStatus(job.id, "cancelado");
+      if (result.error) {
+        toast(result.error, "error");
+        return;
+      }
+      toast("Trabajo cancelado", "info");
+      router.refresh();
+    });
+  }
+
+  // Fase 4 / C4-G14: mismas tres condiciones ya validadas server-side por
+  // submitRating() (job completado, existe assigned_worker_id, contraparte
+  // correcta) más "todavía no calificado" — el CTA es solo una entrada
+  // visible al RatingForm ya existente en /jobs/[id]#rating, nunca una
+  // segunda implementación del flujo de calificación.
+  const showRatingCta = job.status === "completado" && !!job.assigned_worker_id && !alreadyRated;
 
   function handleDelete() {
     setConfirmingDelete(false);
@@ -59,7 +107,7 @@ export function EmployerJobRow({ job, applicantsCount }: { job: Job; applicantsC
           {job.status === "en_progreso" && (
             <button
               disabled={isPending}
-              onClick={() => handleStatusChange("completado")}
+              onClick={handleComplete}
               className="btn-accent !rounded-xl !px-3 !py-1.5 text-xs"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
@@ -69,12 +117,21 @@ export function EmployerJobRow({ job, applicantsCount }: { job: Job; applicantsC
           {(job.status === "abierto" || job.status === "en_progreso") && (
             <button
               disabled={isPending}
-              onClick={() => handleStatusChange("cancelado")}
+              onClick={handleCancel}
               className="btn-ghost !rounded-xl !px-3 !py-1.5 text-xs"
             >
               <XCircle className="h-3.5 w-3.5" />
               Cancelar
             </button>
+          )}
+          {showRatingCta && (
+            <Link
+              href={`/jobs/${job.id}#rating`}
+              className="btn-primary !rounded-xl !px-3 !py-1.5 text-xs"
+            >
+              <Star className="h-3.5 w-3.5" />
+              Calificar trabajador
+            </Link>
           )}
           <button
             disabled={isPending}
