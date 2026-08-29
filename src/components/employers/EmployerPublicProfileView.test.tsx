@@ -100,16 +100,17 @@ describe("EmployerPublicProfileView — acceso a edición y no-exposición de da
     expect(html).not.toContain("Los Olivos");
   });
 
-  it("sin badges de verificación, no muestra ningún estado de RUC/DNI verificado", () => {
+  it("sin badges de verificación, la sección de Verificación sigue apareciendo (Fase 2 / C4-G11): RUC e Identidad se muestran como 'No verificado/a', nunca ocultos", () => {
     const html = renderToStaticMarkup(
       <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
     );
 
-    expect(html).not.toContain("RUC activo");
-    expect(html).not.toContain("Identidad verificada");
+    expect(html).toContain(">Verificación</h2>");
+    expect(html).toMatch(/RUC<\/p>[\s\S]*?>No verificado</);
+    expect(html).toMatch(/Identidad<\/p>[\s\S]*?>No verificada</);
   });
 
-  it("con badge ruc_active en stats, muestra el estado de verificación sin exponer el documento", () => {
+  it("con badge ruc_active en stats, muestra RUC como Verificado sin exponer el documento — Identidad y Certificación permanecen No verificado/a", () => {
     const html = renderToStaticMarkup(
       <EmployerPublicProfileView
         data={{
@@ -120,8 +121,36 @@ describe("EmployerPublicProfileView — acceso a edición y no-exposición de da
       />
     );
 
-    expect(html).toContain("RUC activo");
+    expect(html).toMatch(/RUC<\/p>[\s\S]*?>Verificado</);
+    expect(html).toMatch(/Identidad<\/p>[\s\S]*?>No verificada</);
     expect(html).not.toContain("20123456789");
+  });
+
+  it("Fase 2 / C4-G11 — con top_profile en stats.badges, muestra 'Perfil destacado' sin presentarlo como una cuarta fila de verificación documental fija", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView
+        data={{
+          ...baseData,
+          stats: {
+            profile_id: "employer-1",
+            completion_percentage: 90,
+            trust_score: 90,
+            badges: ["top_profile"],
+            updated_at: "2020-01-01T00:00:00Z",
+          },
+        }}
+        viewerId="employer-1"
+      />
+    );
+    expect(html).toContain("Perfil destacado");
+  });
+
+  it("Fase 2 / C4-G11 — compatibilidad con el consumidor sin insignias (stats=null, mismo caso que produce `earnedBadges=[]`): VerificationBadges sigue recibiendo un array vacío y renderiza las 3 filas sin romper el resto del perfil", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView data={{ ...baseData, stats: null }} viewerId="employer-1" />
+    );
+    expect(html).toContain(">Verificación</h2>");
+    expect(html).toContain("Ferretería Don Jose");
   });
 });
 
