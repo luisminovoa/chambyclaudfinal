@@ -1,0 +1,894 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { register, resendConfirmationEmail } from "./auth";
+import { deriveRegisterCity } from "@/lib/location";
+import { CATEGORY_NAMES } from "@/lib/categories";
+import type { NormalizedLocation } from "@/lib/ubigeo";
+
+/**
+ * Fase C4-G9.3 — cierre de la brecha detectada en la auditoría
+ * C4-G9.2.3.1: register() no validaba `category` contra CATEGORY_NAMES
+ * (a diferencia de updateProfile()/createJob(), ya cerrados en Fase 2.1).
+ *
+ * Fase C4-G9.2.3.1 — register() ahora acepta opcionalmente
+ * department/province/district, los valida con validateLocationInput()
+ * (reutilizado, sin duplicar la lógica jerárquica), deriva `city` con
+ * deriveRegisterCity(), y persiste la ubicación en profiles mediante un
+ * UPDATE posterior SOLO cuando existe sesión inmediata (mismo patrón que
+ * completeGoogleOnboarding(), C4-G9.2.1) — nunca vía createAdminClient(),
+ * y sin tocar handle_new_user(). RegisterForm.tsx no cambia en esta fase:
+ * todo lo relacionado con ubicación llega siempre `undefined` en tráfico
+ * real hasta que se implemente un paso posterior de UI.
+ */
+
+vi.mock("next/navigation", () => ({ redirect: () => {} }));
+
+/**
+ * Fase C4-G10.2: getOrigin() (auth.ts) lee el header `origin` vía
+ * next/headers — fuera de un request real de Next.js, `headers()` lanza
+ * ("called outside a request scope"). Se mockea con un origin de prueba
+ * fijo y deliberadamente distinto de cualquier dominio real de Netlify/
+ * Vercel usado en el código (nunca "chambyclaudfinal.vercel.app" ni
+ * "chambyclaudfinal.netlify.app") — justamente para poder comprobar que
+ * emailRedirectTo depende de ESTE valor dinámico, no de un fallback
+ * hardcodeado (ver test K).
+ */
+const TEST_ORIGIN = "https://deploy-preview-77--chamby-test.netlify.app";
+
+vi.mock("next/headers", () => ({
+  headers: () => ({
+    get: (key: string) => (key === "origin" ? TEST_ORIGIN : null),
+  }),
+}));
+
+interface SignUpCall {
+  email: string;
+  password: string;
+  options: { data: Record<string, unknown>; emailRedirectTo?: string };
+}
+
+interface ProfileUpdateCall {
+  payload: Record<string, unknown>;
+  eqId: string;
+}
+
+interface ResendCall {
+  type: string;
+  email: string;
+  options?: { emailRedirectTo?: string };
+}
+
+interface State {
+  signUpCalls: SignUpCall[];
+  signUpError: { message: string } | null;
+  hasSession: boolean;
+  profileUpdateCalls: ProfileUpdateCall[];
+  forceProfileUpdateError: boolean;
+  resendCalls: ResendCall[];
+  resendError: { message: string } | null;
+}
+
+const state: State = {
+  signUpCalls: [],
+  signUpError: null,
+  hasSession: true,
+  profileUpdateCalls: [],
+  forceProfileUpdateError: false,
+  resendCalls: [],
+  resendError: null,
+};
+
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: () => ({
+    auth: {
+      signUp: async (params: SignUpCall) => {
+        state.signUpCalls.push(params);
+        if (state.signUpError) {
+          return { data: { session: null, user: null }, error: state.signUpError };
+        }
+        return {
+          data: {
+            session: state.hasSession ? { access_token: "fake-token" } : null,
+            user: { id: "new-user-id" },
+          },
+          error: null,
+        };
+      },
+      resend: async (params: ResendCall) => {
+        state.resendCalls.push(params);
+        if (state.resendError) {
+          return { data: null, error: state.resendError };
+        }
+        return { data: {}, error: null };
+      },
+    },
+    from: (table: string) => {
+      if (table !== "profiles") throw new Error(`Tabla no mockeada: ${table}`);
+      return {
+        update: (payload: Record<string, unknown>) => ({
+          eq: async (_col: string, val: string) => {
+            state.profileUpdateCalls.push({ payload, eqId: val });
+            if (state.forceProfileUpdateError) {
+              return { error: { message: "simulated db error" } };
+            }
+            return { error: null };
+          },
+        }),
+      };
+    },
+  }),
+  // register() NUNCA debe importar/usar createAdminClient() para persistir
+  // ubicación cuando no hay sesión — si algún día lo hiciera, este mock
+  // ni siquiera lo expone, así que el import fallaría en tiempo de
+  // ejecución. Ver también el test estático AB) más abajo.
+}));
+
+function buildFormData(overrides: Record<string, string> = {}): FormData {
+  const fd = new FormData();
+  const defaults: Record<string, string> = {
+    fullName: "Juan Pérez",
+    email: "juan@example.com",
+    password: "password123",
+    confirmPassword: "password123",
+    role: "worker",
+    city: "Chiclayo",
+  };
+  for (const [key, value] of Object.entries({ ...defaults, ...overrides })) {
+    fd.set(key, value);
+  }
+  return fd;
+}
+
+/**
+ * Igual que buildFormData(), pero SIN incluir `city` en absoluto — Fase
+ * C4-G9.2.3.3: `city` dejó de ser obligatoria en registerSchema, así que
+ * este es el escenario real que la futura UI de ubicación jerárquica
+ * producirá (un caller que nunca ofrece un <select> de ciudad). No se
+ * reutiliza buildFormData({city: ""}) porque `""` y "campo ausente" deben
+ * comportarse igual (ambos colapsan a `undefined` antes de zod), pero
+ * aquí se prueba explícitamente el caso "ausente" para no dejarlo sin
+ * cubrir.
+ */
+function buildFormDataNoCity(overrides: Record<string, string> = {}): FormData {
+  const fd = new FormData();
+  const defaults: Record<string, string> = {
+    fullName: "Juan Pérez",
+    email: "juan@example.com",
+    password: "password123",
+    confirmPassword: "password123",
+    role: "worker",
+  };
+  for (const [key, value] of Object.entries({ ...defaults, ...overrides })) {
+    fd.set(key, value);
+  }
+  return fd;
+}
+
+beforeEach(() => {
+  state.signUpCalls = [];
+  state.signUpError = null;
+  state.hasSession = true;
+  state.profileUpdateCalls = [];
+  state.forceProfileUpdateError = false;
+  state.resendCalls = [];
+  state.resendError = null;
+});
+
+describe("register() — category validada contra CATEGORY_NAMES (Fase C4-G9.3)", () => {
+  it("A) category ausente: comportamiento actual conservado, signUp() se ejecuta sin bloquear el registro", async () => {
+    await register({}, buildFormData());
+    expect(state.signUpCalls).toHaveLength(1);
+  });
+
+  it("B) category vacía (mismo tratamiento que ausente, ya colapsado por `formData.get('category') || undefined` antes de llegar a zod): comportamiento actual conservado", async () => {
+    await register({}, buildFormData({ category: "" }));
+    expect(state.signUpCalls).toHaveLength(1);
+  });
+
+  it("C) category presente en CATEGORY_NAMES (role=worker) es aceptada y viaja tal cual en el metadata de signUp()", async () => {
+    await register({}, buildFormData({ role: "worker", category: "Electricista" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.category).toBe("Electricista");
+  });
+
+  it("D) category fuera de CATEGORY_NAMES (role=worker) se rechaza ANTES de llamar a signUp() — no se crea auth.users, no se dispara handle_new_user(), no hay efectos secundarios", async () => {
+    const result = await register({}, buildFormData({ role: "worker", category: "Categoría inventada" }));
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("E) role=employer: category NUNCA se valida (se descarta a null de todas formas, mismo comportamiento ya existente) — un valor inventado no bloquea el registro", async () => {
+    await register({}, buildFormData({ role: "employer", category: "Categoría inventada" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.category).toBeNull();
+  });
+
+  it("F) 'Otro' ya es un valor válido de CATEGORY_NAMES — se acepta sin ningún cambio de semántica, sin category_other", async () => {
+    await register({}, buildFormData({ role: "worker", category: "Otro" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.category).toBe("Otro");
+  });
+
+  it("todo el catálogo CATEGORY_NAMES es aceptado para role=worker, uno por uno", async () => {
+    for (const cat of CATEGORY_NAMES) {
+      state.signUpCalls = [];
+      await register({}, buildFormData({ role: "worker", category: cat }));
+      expect(state.signUpCalls).toHaveLength(1);
+      expect(state.signUpCalls[0].options.data.category).toBe(cat);
+    }
+  });
+});
+
+describe("register() — ubicación jerárquica opcional (C4-G9.2.3.1)", () => {
+  it("E) ubicación completamente ausente: signUp permitido (RegisterForm.tsx no envía estos campos hoy)", async () => {
+    await register({}, buildFormData());
+    expect(state.signUpCalls).toHaveLength(1);
+  });
+
+  it("F) solo department es aceptado (guardado progresivo)", async () => {
+    await register({}, buildFormData({ department: "Lambayeque" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.profileUpdateCalls).toEqual([
+      { payload: { department: "Lambayeque", province: null, district: null }, eqId: "new-user-id" },
+    ]);
+  });
+
+  it("G) department + province es aceptado", async () => {
+    await register({}, buildFormData({ department: "Lambayeque", province: "Chiclayo" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.profileUpdateCalls).toEqual([
+      {
+        payload: { department: "Lambayeque", province: "Chiclayo", district: null },
+        eqId: "new-user-id",
+      },
+    ]);
+  });
+
+  it("H) department + province + district es aceptado", async () => {
+    await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.profileUpdateCalls).toEqual([
+      {
+        payload: { department: "Lambayeque", province: "Chiclayo", district: "Pimentel" },
+        eqId: "new-user-id",
+      },
+    ]);
+  });
+
+  it("I) province sin department se rechaza ANTES de signUp()", async () => {
+    const result = await register({}, buildFormData({ province: "Chiclayo" }));
+    expect(result).toEqual({ error: "Selecciona un departamento antes de la provincia." });
+    expect(state.signUpCalls).toHaveLength(0);
+    expect(state.profileUpdateCalls).toHaveLength(0);
+  });
+
+  it("J) district sin province se rechaza ANTES de signUp()", async () => {
+    const result = await register({}, buildFormData({ department: "Lambayeque", district: "Pimentel" }));
+    expect(result).toEqual({ error: "Selecciona departamento y provincia antes del distrito." });
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("K) province perteneciente a otro department se rechaza (Chiclayo es de Lambayeque, no de La Libertad)", async () => {
+    const result = await register(
+      {},
+      buildFormData({ department: "La Libertad", province: "Chiclayo" })
+    );
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("L) district perteneciente a otra province se rechaza (Pimentel es de Chiclayo, no de Ferreñafe)", async () => {
+    const result = await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Ferreñafe", district: "Pimentel" })
+    );
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+});
+
+describe("deriveRegisterCity() — derivación de city con prioridad (C4-G9.2.3.1)", () => {
+  const empty: NormalizedLocation = { department: null, province: null, district: null };
+
+  it("M) ubicación completa → city derivada del district", () => {
+    const location: NormalizedLocation = {
+      department: "Lambayeque",
+      province: "Chiclayo",
+      district: "Pimentel",
+    };
+    expect(deriveRegisterCity(location, "Trujillo")).toBe("Pimentel");
+  });
+
+  it("N) department + province (sin district) → city = province", () => {
+    const location: NormalizedLocation = { department: "Lambayeque", province: "Chiclayo", district: null };
+    expect(deriveRegisterCity(location, "Trujillo")).toBe("Chiclayo");
+  });
+
+  it("O) solo department → city vacía (no se inventa ningún valor, tampoco se conserva la city histórica)", () => {
+    const location: NormalizedLocation = { department: "Lambayeque", province: null, district: null };
+    expect(deriveRegisterCity(location, "Trujillo")).toBe("");
+  });
+
+  it("P) sin ubicación (department ausente) → se preserva íntegra la city histórica", () => {
+    expect(deriveRegisterCity(empty, "Trujillo")).toBe("Trujillo");
+  });
+
+  it("Q) ubicación + city antigua a la vez → la ubicación nueva tiene prioridad, la city antigua se descarta", () => {
+    const location: NormalizedLocation = { department: "Lambayeque", province: "Chiclayo", district: null };
+    expect(deriveRegisterCity(location, "Trujillo")).toBe("Chiclayo");
+    expect(deriveRegisterCity(location, "Trujillo")).not.toBe("Trujillo");
+  });
+});
+
+describe("register() — metadata de signUp() (C4-G9.2.3.1)", () => {
+  it("R) metadata contiene la ubicación ya validada cuando se envía completa", async () => {
+    await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.department).toBe("Lambayeque");
+    expect(metadata.province).toBe("Chiclayo");
+    expect(metadata.district).toBe("Pimentel");
+    // city se deriva del nivel más específico (Pimentel), no de la city
+    // histórica que además viene en buildFormData() por defecto.
+    expect(metadata.city).toBe("Pimentel");
+  });
+
+  it("S) metadata NO contiene claves de niveles no elegidos (solo department enviado → sin province/district en el metadata)", async () => {
+    await register({}, buildFormData({ department: "Lambayeque" }));
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata).toHaveProperty("department", "Lambayeque");
+    expect(metadata).not.toHaveProperty("province");
+    expect(metadata).not.toHaveProperty("district");
+  });
+
+  it("T) role continúa funcionando exactamente igual (worker/employer) sin interferencia de la ubicación", async () => {
+    await register({}, buildFormData({ role: "employer", department: "Lambayeque", province: "Chiclayo" }));
+    expect(state.signUpCalls[0].options.data.role).toBe("employer");
+  });
+
+  it("U) category continúa funcionando junto con ubicación, sin que una interfiera con la otra", async () => {
+    await register(
+      {},
+      buildFormData({
+        role: "worker",
+        category: "Electricista",
+        department: "Lambayeque",
+        province: "Chiclayo",
+      })
+    );
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.category).toBe("Electricista");
+    expect(metadata.department).toBe("Lambayeque");
+  });
+});
+
+describe("register() — sesión y confirmación de email (C4-G9.2.3.1, sección crítica)", () => {
+  it("V) data.session !== null: el UPDATE de profiles se ejecuta con department/province/district, y el flujo llega hasta el redirect final sin error", async () => {
+    state.hasSession = true;
+    const result = await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    // redirect() está mockeado como no-op — el mismo criterio ya usado en
+    // create-job.test.ts: la función real nunca retorna tras redirect()
+    // (lanza NEXT_REDIRECT), así que no se afirma sobre `result` aquí,
+    // solo sobre lo que efectivamente se ejecutó antes de esa llamada.
+    void result;
+    expect(state.profileUpdateCalls).toEqual([
+      {
+        payload: { department: "Lambayeque", province: "Chiclayo", district: "Pimentel" },
+        eqId: "new-user-id",
+      },
+    ]);
+  });
+
+  it("W) data.session === null (confirmación de email pendiente): el UPDATE de profiles NO se ejecuta, needsEmailConfirmation es true, y la ubicación NO se pierde del metadata (aunque hoy sea inerte para profiles, sin tocar handle_new_user())", async () => {
+    state.hasSession = false;
+    const result = await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    expect(result).toEqual({ needsEmailConfirmation: true });
+    expect(state.profileUpdateCalls).toHaveLength(0);
+    // La ubicación sí viajó en el metadata de signUp() — persistirla en
+    // profiles antes de la confirmación queda fuera de esta fase (no se
+    // modifica handle_new_user()).
+    expect(state.signUpCalls[0].options.data.department).toBe("Lambayeque");
+  });
+
+  it("sin ubicación y sin sesión: mismo comportamiento de needsEmailConfirmation ya existente antes de esta fase (sin regresión)", async () => {
+    state.hasSession = false;
+    const result = await register({}, buildFormData());
+    expect(result).toEqual({ needsEmailConfirmation: true });
+    expect(state.profileUpdateCalls).toHaveLength(0);
+  });
+});
+
+describe("register() — manejo de errores (C4-G9.2.3.1)", () => {
+  it("X) error de signUp() por correo ya registrado: comportamiento actual conservado, sin llegar nunca al UPDATE de ubicación", async () => {
+    state.signUpError = { message: "User already registered" };
+    const result = await register({}, buildFormData({ department: "Lambayeque" }));
+    expect(result).toEqual({ error: "Este correo ya está registrado. ¿Quieres ingresar?" });
+    expect(state.profileUpdateCalls).toHaveLength(0);
+  });
+
+  it("X.2) error genérico de signUp(): comportamiento actual conservado", async () => {
+    state.signUpError = { message: "some unexpected provider error" };
+    const result = await register({}, buildFormData());
+    expect(result).toEqual({ error: "No se pudo crear la cuenta. Intenta nuevamente." });
+  });
+
+  it("Y) el UPDATE de ubicación falla después de creada la cuenta: se reporta un error claro, la cuenta NO se revierte ni se borra, y no se recurre a ningún bypass administrativo", async () => {
+    state.forceProfileUpdateError = true;
+    const result = await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo" })
+    );
+    expect(result).toEqual({
+      error:
+        "Tu cuenta se creó correctamente, pero no se pudo guardar tu ubicación. Puedes completarla luego desde tu perfil.",
+    });
+    // La cuenta ya se creó (signUp() sí se llamó) — el error ocurre
+    // DESPUÉS, y no dispara ningún intento de deshacer ese efecto.
+    expect(state.signUpCalls).toHaveLength(1);
+  });
+});
+
+describe("register() — seguridad (C4-G9.2.3.1)", () => {
+  it("Z) category inválida: signUp() nunca se llama (repetido aquí junto al resto de casos de seguridad de esta fase)", async () => {
+    await register({}, buildFormData({ role: "worker", category: "Categoría inventada" }));
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("AA) ubicación inválida: signUp() nunca se llama", async () => {
+    await register({}, buildFormData({ province: "Chiclayo" }));
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("AB) auth.ts nunca importa createAdminClient() — verificación estática del código fuente, no solo del mock (un comentario explicando por qué NO se usa no cuenta como uso real, por eso se busca específicamente el import, no cualquier mención del nombre)", () => {
+    const source = readFileSync(new URL("./auth.ts", import.meta.url), "utf-8");
+    expect(source).not.toMatch(/import\s*\{[^}]*\bcreateAdminClient\b[^}]*\}\s*from/);
+  });
+});
+
+/**
+ * Fase C4-G9.2.3.3 — `city` deja de ser obligatoria en registerSchema.
+ * Regla final: si hay ubicación nueva (department presente), city se
+ * deriva SIEMPRE de ella (district || province || ""), sin importar si
+ * también llegó una `city` histórica; si NO hay ubicación nueva, se
+ * conserva la `city` histórica tal cual (incluida una `city` ausente,
+ * que da como resultado ""). Ninguna combinación queda rechazada por
+ * falta de `city` — la única razón de rechazo sigue siendo una jerarquía
+ * de ubicación inválida (provincia/distrito que no pertenece al nivel
+ * superior), exactamente igual que antes de esta fase.
+ */
+describe("register() — city ya no es obligatoria cuando se usa Ubigeo (C4-G9.2.3.3)", () => {
+  it("A) city antigua válida SIN ubicación nueva: aceptada, se preserva tal cual (flujo actual de RegisterForm.tsx, sin regresión)", async () => {
+    await register({}, buildFormData({ city: "Chiclayo" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("Chiclayo");
+  });
+
+  it("B) ubicación completa SIN city: aceptada, city derivada del district", async () => {
+    await register(
+      {},
+      buildFormDataNoCity({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("Pimentel");
+  });
+
+  it("C) department + province SIN city: aceptada, city = province", async () => {
+    await register({}, buildFormDataNoCity({ department: "Lambayeque", province: "Chiclayo" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("Chiclayo");
+  });
+
+  it("D) solo department SIN city: aceptada, city = '' (no se inventa ningún valor a partir de nada)", async () => {
+    await register({}, buildFormDataNoCity({ department: "Lambayeque" }));
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("");
+  });
+
+  it("E) sin city Y sin ubicación: comportamiento evaluado explícitamente — SE ACEPTA (no se rechaza el registro por esto), city termina en '' porque no existe ninguna de las dos fuentes. Documentado deliberadamente: profiles.city es nullable, no NOT NULL, así que una cadena vacía es un valor válido, no un dato corrupto.", async () => {
+    const result = await register({}, buildFormDataNoCity());
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(state.signUpCalls[0].options.data.city).toBe("");
+    // No hay ningún error asociado a la ausencia de city/ubicación — el
+    // registro continúa (con sesión, sigue hasta redirect(); el `result`
+    // no se afirma aquí por el mismo motivo ya documentado en el resto
+    // del archivo: redirect() es un no-op mockeado).
+    void result;
+  });
+
+  it("F) ubicación inválida SIN city: se rechaza ANTES de signUp(), igual que con city presente", async () => {
+    const result = await register(
+      {},
+      buildFormDataNoCity({ department: "Lambayeque", province: "Ferreñafe", district: "Pimentel" })
+    );
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("G) category inválida SIN city: sigue rechazándose antes de signUp() (C4-G9.3 intacta, sin interferencia de la ausencia de city)", async () => {
+    const result = await register(
+      {},
+      buildFormDataNoCity({ role: "worker", category: "Categoría inventada" })
+    );
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("H) category válida + ubicación válida, sin city: ambas se aceptan juntas", async () => {
+    await register(
+      {},
+      buildFormDataNoCity({
+        role: "worker",
+        category: "Electricista",
+        department: "Lambayeque",
+        province: "Chiclayo",
+      })
+    );
+    expect(state.signUpCalls).toHaveLength(1);
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.category).toBe("Electricista");
+    expect(metadata.city).toBe("Chiclayo");
+  });
+
+  it("I) el metadata final SIEMPRE incluye la clave `city` (nunca se elimina), con el valor correcto en cada escenario", async () => {
+    await register({}, buildFormDataNoCity({ department: "Lambayeque" }));
+    expect(state.signUpCalls[0].options.data).toHaveProperty("city", "");
+
+    state.signUpCalls = [];
+    await register({}, buildFormData({ city: "Trujillo" }));
+    expect(state.signUpCalls[0].options.data).toHaveProperty("city", "Trujillo");
+  });
+
+  it("J) metadata no contiene una ubicación inválida (el registro nunca llega a construir el metadata cuando la jerarquía es inválida)", async () => {
+    await register({}, buildFormDataNoCity({ department: "La Libertad", province: "Chiclayo" }));
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("K) data.session === null, sin city, con ubicación: NO se ejecuta UPDATE, needsEmailConfirmation se mantiene intacto", async () => {
+    state.hasSession = false;
+    const result = await register(
+      {},
+      buildFormDataNoCity({ department: "Lambayeque", province: "Chiclayo" })
+    );
+    expect(result).toEqual({ needsEmailConfirmation: true });
+    expect(state.profileUpdateCalls).toHaveLength(0);
+  });
+
+  it("L) data.session !== null, sin city, con ubicación: el UPDATE de profiles se ejecuta correctamente", async () => {
+    state.hasSession = true;
+    await register({}, buildFormDataNoCity({ department: "Lambayeque", province: "Chiclayo" }));
+    expect(state.profileUpdateCalls).toEqual([
+      { payload: { department: "Lambayeque", province: "Chiclayo", district: null }, eqId: "new-user-id" },
+    ]);
+  });
+
+  it("M) employer + ubicación, sin city: comportamiento correcto (category se descarta a null, ubicación se valida y persiste igual que para worker)", async () => {
+    await register(
+      {},
+      buildFormDataNoCity({ role: "employer", department: "Lambayeque", province: "Chiclayo" })
+    );
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.role).toBe("employer");
+    expect(metadata.category).toBeNull();
+    expect(metadata.city).toBe("Chiclayo");
+    expect(state.profileUpdateCalls).toEqual([
+      { payload: { department: "Lambayeque", province: "Chiclayo", district: null }, eqId: "new-user-id" },
+    ]);
+  });
+
+  it("N) worker + ubicación + category, sin city: los tres conviven correctamente en un solo registro", async () => {
+    await register(
+      {},
+      buildFormDataNoCity({
+        role: "worker",
+        category: "Gasfitero",
+        department: "Lambayeque",
+        province: "Chiclayo",
+        district: "Pimentel",
+      })
+    );
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.role).toBe("worker");
+    expect(metadata.category).toBe("Gasfitero");
+    expect(metadata.city).toBe("Pimentel");
+    expect(metadata.department).toBe("Lambayeque");
+    expect(metadata.province).toBe("Chiclayo");
+    expect(metadata.district).toBe("Pimentel");
+  });
+});
+
+/**
+ * Fase C4-G10.2 — cierre de la brecha detectada en la auditoría C4-G10.1:
+ * signUp() no especificaba `emailRedirectTo`, así que el enlace de
+ * confirmación de email nunca pasaba por /auth/callback (usaba el Site
+ * URL por defecto de Supabase) — exchangeCodeForSession()/
+ * isNewOAuthUser() nunca corrían para un registro por email, y el
+ * asistente de onboarding (ya construido y probado para Google) nunca se
+ * disparaba. Estos tests inspeccionan directamente los argumentos reales
+ * recibidos por supabase.auth.signUp(), no una cadena aislada.
+ */
+describe("register() — emailRedirectTo apunta a /auth/callback (C4-G10.2)", () => {
+  it("A) signUp() recibe emailRedirectTo como parte de options", async () => {
+    await register({}, buildFormData());
+    expect(state.signUpCalls).toHaveLength(1);
+    expect(typeof state.signUpCalls[0].options.emailRedirectTo).toBe("string");
+  });
+
+  it("B) emailRedirectTo usa el origin real de la request (el mismo que getOrigin() ya usa para requestPasswordReset()), no un valor fijo", async () => {
+    await register({}, buildFormData());
+    expect(state.signUpCalls[0].options.emailRedirectTo).toMatch(new RegExp(`^${TEST_ORIGIN}`));
+  });
+
+  it("C) emailRedirectTo apunta exactamente a /auth/callback (pathname), no a otra ruta", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.origin).toBe(TEST_ORIGIN);
+    expect(url.pathname).toBe("/auth/callback");
+  });
+
+  it("D) un `next` válido queda preservado como query param ?next= en emailRedirectTo", async () => {
+    await register({}, buildFormData({ next: "/dashboard/employer" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("next")).toBe("/dashboard/employer");
+  });
+
+  it("E) un `next` inválido (URL externa) NO se propaga a emailRedirectTo — nunca produce un redirect externo", async () => {
+    await register({}, buildFormData({ next: "https://evil.example.com/phish" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.has("next")).toBe(false);
+    expect(url.origin).toBe(TEST_ORIGIN);
+  });
+
+  it("E.2) un `next` con doble slash (//evil.com, mismo vector que un protocol-relative URL) tampoco se propaga", async () => {
+    await register({}, buildFormData({ next: "//evil.example.com" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.has("next")).toBe(false);
+  });
+
+  it("F) el resto del metadata (role/city/category) continúa exactamente igual junto al nuevo emailRedirectTo", async () => {
+    await register({}, buildFormData({ role: "worker", category: "Electricista", city: "Trujillo" }));
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata.role).toBe("worker");
+    expect(metadata.city).toBe("Trujillo");
+    expect(metadata.category).toBe("Electricista");
+  });
+
+  it("G) la validación de category sigue bloqueando ANTES de signUp() (por tanto, sin ningún emailRedirectTo construido para esa llamada)", async () => {
+    const result = await register(
+      {},
+      buildFormData({ role: "worker", category: "Categoría inventada" })
+    );
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("H) la validación de ubicación sigue bloqueando ANTES de signUp()", async () => {
+    const result = await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Ferreñafe", district: "Pimentel" })
+    );
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("I) data.session === null sigue devolviendo needsEmailConfirmation, con emailRedirectTo ya enviado en la llamada a signUp()", async () => {
+    state.hasSession = false;
+    const result = await register({}, buildFormData());
+    expect(result).toEqual({ needsEmailConfirmation: true });
+    expect(state.signUpCalls[0].options.emailRedirectTo).toBeTruthy();
+  });
+
+  it("J) data.session !== null sigue con el comportamiento actual: UPDATE de profiles ejecutado cuando hay ubicación", async () => {
+    state.hasSession = true;
+    await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    expect(state.profileUpdateCalls).toEqual([
+      {
+        payload: { department: "Lambayeque", province: "Chiclayo", district: "Pimentel" },
+        eqId: "new-user-id",
+      },
+    ]);
+  });
+
+  it("K) emailRedirectTo NO contiene ningún dominio de producción hardcodeado (chambyclaudfinal.vercel.app / chambyclaudfinal.netlify.app) — depende exclusivamente del origin dinámico de la request", async () => {
+    await register({}, buildFormData());
+    const emailRedirectTo = state.signUpCalls[0].options.emailRedirectTo!;
+    expect(emailRedirectTo).not.toContain("chambyclaudfinal");
+    expect(emailRedirectTo).not.toContain("localhost");
+    expect(emailRedirectTo.startsWith(TEST_ORIGIN)).toBe(true);
+  });
+
+  it("L) register() sigue funcionando sin ninguna ubicación (caso real actual de RegisterForm.tsx antes de que envíe department/province/district)", async () => {
+    await register({}, buildFormData());
+    expect(state.signUpCalls).toHaveLength(1);
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata).not.toHaveProperty("department");
+    expect(metadata).not.toHaveProperty("province");
+    expect(metadata).not.toHaveProperty("district");
+  });
+});
+
+/**
+ * Fase C4-G10.5 — cierre de la brecha detectada en C4-G10.4 (diagnóstico
+ * con datos reales de producción vía Supabase MCP): isNewOAuthUser()
+ * (ventana de 10s, sin cambios en esta fase) es insuficiente para
+ * confirmaciones de email — usuarios reales mostraron gaps de 31.38s y
+ * 884.8s entre created_at y last_sign_in_at, muy por encima de la
+ * ventana. register() y resendConfirmationEmail() ahora agregan
+ * `flow=email_signup` a emailRedirectTo, una señal explícita e
+ * independiente del tiempo, consumida por /auth/callback (route.test.ts)
+ * vía comparación literal — nunca se usa para construir URLs.
+ */
+describe("register() — flow=email_signup en emailRedirectTo (C4-G10.5)", () => {
+  it("A) emailRedirectTo incluye ?flow=email_signup", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("B) el valor de flow es exactamente el literal 'email_signup' (no un booleano, no otra cadena)", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toStrictEqual("email_signup");
+  });
+
+  it("C) flow está presente incluso sin ningún `next` enviado", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.has("next")).toBe(false);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("D) flow y next conviven sin interferirse cuando next es válido", async () => {
+    await register({}, buildFormData({ next: "/dashboard/employer" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+    expect(url.searchParams.get("next")).toBe("/dashboard/employer");
+  });
+
+  it("E) flow sigue presente aunque next sea inválido y se descarte (los dos params son independientes)", async () => {
+    await register({}, buildFormData({ next: "https://evil.example.com/phish" }));
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+    expect(url.searchParams.has("next")).toBe(false);
+  });
+
+  it("F) flow nunca aparece en el metadata (options.data) de signUp() — vive únicamente en la URL de emailRedirectTo", async () => {
+    await register({}, buildFormData());
+    const metadata = state.signUpCalls[0].options.data;
+    expect(metadata).not.toHaveProperty("flow");
+  });
+
+  it("G) flow no interfiere con el UPDATE de profiles cuando hay sesión y ubicación", async () => {
+    state.hasSession = true;
+    await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    expect(state.profileUpdateCalls).toEqual([
+      {
+        payload: { department: "Lambayeque", province: "Chiclayo", district: "Pimentel" },
+        eqId: "new-user-id",
+      },
+    ]);
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("H) needsEmailConfirmation === true: flow ya viajó en la llamada a signUp() antes de retornar", async () => {
+    state.hasSession = false;
+    const result = await register({}, buildFormData());
+    expect(result).toEqual({ needsEmailConfirmation: true });
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("I) validación fallida (category inválida) impide llegar a signUp(): no hay ningún emailRedirectTo/flow que inspeccionar, comportamiento de seguridad sin cambios", async () => {
+    const result = await register({}, buildFormData({ role: "worker", category: "Categoría inventada" }));
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.signUpCalls).toHaveLength(0);
+  });
+
+  it("J) el pathname y origin de emailRedirectTo no se ven afectados por agregar flow — sigue siendo exactamente /auth/callback sobre el origin dinámico", async () => {
+    await register({}, buildFormData());
+    const url = new URL(state.signUpCalls[0].options.emailRedirectTo!);
+    expect(url.origin).toBe(TEST_ORIGIN);
+    expect(url.pathname).toBe("/auth/callback");
+  });
+
+  it("K) flow es idéntico en todo escenario de ubicación (ausente, parcial, completa) — no depende de qué se envió", async () => {
+    await register({}, buildFormData());
+    const flowNone = new URL(state.signUpCalls[0].options.emailRedirectTo!).searchParams.get("flow");
+
+    state.signUpCalls = [];
+    await register({}, buildFormData({ department: "Lambayeque" }));
+    const flowPartial = new URL(state.signUpCalls[0].options.emailRedirectTo!).searchParams.get("flow");
+
+    state.signUpCalls = [];
+    await register(
+      {},
+      buildFormData({ department: "Lambayeque", province: "Chiclayo", district: "Pimentel" })
+    );
+    const flowFull = new URL(state.signUpCalls[0].options.emailRedirectTo!).searchParams.get("flow");
+
+    expect(flowNone).toBe("email_signup");
+    expect(flowPartial).toBe("email_signup");
+    expect(flowFull).toBe("email_signup");
+  });
+
+  it("L) auth.ts no importa isNewOAuthUser() — la señal flow es independiente del heurístico de tiempo, que permanece intacto en auth-new-user.ts (los comentarios pueden mencionarlo como contexto histórico, pero no debe existir un import real)", () => {
+    const source = readFileSync(new URL("./auth.ts", import.meta.url), "utf-8");
+    expect(source).not.toMatch(/import\s*\{[^}]*\bisNewOAuthUser\b[^}]*\}\s*from/);
+  });
+});
+
+describe("resendConfirmationEmail() — flow=email_signup en emailRedirectTo (C4-G10.5)", () => {
+  it("A) resend() recibe options.emailRedirectTo con ?flow=email_signup", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    expect(state.resendCalls).toHaveLength(1);
+    const redirectTo = state.resendCalls[0].options?.emailRedirectTo;
+    expect(typeof redirectTo).toBe("string");
+    const url = new URL(redirectTo!);
+    expect(url.searchParams.get("flow")).toBe("email_signup");
+  });
+
+  it("B) el emailRedirectTo de resend() nunca incluye `next` — resend() no recibe contexto de destino", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    const url = new URL(state.resendCalls[0].options!.emailRedirectTo!);
+    expect(url.searchParams.has("next")).toBe(false);
+  });
+
+  it("C) el emailRedirectTo de resend() usa el mismo origin dinámico que register() (getOrigin()), no un valor fijo", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    const url = new URL(state.resendCalls[0].options!.emailRedirectTo!);
+    expect(url.origin).toBe(TEST_ORIGIN);
+  });
+
+  it("D) el pathname de emailRedirectTo de resend() es exactamente /auth/callback", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    const url = new URL(state.resendCalls[0].options!.emailRedirectTo!);
+    expect(url.pathname).toBe("/auth/callback");
+  });
+
+  it("E) type: 'signup' se preserva sin cambios junto al nuevo options.emailRedirectTo", async () => {
+    await resendConfirmationEmail("juan@example.com");
+    expect(state.resendCalls[0].type).toBe("signup");
+    expect(state.resendCalls[0].email).toBe("juan@example.com");
+  });
+
+  it("F) manejo de errores existente (already confirmed / rate limit / genérico) permanece intacto con el nuevo options presente", async () => {
+    state.resendError = { message: "Email already confirmed" };
+    const r1 = await resendConfirmationEmail("juan@example.com");
+    expect(r1).toEqual({ error: "Este correo ya fue confirmado. Intenta iniciar sesión." });
+
+    state.resendError = { message: "rate limit exceeded" };
+    const r2 = await resendConfirmationEmail("juan@example.com");
+    expect(r2).toEqual({ error: "Espera unos segundos antes de solicitar otro correo." });
+
+    state.resendError = { message: "unexpected provider error" };
+    const r3 = await resendConfirmationEmail("juan@example.com");
+    expect(r3).toEqual({ error: "No se pudo reenviar el correo. Intenta más tarde." });
+
+    state.resendError = null;
+    const r4 = await resendConfirmationEmail("juan@example.com");
+    expect(r4).toEqual({ success: true });
+  });
+
+  it("G) correo inválido sigue rechazándose ANTES de llamar a resend() — sin cambios de esta fase", async () => {
+    const result = await resendConfirmationEmail("no-es-un-correo");
+    expect(result).toEqual({ error: "Correo inválido." });
+    expect(state.resendCalls).toHaveLength(0);
+  });
+});

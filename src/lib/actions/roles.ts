@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeCity } from "@/lib/cities";
+import { validateLocationInput } from "@/lib/ubigeo";
 import type { UserRole } from "@/lib/types";
 
 type Ok = { success: true };
@@ -16,6 +17,12 @@ async function getAuth() {
     data: { user },
   } = await supabase.auth.getUser();
   return { supabase, user };
+}
+
+/** `FormData.get()` devuelve `File | string | null` — normaliza a `string | null` para validateLocationInput(). */
+function readOptionalStringField(formData: FormData, key: string): string | null {
+  const raw = formData.get(key);
+  return typeof raw === "string" ? raw : null;
 }
 
 /** Roles activos que posee el usuario autenticado (puede ser más de uno). */
@@ -173,8 +180,40 @@ export async function completeGoogleOnboarding(
   // preserva el comportamiento existente de ciudad vacía/ausente = opcional.
   const cityValue = formData.get("city");
   const city = normalizeCity(typeof cityValue === "string" ? cityValue : null);
-  if (city) {
-    const { error } = await supabase.from("profiles").update({ city }).eq("id", user.id);
+
+  // Fase C4-G9.2.1 (Paso 1 de C4-G9.2): department/province/district son
+  // opcionales — RoleOnboardingForm.tsx todavía no los envía (eso es el
+  // Paso 2, pendiente de autorización aparte), así que hoy siempre llegan
+  // ausentes y este bloque es un no-op puro: el comportamiento observable
+  // para el formulario actual (solo `city`) no cambia. Reutiliza
+  // validateLocationInput() (src/lib/ubigeo.ts) — misma fuente de verdad
+  // que ya usan updateProfile() y createJob(), sin duplicar la validación
+  // jerárquica aquí. El cliente nunca es una fuente de verdad confiable,
+  // así que esta comprobación corre siempre en el servidor, sin importar
+  // qué valide (o no) un futuro LocationSelector en el formulario.
+  const location = validateLocationInput({
+    department: readOptionalStringField(formData, "department"),
+    province: readOptionalStringField(formData, "province"),
+    district: readOptionalStringField(formData, "district"),
+  });
+  if ("error" in location) return { error: location.error };
+
+  // Un solo UPDATE combinando lo que efectivamente venga: hoy siempre es
+  // solo `city` (o nada, si viene vacía) — mismo resultado que antes de
+  // este cambio. Cuando el formulario empiece a enviar ubicación
+  // jerárquica (Paso 2), department/province/district se guardan junto a
+  // `city` en la misma escritura, en vez de una segunda llamada aparte.
+  const profileLocationUpdates: Record<string, string> = {};
+  if (city) profileLocationUpdates.city = city;
+  if (location.department) profileLocationUpdates.department = location.department;
+  if (location.province) profileLocationUpdates.province = location.province;
+  if (location.district) profileLocationUpdates.district = location.district;
+
+  if (Object.keys(profileLocationUpdates).length > 0) {
+    const { error } = await supabase
+      .from("profiles")
+      .update(profileLocationUpdates)
+      .eq("id", user.id);
     if (error) return { error: "No se pudo guardar tu ciudad, pero tu cuenta ya está lista." };
   }
 

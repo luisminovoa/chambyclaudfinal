@@ -44,6 +44,8 @@ const EMPLOYER_PROFILE: Profile = {
   business_description: null,
   business_ruc: null,
   district: null,
+  department: null,
+  province: null,
 };
 
 function mockSession(user: { id: string } | null, profile: Profile | null, userRoles: UserRole[]) {

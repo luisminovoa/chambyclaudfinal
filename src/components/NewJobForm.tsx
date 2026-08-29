@@ -20,6 +20,7 @@ import { createJob } from "@/lib/actions/jobs";
 import type { ActionResult } from "@/lib/actions/auth";
 import { CATEGORY_NAMES } from "@/lib/categories";
 import { Progress } from "@/components/ui/Progress";
+import { LocationSelector, type LocationValue } from "@/components/ui/LocationSelector";
 import { formatCurrency, payTypeLabel, cn } from "@/lib/utils";
 
 const initialState: ActionResult = {};
@@ -37,7 +38,9 @@ const stepSchemas = [
     title: z.string().min(5, "El título debe tener al menos 5 caracteres"),
     description: z.string().min(20, "La descripción debe tener al menos 20 caracteres"),
     category: z.string().min(2, "Indica un puesto o categoría"),
-    city: z.string().min(2, "Indica una ciudad"),
+    department: z.string().min(2, "Selecciona un departamento"),
+    province: z.string().min(2, "Selecciona una provincia"),
+    district: z.string().min(2, "Selecciona un distrito"),
   }),
   z.object({
     pay_amount: z
@@ -54,7 +57,9 @@ interface FormValues {
   title: string;
   description: string;
   category: string;
-  city: string;
+  department: string;
+  province: string;
+  district: string;
   address: string;
   pay_amount: string;
   pay_type: "por_hora" | "por_dia" | "fijo";
@@ -65,7 +70,9 @@ const emptyValues: FormValues = {
   title: "",
   description: "",
   category: "",
-  city: "",
+  department: "",
+  province: "",
+  district: "",
   address: "",
   pay_amount: "",
   pay_type: "fijo",
@@ -173,40 +180,39 @@ export function NewJobForm() {
                     placeholder="Describe las tareas, requisitos y horario..."
                   />
                 </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <label htmlFor="category" className="label">
-                      Puesto / categoría
-                    </label>
-                    <div className="relative">
-                      <select
-                        id="category"
-                        className="input cursor-pointer appearance-none pr-10"
-                        value={values.category}
-                        onChange={(e) => set("category", e.target.value)}
-                      >
-                        <option value="">Selecciona una categoría</option>
-                        {CATEGORY_NAMES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                    </div>
+                <div>
+                  <label htmlFor="category" className="label">
+                    Puesto / categoría
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="category"
+                      className="input cursor-pointer appearance-none pr-10"
+                      value={values.category}
+                      onChange={(e) => set("category", e.target.value)}
+                    >
+                      <option value="">Selecciona una categoría</option>
+                      {CATEGORY_NAMES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                   </div>
-                  <div>
-                    <label htmlFor="city" className="label">
-                      Ciudad
-                    </label>
-                    <input
-                      id="city"
-                      className="input"
-                      value={values.city}
-                      onChange={(e) => set("city", e.target.value)}
-                      placeholder="Lima"
-                    />
-                  </div>
+                </div>
+                <div>
+                  <p className="label">Ubicación del trabajo</p>
+                  <LocationSelector
+                    idPrefix="job-location"
+                    department={values.department}
+                    province={values.province}
+                    district={values.district}
+                    onChange={(next: LocationValue) => {
+                      setValues((prev) => ({ ...prev, ...next }));
+                      setStepError(null);
+                    }}
+                  />
                 </div>
                 <div>
                   <label htmlFor="address" className="label">
@@ -299,7 +305,8 @@ export function NewJobForm() {
                   <h3 className="text-lg font-extrabold tracking-tight text-ink">{values.title}</h3>
                   <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-ink-muted">
                     <MapPin className="h-4 w-4 text-primary-500" />
-                    {values.category} · {values.city}
+                    {values.category} · {values.department} · {values.province} ·{" "}
+                    {values.district}
                     {values.address ? ` · ${values.address}` : ""}
                   </p>
                   <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-slate-700">
@@ -352,7 +359,9 @@ export function NewJobForm() {
             <input type="hidden" name="title" value={values.title} />
             <input type="hidden" name="description" value={values.description} />
             <input type="hidden" name="category" value={values.category} />
-            <input type="hidden" name="city" value={values.city} />
+            <input type="hidden" name="department" value={values.department} />
+            <input type="hidden" name="province" value={values.province} />
+            <input type="hidden" name="district" value={values.district} />
             <input type="hidden" name="address" value={values.address} />
             <input type="hidden" name="pay_amount" value={values.pay_amount} />
             <input type="hidden" name="pay_type" value={values.pay_type} />

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { updateProfile } from "./profile";
+import { CATEGORY_NAMES } from "@/lib/categories";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -130,8 +131,10 @@ describe("updateProfile() — reutilizada por EmployerInfoTab (worker e employer
     expect(state.updateCalls).toHaveLength(0);
   });
 
-  it("un employer puede actualizar su identidad empresarial (0030)", async () => {
+  it("un employer puede actualizar su identidad empresarial (0030) y su ubicación jerárquica (Fase 1)", async () => {
     const fd = new FormData();
+    fd.set("department", "Lima");
+    fd.set("province", "Lima");
     fd.set("district", "Los Olivos");
     fd.set("employer_type", "company");
     fd.set("business_name", "Ferretería Don Jose SAC");
@@ -143,6 +146,8 @@ describe("updateProfile() — reutilizada por EmployerInfoTab (worker e employer
 
     expect(result).toEqual({ success: true });
     expect(state.updateCalls[0].payload).toMatchObject({
+      department: "Lima",
+      province: "Lima",
       district: "Los Olivos",
       employer_type: "company",
       business_name: "Ferretería Don Jose SAC",
@@ -196,5 +201,131 @@ describe("updateProfile() — reutilizada por EmployerInfoTab (worker e employer
     expect(state.updateCalls[0].payload).not.toHaveProperty("business_name");
     expect(state.updateCalls[0].payload).not.toHaveProperty("business_ruc");
     expect(state.updateCalls[0].payload).not.toHaveProperty("district");
+    expect(state.updateCalls[0].payload).not.toHaveProperty("department");
+    expect(state.updateCalls[0].payload).not.toHaveProperty("province");
+  });
+});
+
+describe("updateProfile() — ubicación jerárquica (Fase 1, validateLocationInput)", () => {
+  beforeEach(reset);
+
+  it("distrito enviado sin departamento/provincia se rechaza — ya no se acepta como texto libre", async () => {
+    const fd = new FormData();
+    fd.set("district", "Los Olivos");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ error: "Selecciona departamento y provincia antes del distrito." });
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("provincia que no pertenece al departamento indicado se rechaza (el cliente no es fuente de verdad)", async () => {
+    const fd = new FormData();
+    fd.set("department", "La Libertad");
+    fd.set("province", "Chiclayo");
+
+    const result = await updateProfile(fd);
+
+    expect("error" in result && result.error).toBeTruthy();
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("solo departamento (sin provincia/distrito todavía) es válido — guardado progresivo", async () => {
+    const fd = new FormData();
+    fd.set("department", "Lambayeque");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload).toMatchObject({
+      department: "Lambayeque",
+      province: null,
+      district: null,
+    });
+  });
+});
+
+describe("updateProfile() — category validada contra CATEGORY_NAMES (Fase 2.1, cierre C4-G9)", () => {
+  beforeEach(reset);
+
+  it("A) category presente en CATEGORY_NAMES se acepta y se guarda tal cual", async () => {
+    const fd = new FormData();
+    fd.set("category", "Electricista");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload.category).toBe("Electricista");
+  });
+
+  it("B) category fuera de CATEGORY_NAMES se rechaza sin escribir nada en la base", async () => {
+    const fd = new FormData();
+    fd.set("category", "Categoría inventada que no existe");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ error: "Selecciona una categoría válida." });
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("C) category ausente del FormData se guarda como null, sin exigir pertenencia al catálogo (mismo criterio que business_ruc: declarar-y-borrar es válido)", async () => {
+    const fd = new FormData();
+    fd.set("bio", "hola");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload.category).toBeNull();
+  });
+
+  it("C.2) category enviada como cadena vacía también se guarda como null sin error (flujo real de EmployerInfoTab.tsx, que no ofrece este campo)", async () => {
+    const fd = new FormData();
+    fd.set("category", "");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload.category).toBeNull();
+  });
+
+  it("D) otros campos válidos (bio/phone/city) se siguen guardando normalmente junto a una category válida", async () => {
+    const fd = new FormData();
+    fd.set("bio", "Electricista con 5 años de experiencia");
+    fd.set("phone", "+51999999999");
+    fd.set("city", "Chiclayo");
+    fd.set("category", "Electricista");
+
+    const result = await updateProfile(fd);
+
+    expect(result).toEqual({ success: true });
+    expect(state.updateCalls[0].payload).toMatchObject({
+      bio: "Electricista con 5 años de experiencia",
+      phone: "+51999999999",
+      city: "Chiclayo",
+      category: "Electricista",
+    });
+  });
+
+  it("G) una category inválida no deja ningún rastro de escritura (ni siquiera parcial) — no se modifica ningún dato histórico", async () => {
+    const fd = new FormData();
+    fd.set("bio", "este bio nunca debería llegar a guardarse");
+    fd.set("category", "No existe en el catálogo");
+
+    await updateProfile(fd);
+
+    expect(state.updateCalls).toHaveLength(0);
+  });
+
+  it("todo el catálogo CATEGORY_NAMES (incluido 'Otro', ya presente hoy) es aceptado sin cambios de significado", async () => {
+    for (const cat of CATEGORY_NAMES) {
+      state.updateCalls = [];
+      const fd = new FormData();
+      fd.set("category", cat);
+
+      const result = await updateProfile(fd);
+
+      expect(result).toEqual({ success: true });
+      expect(state.updateCalls[0].payload.category).toBe(cat);
+    }
   });
 });

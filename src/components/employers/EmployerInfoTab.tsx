@@ -6,7 +6,7 @@ import { useToast } from "@/components/ui/Toaster";
 import { Badge } from "@/components/ui/Badge";
 import { updateProfile } from "@/lib/actions/profile";
 import { refreshProfileStats } from "@/lib/profile-stats";
-import { CITY_NAMES, normalizeCity } from "@/lib/cities";
+import { LocationSelector, type LocationValue } from "@/components/ui/LocationSelector";
 import type { EmployerType, Profile, ProfileStats } from "@/lib/types";
 
 type EmployerProfileFields = Pick<
@@ -15,6 +15,8 @@ type EmployerProfileFields = Pick<
   | "phone"
   | "city"
   | "district"
+  | "department"
+  | "province"
   | "bio"
   | "employer_type"
   | "business_name"
@@ -55,12 +57,15 @@ export function EmployerInfoTab({
 
   const [fullName, setFullName] = useState(profile.full_name);
   const [phone, setPhone] = useState(profile.phone ?? "");
-  // normalizeCity(): compatibilidad con valores históricos de profiles.city
-  // que no coinciden exactamente con CITY_NAMES (p. ej. "CHICLAYO") — solo
-  // afecta qué opción se muestra seleccionada en el <select>, nunca se
-  // escribe en BD hasta que el usuario guarda explícitamente (Fase C4-D).
-  const [city, setCity] = useState(normalizeCity(profile.city) ?? "");
-  const [district, setDistrict] = useState(profile.district ?? "");
+  // Fase 1 (ubicación jerárquica): reemplaza el <select> limitado a
+  // Chiclayo/Trujillo (profile.city) y el distrito de texto libre — ahora
+  // profile.department/province/district, validados contra el catálogo
+  // completo de Perú (src/lib/ubigeo.ts).
+  const [location, setLocation] = useState<LocationValue>({
+    department: profile.department ?? "",
+    province: profile.province ?? "",
+    district: profile.district ?? "",
+  });
   const [bio, setBio] = useState(profile.bio ?? "");
 
   const [employerType, setEmployerType] = useState<EmployerType | "">(
@@ -88,8 +93,13 @@ export function EmployerInfoTab({
     const fd = new FormData();
     fd.set("full_name", trimmedName);
     fd.set("phone", phone);
-    fd.set("city", city);
-    fd.set("district", district);
+    // `city` se deriva de la provincia elegida — mantiene compatible el
+    // resto de la app (city sigue siendo la columna leída por vistas
+    // públicas y filtros) sin pedirle al empleador un campo redundante.
+    fd.set("city", location.province);
+    fd.set("department", location.department);
+    fd.set("province", location.province);
+    fd.set("district", location.district);
     fd.set("bio", bio);
     fd.set("employer_type", employerType);
     fd.set("business_name", businessName);
@@ -106,8 +116,10 @@ export function EmployerInfoTab({
         onSaved({
           full_name: trimmedName,
           phone: phone.trim() || null,
-          city: city.trim() || null,
-          district: district.trim() || null,
+          city: location.province || null,
+          district: location.district || null,
+          department: location.department || null,
+          province: location.province || null,
           bio: bio.trim() || null,
           employer_type: (employerType || null) as EmployerType | null,
           business_name: businessName.trim() || null,
@@ -161,37 +173,13 @@ export function EmployerInfoTab({
           </div>
 
           <div>
-            <label htmlFor="employer_city" className="label">
-              Ciudad
-            </label>
-            <select
-              id="employer_city"
-              name="city"
-              className="input w-full"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-            >
-              <option value="">Selecciona tu ciudad</option>
-              {CITY_NAMES.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="employer_district" className="label">
-              Distrito
-            </label>
-            <input
-              id="employer_district"
-              type="text"
-              className="input w-full"
-              placeholder="Los Olivos, Miraflores, Surco…"
-              value={district}
-              onChange={(e) => setDistrict(e.target.value)}
-              maxLength={100}
+            <p className="label">Ubicación</p>
+            <LocationSelector
+              idPrefix="employer-location"
+              department={location.department}
+              province={location.province}
+              district={location.district}
+              onChange={setLocation}
             />
           </div>
         </div>

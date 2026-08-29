@@ -8,6 +8,14 @@ export async function GET(request: Request) {
   const error = searchParams.get("error");
   const next = searchParams.get("next") ?? "/dashboard";
   const isPasswordRecovery = next === "/reset-password";
+  // Fase C4-G10.5: señal explícita de register()/resendConfirmationEmail()
+  // (src/lib/actions/auth.ts) — isNewOAuthUser() (sin cambios) es una
+  // ventana de 10s pensada para OAuth y se demostró insuficiente para
+  // confirmaciones de email (gaps reales de hasta ~15 min). Solo se
+  // compara por igualdad literal: nunca se usa para construir una URL ni
+  // para autorizar nada, así que un valor falsificado en el enlace no
+  // tiene efecto sin un `code` de sesión válido previo.
+  const isEmailSignupFlow = searchParams.get("flow") === "email_signup";
 
   // Preserva `next` en cada redirect de error a /login — antes se perdía
   // aquí, así que cancelar el consentimiento de Google (o cualquier otro
@@ -33,7 +41,7 @@ export async function GET(request: Request) {
       // del asistente de onboarding, aunque los timestamps coincidan.
       if (!isPasswordRecovery) {
         const user = data.user;
-        if (isNewOAuthUser(user?.created_at, user?.last_sign_in_at)) {
+        if (isEmailSignupFlow || isNewOAuthUser(user?.created_at, user?.last_sign_in_at)) {
           const onboardingUrl = new URL(`${origin}/onboarding`);
           if (next !== "/dashboard") onboardingUrl.searchParams.set("next", next);
           return NextResponse.redirect(onboardingUrl);
