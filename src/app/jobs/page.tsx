@@ -16,7 +16,14 @@ export const metadata: Metadata = {
 };
 
 interface JobsPageProps {
-  searchParams: { city?: string; category?: string; q?: string };
+  searchParams: {
+    city?: string;
+    category?: string;
+    q?: string;
+    department?: string;
+    province?: string;
+    district?: string;
+  };
 }
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
@@ -37,6 +44,18 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   }
   if (searchParams.q) {
     query = query.or(`title.ilike.%${searchParams.q}%,description.ilike.%${searchParams.q}%`);
+  }
+  // Ubicación jerárquica (Fase 6, C4-G18): .eq() exacto, convive con
+  // `city` (arriba, ilike, compatibilidad legacy) sin ningún OR
+  // heurístico entre ambos.
+  if (searchParams.department) {
+    query = query.eq("department", searchParams.department);
+  }
+  if (searchParams.province) {
+    query = query.eq("province", searchParams.province);
+  }
+  if (searchParams.district) {
+    query = query.eq("district", searchParams.district);
   }
 
   const { data: jobs, error } = await query;

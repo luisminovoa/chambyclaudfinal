@@ -6,6 +6,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { getConversationIdForJob } from "@/lib/actions/chat";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
+import { formatLocation } from "@/lib/location";
 import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
 import { ApplyForm } from "@/components/ApplyForm";
 import { ApplicantRow } from "@/components/ApplicantRow";
@@ -34,16 +35,19 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   const supabase = createClient();
   const { data } = await supabase
     .from("jobs")
-    .select("title, description, city, category")
+    .select("title, description, city, category, department, province, district")
     .eq("id", params.id)
     .maybeSingle();
-  const job = data as unknown as Pick<JobWithEmployer, "title" | "description" | "city" | "category"> | null;
+  const job = data as unknown as Pick<
+    JobWithEmployer,
+    "title" | "description" | "city" | "category" | "department" | "province" | "district"
+  > | null;
 
   if (!job) return { title: "Trabajo no encontrado" };
 
   const description = job.description.slice(0, 155);
   return {
-    title: `${job.title} en ${job.city}`,
+    title: `${job.title} en ${formatLocation(job) ?? job.city}`,
     description,
     openGraph: { title: `${job.title} — Chamby`, description },
   };
@@ -214,7 +218,12 @@ export default async function JobDetailPage({ params }: { params: { id: string }
             "@type": "Place",
             address: {
               "@type": "PostalAddress",
-              addressLocality: typedJob.city,
+              // addressLocality es un campo semántico de localidad — usa
+              // el distrito (el nivel más específico y comparable a una
+              // "ciudad") con fallback a `city` legacy, nunca la cadena
+              // completa "Distrito, Provincia, Departamento" de
+              // formatLocation() (esa es solo para presentación).
+              addressLocality: typedJob.district || typedJob.city,
               addressCountry: "PE",
             },
           },
@@ -280,7 +289,7 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                 </h1>
                 <p className="mt-1.5 flex items-center gap-1.5 text-sm font-medium text-ink-muted">
                   <MapPin className="h-4 w-4 text-primary-500" />
-                  {typedJob.category} · {typedJob.city}
+                  {typedJob.category} · {formatLocation(typedJob)}
                   {typedJob.address ? ` · ${typedJob.address}` : ""}
                 </p>
               </div>

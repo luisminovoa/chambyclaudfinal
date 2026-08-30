@@ -51,7 +51,7 @@ async function fetchEmployerPublicProfile(
   const { data: profileRow } = await supabase
     .from("public_profiles")
     .select(
-      "id, full_name, avatar_url, city, category, skills, bio, created_at, employer_type, business_name, business_sector, business_description"
+      "id, full_name, avatar_url, city, category, skills, bio, created_at, employer_type, business_name, business_sector, business_description, department, province, district"
     )
     .eq("id", employerId)
     .maybeSingle();

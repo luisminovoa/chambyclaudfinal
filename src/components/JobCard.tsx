@@ -2,6 +2,7 @@ import Link from "next/link";
 import { MapPin, Clock, CalendarDays } from "lucide-react";
 import type { JobWithEmployer, UserRole } from "@/lib/types";
 import { formatCurrency, payTypeLabel, jobStatusLabel, formatDate } from "@/lib/utils";
+import { formatLocation } from "@/lib/location";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { JobCardActions } from "@/components/JobCardActions";
@@ -24,6 +25,7 @@ interface JobCardProps {
 export function JobCard({ job, currentUserId, viewerRole }: JobCardProps) {
   const isOwner = Boolean(currentUserId) && currentUserId === job.employer_id;
   const showApply = canShowApplyButton({ viewerRole, isOwner });
+  const location = formatLocation(job);
 
   return (
     <article className="card card-hover group relative flex flex-col p-5">
@@ -59,7 +61,7 @@ export function JobCard({ job, currentUserId, viewerRole }: JobCardProps) {
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-medium text-ink-muted">
         <span className="inline-flex items-center gap-1">
           <MapPin className="h-3.5 w-3.5 text-primary-500" />
-          {job.city}
+          {location}
         </span>
         <span className="inline-flex items-center gap-1">
           <Clock className="h-3.5 w-3.5 text-primary-500" />

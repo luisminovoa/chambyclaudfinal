@@ -15,7 +15,15 @@ export const metadata: Metadata = {
 };
 
 interface WorkersPageProps {
-  searchParams: { category?: string; city?: string; availability?: string; q?: string };
+  searchParams: {
+    category?: string;
+    city?: string;
+    availability?: string;
+    q?: string;
+    department?: string;
+    province?: string;
+    district?: string;
+  };
 }
 
 /**

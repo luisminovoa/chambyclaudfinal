@@ -70,6 +70,54 @@ describe("parseWorkerDirectorySearchParams", () => {
       q: undefined,
     });
   });
+
+  // ============================================================
+  // Ubicación jerárquica (Fase 6, C4-G18) — mismo trim/undefined que
+  // category/city/q, cada nivel es independiente de los demás.
+  // ============================================================
+  describe("ubicación jerárquica — department/province/district", () => {
+    it("normaliza department presente y le hace trim", () => {
+      expect(parseWorkerDirectorySearchParams({ department: "  Lambayeque  " }).department).toBe(
+        "Lambayeque"
+      );
+    });
+
+    it("normaliza province presente y le hace trim", () => {
+      expect(parseWorkerDirectorySearchParams({ province: "  Chiclayo  " }).province).toBe("Chiclayo");
+    });
+
+    it("normaliza district presente y le hace trim", () => {
+      expect(parseWorkerDirectorySearchParams({ district: "  Cayaltí  " }).district).toBe("Cayaltí");
+    });
+
+    it("department/province/district ausentes o solo espacios se vuelven undefined, nunca string vacío", () => {
+      expect(parseWorkerDirectorySearchParams({}).department).toBeUndefined();
+      expect(parseWorkerDirectorySearchParams({ province: "   " }).province).toBeUndefined();
+      expect(parseWorkerDirectorySearchParams({ district: "" }).district).toBeUndefined();
+    });
+
+    it("combina los 7 filtros (los 4 anteriores + department/province/district) sin interferir entre sí, y convive con city", () => {
+      expect(
+        parseWorkerDirectorySearchParams({
+          category: "Electricista",
+          city: "Lima",
+          availability: "una_semana",
+          q: "residencial",
+          department: "Lambayeque",
+          province: "Chiclayo",
+          district: "Cayaltí",
+        })
+      ).toEqual({
+        category: "Electricista",
+        city: "Lima",
+        availability: "una_semana",
+        q: "residencial",
+        department: "Lambayeque",
+        province: "Chiclayo",
+        district: "Cayaltí",
+      });
+    });
+  });
 });
 
 describe("escapePostgrestFilterValue", () => {

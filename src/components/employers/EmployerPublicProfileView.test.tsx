@@ -28,6 +28,9 @@ const baseData: EmployerPublicProfile = {
     business_name: "Ferretería Don Jose",
     business_sector: "Ferretería",
     business_description: "Vendemos herramientas y materiales de construcción.",
+    department: null,
+    province: null,
+    district: null,
   },
   stats: null,
   ratingSummary: null,
@@ -196,5 +199,65 @@ describe("EmployerPublicProfileView — hiringConversations (Fase C4-G6)", () =>
       <EmployerPublicProfileView data={baseData} viewerId="worker-99" hiringConversations={[]} />
     );
     expect(html).not.toContain("Abrir chat");
+  });
+});
+
+/**
+ * Fase 6 (C4-G18) — EmployerPublicProfileView debe usar formatLocation()
+ * (src/lib/location.ts), la misma función que WorkerPublicProfileView y
+ * WorkerDirectoryCard — nunca formatEmployerLocation() ni un fallback
+ * duplicado en el propio componente.
+ */
+describe("EmployerPublicProfileView — ubicación jerárquica (Fase 6 / C4-G18)", () => {
+  it("Ubigeo completo muestra 'Distrito, Provincia, Departamento'", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView
+        data={{
+          ...baseData,
+          profile: {
+            ...baseData.profile,
+            department: "Lambayeque",
+            province: "Chiclayo",
+            district: "Cayaltí",
+          },
+        }}
+        viewerId="employer-1"
+      />
+    );
+    expect(html).toContain("Cayaltí, Chiclayo, Lambayeque");
+  });
+
+  it("Ubigeo parcial (province + department) no inventa el distrito faltante", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView
+        data={{
+          ...baseData,
+          profile: { ...baseData.profile, department: "Lambayeque", province: "Chiclayo", district: null },
+        }}
+        viewerId="employer-1"
+      />
+    );
+    expect(html).toContain("Chiclayo, Lambayeque");
+  });
+
+  it("legacy: sin ningún nivel de Ubigeo, cae a city (mismo caso que el test de distrito excluido arriba)", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView data={baseData} viewerId="employer-1" />
+    );
+    expect(html).toContain("Lima");
+  });
+
+  it("sin ubicación (ni Ubigeo ni city) nunca renderiza null/undefined", () => {
+    const html = renderToStaticMarkup(
+      <EmployerPublicProfileView
+        data={{
+          ...baseData,
+          profile: { ...baseData.profile, city: null, department: null, province: null, district: null },
+        }}
+        viewerId="employer-1"
+      />
+    );
+    expect(html).not.toContain("null");
+    expect(html).not.toContain("undefined");
   });
 });

@@ -56,7 +56,17 @@ export type PublicWorkerSummary = Pick<Profile, "id" | "full_name" | "avatar_url
  */
 export type WorkerDiscoveryProfile = Pick<
   Profile,
-  "id" | "full_name" | "avatar_url" | "city" | "category" | "skills" | "bio" | "created_at"
+  | "id"
+  | "full_name"
+  | "avatar_url"
+  | "city"
+  | "category"
+  | "skills"
+  | "bio"
+  | "created_at"
+  | "department"
+  | "province"
+  | "district"
 >;
 
 /**
@@ -91,6 +101,15 @@ export interface PublicWorkerListing {
   years_experience: number | null;
   hourly_rate: number | null;
   daily_rate: number | null;
+  // Ubicación jerárquica Perú (Fase 6, C4-G18) — de public.profiles vía
+  // public_workers (0042_public_workers_hierarchical_location.sql), al
+  // final de la lista de columnas para no romper CREATE OR REPLACE VIEW.
+  // Nullable: `city` sigue siendo el fallback de presentación (ver
+  // src/lib/location.ts) para filas que aún no guardaron con
+  // LocationSelector.
+  department: string | null;
+  province: string | null;
+  district: string | null;
   ratingSummary: RatingSummary | null;
   /** Trabajos completados (jobs.status='completado'), siempre numérico — 0 si no hay ninguno. Fase C4-G3. */
   jobsCompleted: number;
@@ -102,6 +121,12 @@ export interface WorkerDirectoryFilters {
   city?: string;
   availability?: AvailabilityStatus;
   q?: string;
+  // Ubicación jerárquica Perú (Fase 6, C4-G18) — cada nivel se aplica con
+  // .eq() exacto, nunca ilike/fuzzy, y conviven con `city` (compatibilidad
+  // legacy, ver src/lib/location.ts).
+  department?: string;
+  province?: string;
+  district?: string;
 }
 
 /**
@@ -122,6 +147,12 @@ export interface PublicProfileView {
   business_name: string | null;
   business_sector: string | null;
   business_description: string | null;
+  // Ubicación jerárquica Perú (Fase 6, C4-G18) — agregada al final por
+  // public_profiles_hierarchical_location.sql (0043), mismo motivo
+  // posicional que PublicWorkerListing. Nullable: ver src/lib/location.ts.
+  department: string | null;
+  province: string | null;
+  district: string | null;
 }
 
 /** Perfil de la contraparte en un chat — solo lo que PresenceBar/ChatWindow necesitan. */
