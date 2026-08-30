@@ -2,16 +2,24 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { CheckCircle2, XCircle, AlertCircle, Clock } from "lucide-react";
 import { completeJob, cancelJob } from "@/lib/actions/jobs";
 import { useToast } from "@/components/ui/Toaster";
 
 interface JobActionsProps {
   jobId: string;
   jobStatus: string;
+  /**
+   * Fase 8 (C4-G21): momento en que el trabajador asignado reportó el
+   * trabajo como terminado — null mientras no lo haya hecho. El empleador
+   * (único viewer de este componente, ver /jobs/[id]/page.tsx) ya no
+   * puede completar unilateralmente: sin este reporte, solo ve el estado
+   * "esperando" en vez del botón de confirmación.
+   */
+  workerReportedFinishedAt: string | null;
 }
 
-export function JobActions({ jobId, jobStatus }: JobActionsProps) {
+export function JobActions({ jobId, jobStatus, workerReportedFinishedAt }: JobActionsProps) {
   const [confirmingComplete, setConfirmingComplete] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -26,7 +34,7 @@ export function JobActions({ jobId, jobStatus }: JobActionsProps) {
         toast(result.error, "error");
         return;
       }
-      toast("Trabajo marcado como completado", "success");
+      toast("Trabajo confirmado como completado", "success");
       // Fase 4 / C4-G14: sin esto, este Server Component (la página
       // /jobs/[id]) nunca vuelve a evaluar `jobCompleted` — el RatingForm
       // ya condicionado a ese estado (ver page.tsx) quedaba invisible
@@ -54,15 +62,24 @@ export function JobActions({ jobId, jobStatus }: JobActionsProps) {
 
   return (
     <div className="mt-6 space-y-3">
-      {/* Completar trabajo */}
+      {/* Completar trabajo — Fase 8 (C4-G21): ya no es unilateral. Requiere
+          que el trabajador haya reportado el trabajo como terminado. */}
       {jobStatus === "en_progreso" && (
         <>
-          {confirmingComplete ? (
+          {!workerReportedFinishedAt ? (
+            <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
+              <p className="text-sm font-medium text-ink-muted">
+                Esperando que el trabajador marque el trabajo como terminado.
+              </p>
+            </div>
+          ) : confirmingComplete ? (
             <div className="flex items-start gap-3 rounded-2xl border border-success-100 bg-success-50 p-4">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-success-600" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-success-700">
-                  ¿Confirmas que el trabajo fue completado? Esto habilitará la calificación mutua.
+                  El trabajador indicó que terminó la chamba. ¿Confirmas que el trabajo quedó
+                  terminado? Esto habilitará la calificación mutua.
                 </p>
                 <div className="mt-2 flex gap-2">
                   <button
@@ -70,7 +87,7 @@ export function JobActions({ jobId, jobStatus }: JobActionsProps) {
                     onClick={handleComplete}
                     className="btn-primary !rounded-xl !px-4 !py-2 text-sm"
                   >
-                    Sí, completar
+                    Sí, confirmar
                   </button>
                   <button
                     disabled={isPending}
@@ -89,7 +106,7 @@ export function JobActions({ jobId, jobStatus }: JobActionsProps) {
               className="btn-primary w-full"
             >
               <CheckCircle2 className="h-4 w-4" />
-              Marcar como completado
+              Confirmar trabajo terminado
             </button>
           )}
         </>

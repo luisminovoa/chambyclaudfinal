@@ -17,6 +17,7 @@ import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { Reveal } from "@/components/ui/Reveal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { DashboardProfileCard } from "@/components/profile/DashboardProfileCard";
+import { WorkerJobReportButton } from "@/components/WorkerJobReportButton";
 import {
   getProfileStats,
   getProfilePhotos,
@@ -107,6 +108,30 @@ export default async function WorkerDashboardPage() {
     .order("created_at", { ascending: false })
     .limit(5);
 
+  // Fase 8 (C4-G21): igual patrón que ratedJobIds en
+  // /dashboard/employer/page.tsx (Fase 4 / C4-G14) — solo para decidir si
+  // se muestra el CTA "Calificar empleador", consulta mínima filtrada por
+  // `rater_id = user.id` (la sesión real). La autorización real de
+  // calificar sigue viviendo enteramente en submitRating() (sin cambios).
+  const completedJobIdsAsWorker = history
+    .filter((a) => a.job?.status === "completado" && a.job.assigned_worker_id === user.id)
+    .map((a) => a.job!.id);
+
+  const { data: workerRatingsRaw } = await supabase
+    .from("ratings")
+    .select("job_id")
+    .eq("rater_id", user.id)
+    .in(
+      "job_id",
+      completedJobIdsAsWorker.length
+        ? completedJobIdsAsWorker
+        : ["00000000-0000-0000-0000-000000000000"]
+    );
+
+  const ratedJobIds = new Set(
+    ((workerRatingsRaw ?? []) as { job_id: string }[]).map((r) => r.job_id)
+  );
+
   const primaryPhoto = (profilePhotos as ProfilePhoto[]).find((p) => p.is_primary);
   const avatarSrc = primaryPhoto?.public_url ?? profile?.avatar_url ?? null;
 
@@ -196,22 +221,32 @@ export default async function WorkerDashboardPage() {
             ) : (
               <div className="mt-2 divide-y divide-slate-100">
                 {activeApps.map((app) => (
-                  <Link
+                  <div
                     key={app.id}
-                    href={`/jobs/${app.job_id}`}
-                    className="-mx-3 flex items-center justify-between gap-3 rounded-2xl px-3 py-3.5 transition-colors duration-200 hover:bg-slate-50"
+                    className="-mx-3 flex flex-col gap-2 rounded-2xl px-3 py-3.5 transition-colors duration-200 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div className="min-w-0">
+                    <Link href={`/jobs/${app.job_id}`} className="min-w-0">
                       <p className="truncate text-sm font-bold text-ink">{app.job?.title}</p>
                       <p className="flex items-center gap-1 text-xs text-ink-muted">
                         <MapPin className="h-3 w-3" />
                         {app.job?.city} · Postulaste el {formatDate(app.created_at)}
                       </p>
+                    </Link>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {/* Fase 8 (C4-G21): reportar terminado solo aplica al
+                          trabajador asignado de un job en_progreso. */}
+                      {app.job?.status === "en_progreso" &&
+                        app.job.assigned_worker_id === user.id && (
+                          <WorkerJobReportButton
+                            jobId={app.job_id}
+                            workerReportedFinishedAt={app.job.worker_reported_finished_at}
+                          />
+                        )}
+                      <Badge tone={jobStatusTone(app.status)}>
+                        {applicationStatusLabel(app.status)}
+                      </Badge>
                     </div>
-                    <Badge tone={jobStatusTone(app.status)} className="shrink-0">
-                      {applicationStatusLabel(app.status)}
-                    </Badge>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}
@@ -233,24 +268,47 @@ export default async function WorkerDashboardPage() {
               </div>
             ) : (
               <div className="mt-2 divide-y divide-slate-100">
-                {history.map((app) => (
-                  <Link
-                    key={app.id}
-                    href={`/jobs/${app.job_id}`}
-                    className="-mx-3 flex items-center justify-between gap-3 rounded-2xl px-3 py-3.5 transition-colors duration-200 hover:bg-slate-50"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-ink">{app.job?.title}</p>
-                      <p className="text-xs text-ink-muted">
-                        {app.job?.category} · {formatCurrency(app.job?.pay_amount ?? null)}{" "}
-                        {payTypeLabel(app.job?.pay_type ?? "fijo")}
-                      </p>
+                {history.map((app) => {
+                  // Fase 8 (C4-G21): mismas tres condiciones ya validadas
+                  // server-side por submitRating() (job completado, existe
+                  // assigned_worker_id === este trabajador, contraparte
+                  // correcta) más "todavía no calificado" — el CTA es solo
+                  // una entrada visible al RatingForm ya existente en
+                  // /jobs/[id]#rating, nunca una segunda implementación del
+                  // flujo de calificación (ratings.ts sin cambios).
+                  const showRatingCta =
+                    app.job?.status === "completado" &&
+                    app.job.assigned_worker_id === user.id &&
+                    !ratedJobIds.has(app.job.id);
+                  return (
+                    <div
+                      key={app.id}
+                      className="-mx-3 flex flex-col gap-2 rounded-2xl px-3 py-3.5 transition-colors duration-200 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <Link href={`/jobs/${app.job_id}`} className="min-w-0">
+                        <p className="truncate text-sm font-bold text-ink">{app.job?.title}</p>
+                        <p className="text-xs text-ink-muted">
+                          {app.job?.category} · {formatCurrency(app.job?.pay_amount ?? null)}{" "}
+                          {payTypeLabel(app.job?.pay_type ?? "fijo")}
+                        </p>
+                      </Link>
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        {showRatingCta && (
+                          <Link
+                            href={`/jobs/${app.job_id}#rating`}
+                            className="btn-primary !rounded-xl !px-3 !py-1.5 text-xs"
+                          >
+                            <Star className="h-3.5 w-3.5" />
+                            Calificar empleador
+                          </Link>
+                        )}
+                        <Badge tone={jobStatusTone(app.job?.status ?? "")}>
+                          {jobStatusLabel(app.job?.status ?? "")}
+                        </Badge>
+                      </div>
                     </div>
-                    <Badge tone={jobStatusTone(app.job?.status ?? "")} className="shrink-0">
-                      {jobStatusLabel(app.job?.status ?? "")}
-                    </Badge>
-                  </Link>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>

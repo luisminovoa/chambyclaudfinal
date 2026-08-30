@@ -132,6 +132,80 @@ export async function updateJobStatus(jobId: string, status: string) {
   return { error: error?.message };
 }
 
+/**
+ * Fase 8 (C4-G21): el trabajador asignado reporta el trabajo como
+ * terminado. NO cambia `status` (permanece `en_progreso`) — solo habilita
+ * a `completeJob()` a que el empleador confirme. Ver
+ * docs/FASE8-BILATERAL-COMPLETION.md.
+ *
+ * El WHERE del UPDATE (`status='en_progreso' AND
+ * worker_reported_finished_at IS NULL`) es la condición de concurrencia:
+ * un doble click / dos pestañas del mismo worker solo deja que UNA
+ * llamada afecte una fila (`.select().maybeSingle()` devuelve `null` en
+ * la segunda) — nunca se confía solo en la lectura previa. La RLS
+ * (0042_worker_completion_confirmation.sql) es la barrera real de
+ * autorización; esta consulta previa solo produce mensajes de error
+ * legibles.
+ */
+export async function reportJobFinished(jobId: string): Promise<ActionResult> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("status, assigned_worker_id, worker_reported_finished_at")
+    .eq("id", jobId)
+    .single();
+
+  const typedJob = job as {
+    status: string;
+    assigned_worker_id: string | null;
+    worker_reported_finished_at: string | null;
+  } | null;
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (typedJob.assigned_worker_id !== user.id) return { error: "Sin permiso para realizar esta acción." };
+  if (typedJob.status !== "en_progreso") return { error: "El trabajo no está en progreso." };
+  if (typedJob.worker_reported_finished_at) {
+    return { error: "Ya reportaste este trabajo como terminado." };
+  }
+
+  const now = new Date().toISOString();
+  const { data: updated, error: updateError } = await supabase
+    .from("jobs")
+    .update({ worker_reported_finished_at: now })
+    .eq("id", jobId)
+    .eq("status", "en_progreso")
+    .is("worker_reported_finished_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (updateError) return { error: "No se pudo reportar el trabajo como terminado." };
+  if (!updated) return { error: "Ya reportaste este trabajo como terminado." };
+
+  await supabase.from("job_state_history").insert({
+    job_id: jobId,
+    actor_id: user.id,
+    prev_status: "en_progreso",
+    new_status: "en_progreso",
+    notes: "Trabajador reportó el trabajo como terminado",
+  });
+
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/dashboard/worker");
+  revalidatePath("/dashboard/employer");
+  return { success: true };
+}
+
+/**
+ * Fase 8 (C4-G21): confirmación FINAL del empleador — la única que mueve
+ * `status` a `completado`. Ahora exige que el trabajador ya haya llamado
+ * `reportJobFinished()` (`worker_reported_finished_at` no nulo); sin eso,
+ * la RLS (WITH CHECK de "jobs_update_owner_or_admin") rechaza el UPDATE
+ * incluso si esta comprobación de aplicación se saltara. `employer_confirmed_at`
+ * se escribe en el MISMO UPDATE que `completed_at`/`status` — atómico por
+ * ser una sola sentencia SQL, sin necesitar transacción explícita.
+ */
 export async function completeJob(jobId: string): Promise<ActionResult> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -139,29 +213,46 @@ export async function completeJob(jobId: string): Promise<ActionResult> {
 
   const { data: job } = await supabase
     .from("jobs")
-    .select("status, employer_id")
+    .select("status, employer_id, worker_reported_finished_at, employer_confirmed_at")
     .eq("id", jobId)
     .single();
 
-  const typedJob = job as { status: string; employer_id: string } | null;
+  const typedJob = job as {
+    status: string;
+    employer_id: string;
+    worker_reported_finished_at: string | null;
+    employer_confirmed_at: string | null;
+  } | null;
   if (!typedJob) return { error: "Trabajo no encontrado." };
   if (typedJob.employer_id !== user.id) return { error: "Sin permiso." };
   if (typedJob.status !== "en_progreso") return { error: "El trabajo no está en progreso." };
+  if (!typedJob.worker_reported_finished_at) {
+    return { error: "El trabajador todavía no reportó el trabajo como terminado." };
+  }
+  if (typedJob.employer_confirmed_at) {
+    return { error: "Este trabajo ya fue confirmado." };
+  }
 
   const now = new Date().toISOString();
-  const { error: updateError } = await supabase
+  const { data: updated, error: updateError } = await supabase
     .from("jobs")
-    .update({ status: "completado", completed_at: now })
-    .eq("id", jobId);
+    .update({ employer_confirmed_at: now, completed_at: now, status: "completado" })
+    .eq("id", jobId)
+    .eq("status", "en_progreso")
+    .not("worker_reported_finished_at", "is", null)
+    .is("employer_confirmed_at", null)
+    .select("id")
+    .maybeSingle();
 
   if (updateError) return { error: "No se pudo completar el trabajo." };
+  if (!updated) return { error: "Este trabajo ya fue confirmado." };
 
   await supabase.from("job_state_history").insert({
     job_id: jobId,
     actor_id: user.id,
     prev_status: "en_progreso",
     new_status: "completado",
-    notes: "Trabajo marcado como completado por el empleador",
+    notes: "Trabajo confirmado como completado por el empleador",
   });
 
   revalidatePath(`/jobs/${jobId}`);

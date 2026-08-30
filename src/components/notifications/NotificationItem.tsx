@@ -24,6 +24,10 @@ const TYPE_META: Record<
   new_message: { icon: MessageCircle, color: "text-primary-600", bg: "bg-primary-50" },
   job_started: { icon: Trophy, color: "text-warning-600", bg: "bg-warning-50" },
   job_completed: { icon: Trophy, color: "text-success-600", bg: "bg-success-50" },
+  // Fase 8 (C4-G21): el trabajador reportó terminado, esperando
+  // confirmación del empleador — tono de "acción pendiente", igual que
+  // job_started, distinto del verde de "ya terminado" (job_completed).
+  job_completion_requested: { icon: Clock, color: "text-warning-600", bg: "bg-warning-50" },
   new_rating: { icon: Star, color: "text-warning-500", bg: "bg-warning-50" },
   reminder: { icon: Clock, color: "text-ink-muted", bg: "bg-slate-100" },
   system: { icon: Bell, color: "text-primary-600", bg: "bg-primary-50" },

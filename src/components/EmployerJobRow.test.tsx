@@ -42,6 +42,7 @@ function baseJob(overrides: Partial<Job> = {}): Job {
     status: "abierto",
     employer_id: "employer-1",
     assigned_worker_id: null,
+    worker_reported_finished_at: null,
     ...overrides,
   } as Job;
 }
@@ -123,6 +124,57 @@ describe("EmployerJobRow — CTA 'Calificar trabajador' (Fase 4 / C4-G14)", () =
   it("I) job.employer_id no se usa para decidir el CTA en el cliente — la autorización real vive server-side (ratedJobIds calculado con rater_id=auth.uid() en EmployerDashboardPage); el componente confía únicamente en la prop alreadyRated", () => {
     const source = readFileSync(new URL("./EmployerJobRow.tsx", import.meta.url), "utf-8");
     expect(source).not.toMatch(/job\.employer_id/);
+  });
+});
+
+/**
+ * Fase 8 (C4-G21): completeJob() ya no es unilateral — el botón de
+ * confirmación del empleador solo debe aparecer si el trabajador ya
+ * reportó el trabajo como terminado (job.worker_reported_finished_at).
+ */
+describe("EmployerJobRow — confirmación bilateral (Fase 8 / C4-G21)", () => {
+  it("en_progreso SIN reporte del trabajador: muestra 'Esperando al trabajador', no el botón de confirmar", () => {
+    const html = renderToStaticMarkup(
+      <EmployerJobRow
+        job={baseJob({
+          status: "en_progreso",
+          assigned_worker_id: "worker-1",
+          worker_reported_finished_at: null,
+        })}
+        applicantsCount={0}
+        alreadyRated={false}
+      />
+    );
+    expect(html).toContain("Esperando al trabajador");
+    expect(html).not.toContain("Confirmar trabajo terminado");
+  });
+
+  it("en_progreso CON reporte del trabajador: muestra 'Confirmar trabajo terminado', no el estado de espera", () => {
+    const html = renderToStaticMarkup(
+      <EmployerJobRow
+        job={baseJob({
+          status: "en_progreso",
+          assigned_worker_id: "worker-1",
+          worker_reported_finished_at: "2026-01-01T00:00:00Z",
+        })}
+        applicantsCount={0}
+        alreadyRated={false}
+      />
+    );
+    expect(html).toContain("Confirmar trabajo terminado");
+    expect(html).not.toContain("Esperando al trabajador");
+  });
+
+  it("abierto: ni el botón de confirmar ni el estado de espera aparecen (sin worker asignado en progreso)", () => {
+    const html = renderToStaticMarkup(
+      <EmployerJobRow
+        job={baseJob({ status: "abierto", worker_reported_finished_at: null })}
+        applicantsCount={0}
+        alreadyRated={false}
+      />
+    );
+    expect(html).not.toContain("Confirmar trabajo terminado");
+    expect(html).not.toContain("Esperando al trabajador");
   });
 });
 
