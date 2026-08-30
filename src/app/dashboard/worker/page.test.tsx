@@ -29,6 +29,7 @@ vi.mock("next/navigation", () => ({
   redirect: (path: string) => {
     throw new Error(`REDIRECT:${path}`);
   },
+  useRouter: () => ({ refresh: vi.fn() }),
 }));
 
 vi.mock("@/lib/get-current-profile", () => ({
@@ -72,6 +73,7 @@ vi.mock("@/lib/supabase/server", () => ({
       const chain = {
         select: () => chain,
         eq: () => chain,
+        in: () => chain,
         order: () => chain,
         limit: () => chain,
         maybeSingle: () => chain,
@@ -259,5 +261,102 @@ describe("WorkerDashboardPage — el perfil aparece primero (Fase 3 / C4-G12)", 
   it("un employer es redirigido a /dashboard/employer (comportamiento existente sin cambios) — EmployerDashboardPage no se toca ni se ejercita aquí", async () => {
     mockSession({ id: "employer-1" }, { ...WORKER_PROFILE, id: "employer-1", role: "employer" }, ["employer"]);
     await expect(WorkerDashboardPage()).rejects.toThrow("REDIRECT:/dashboard/employer");
+  });
+});
+
+/**
+ * Fase 8 (C4-G21): confirmación bilateral — el trabajador reporta primero
+ * desde "Postulaciones activas" (WorkerJobReportButton) y ve el CTA
+ * "Calificar empleador" en "Historial laboral" una vez que el empleador
+ * confirmó y el trabajador todavía no calificó (ratedJobIds, mismo patrón
+ * que ratedJobIds en /dashboard/employer/page.tsx, Fase 4 / C4-G14).
+ */
+describe("WorkerDashboardPage — confirmación bilateral (Fase 8 / C4-G21)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSession({ id: "worker-1" }, WORKER_PROFILE);
+    supabaseState.applications = [];
+    supabaseState.ratingSummary = null;
+    supabaseState.recentRatings = [];
+  });
+
+  it("job en_progreso asignado a este trabajador, sin reporte previo: muestra 'Marcar trabajo terminado'", async () => {
+    supabaseState.applications = [
+      {
+        id: "app-1",
+        job_id: "job-1",
+        status: "aceptado",
+        created_at: "2026-01-01T00:00:00Z",
+        job: job({ id: "job-1", status: "en_progreso", assigned_worker_id: "worker-1", worker_reported_finished_at: null }),
+      },
+    ];
+    const html = renderToStaticMarkup(await WorkerDashboardPage());
+    expect(html).toContain("Marcar trabajo terminado");
+    expect(html).not.toContain("Pendiente de confirmación del empleador");
+  });
+
+  it("job en_progreso asignado a este trabajador, ya reportado: muestra 'Pendiente de confirmación del empleador'", async () => {
+    supabaseState.applications = [
+      {
+        id: "app-1",
+        job_id: "job-1",
+        status: "aceptado",
+        created_at: "2026-01-01T00:00:00Z",
+        job: job({
+          id: "job-1",
+          status: "en_progreso",
+          assigned_worker_id: "worker-1",
+          worker_reported_finished_at: "2026-01-01T00:00:00Z",
+        }),
+      },
+    ];
+    const html = renderToStaticMarkup(await WorkerDashboardPage());
+    expect(html).toContain("Pendiente de confirmación del empleador");
+    expect(html).not.toContain("Marcar trabajo terminado");
+  });
+
+  it("job en_progreso asignado a OTRO trabajador (postulación no aceptada de este job): no muestra ni el botón de reportar ni el estado de espera", async () => {
+    supabaseState.applications = [
+      {
+        id: "app-1",
+        job_id: "job-1",
+        status: "pendiente",
+        created_at: "2026-01-01T00:00:00Z",
+        job: job({ id: "job-1", status: "en_progreso", assigned_worker_id: "worker-2", worker_reported_finished_at: null }),
+      },
+    ];
+    const html = renderToStaticMarkup(await WorkerDashboardPage());
+    expect(html).not.toContain("Marcar trabajo terminado");
+    expect(html).not.toContain("Pendiente de confirmación del empleador");
+  });
+
+  it("job completado asignado a este trabajador y no calificado aún: muestra 'Calificar empleador'", async () => {
+    supabaseState.applications = [
+      {
+        id: "app-2",
+        job_id: "job-2",
+        status: "aceptado",
+        created_at: "2026-01-01T00:00:00Z",
+        job: job({ id: "job-2", status: "completado", assigned_worker_id: "worker-1" }),
+      },
+    ];
+    const html = renderToStaticMarkup(await WorkerDashboardPage());
+    expect(html).toContain("Calificar empleador");
+    expect(html).toMatch(/<a href="\/jobs\/job-2#rating"/);
+  });
+
+  it("job completado ya calificado por este trabajador (ratedJobIds): no muestra 'Calificar empleador'", async () => {
+    supabaseState.applications = [
+      {
+        id: "app-2",
+        job_id: "job-2",
+        status: "aceptado",
+        created_at: "2026-01-01T00:00:00Z",
+        job: job({ id: "job-2", status: "completado", assigned_worker_id: "worker-1" }),
+      },
+    ];
+    supabaseState.recentRatings = [{ job_id: "job-2" }];
+    const html = renderToStaticMarkup(await WorkerDashboardPage());
+    expect(html).not.toContain("Calificar empleador");
   });
 });

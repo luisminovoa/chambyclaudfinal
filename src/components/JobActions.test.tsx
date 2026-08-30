@@ -26,26 +26,56 @@ vi.mock("@/lib/actions/jobs", () => ({
 
 describe("JobActions — estructura según jobStatus (Fase 4 / C4-G14)", () => {
   it("F) jobStatus='completado' no renderiza ningún botón de acción (comportamiento previo, sin cambios)", () => {
-    const html = renderToStaticMarkup(<JobActions jobId="job-1" jobStatus="completado" />);
+    const html = renderToStaticMarkup(
+      <JobActions jobId="job-1" jobStatus="completado" workerReportedFinishedAt={null} />
+    );
     expect(html).toBe("");
   });
 
-  it("jobStatus='en_progreso' muestra 'Marcar como completado'", () => {
-    const html = renderToStaticMarkup(<JobActions jobId="job-1" jobStatus="en_progreso" />);
-    expect(html).toContain("Marcar como completado");
-  });
-
-  it("jobStatus='abierto' muestra 'Cancelar trabajo' y no 'Marcar como completado'", () => {
-    const html = renderToStaticMarkup(<JobActions jobId="job-1" jobStatus="abierto" />);
+  it("jobStatus='abierto' muestra 'Cancelar trabajo'", () => {
+    const html = renderToStaticMarkup(
+      <JobActions jobId="job-1" jobStatus="abierto" workerReportedFinishedAt={null} />
+    );
     expect(html).toContain("Cancelar trabajo");
-    expect(html).not.toContain("Marcar como completado");
+    expect(html).not.toContain("Confirmar trabajo terminado");
   });
 
   it("G) el flujo de calificación del worker (RatingForm en la página) es ajeno a este componente — JobActions no menciona rating/calificar en ningún estado", () => {
-    const htmlEnProgreso = renderToStaticMarkup(<JobActions jobId="job-1" jobStatus="en_progreso" />);
-    const htmlAbierto = renderToStaticMarkup(<JobActions jobId="job-1" jobStatus="abierto" />);
+    const htmlEnProgreso = renderToStaticMarkup(
+      <JobActions jobId="job-1" jobStatus="en_progreso" workerReportedFinishedAt={null} />
+    );
+    const htmlAbierto = renderToStaticMarkup(
+      <JobActions jobId="job-1" jobStatus="abierto" workerReportedFinishedAt={null} />
+    );
     expect(htmlEnProgreso.toLowerCase()).not.toContain("calificar");
     expect(htmlAbierto.toLowerCase()).not.toContain("calificar");
+  });
+});
+
+/**
+ * Fase 8 (C4-G21): completeJob() ya no es unilateral — JobActions debe
+ * reflejar la precondición del reporte del trabajador antes de mostrar el
+ * botón de confirmación final al empleador.
+ */
+describe("JobActions — confirmación bilateral (Fase 8 / C4-G21)", () => {
+  it("en_progreso SIN reporte del trabajador: muestra el estado de espera, no el botón de confirmar", () => {
+    const html = renderToStaticMarkup(
+      <JobActions jobId="job-1" jobStatus="en_progreso" workerReportedFinishedAt={null} />
+    );
+    expect(html).toContain("Esperando que el trabajador marque el trabajo como terminado");
+    expect(html).not.toContain("Confirmar trabajo terminado");
+  });
+
+  it("en_progreso CON reporte del trabajador: muestra 'Confirmar trabajo terminado'", () => {
+    const html = renderToStaticMarkup(
+      <JobActions
+        jobId="job-1"
+        jobStatus="en_progreso"
+        workerReportedFinishedAt="2026-01-01T00:00:00Z"
+      />
+    );
+    expect(html).toContain("Confirmar trabajo terminado");
+    expect(html).not.toContain("Esperando que el trabajador");
   });
 });
 
@@ -60,7 +90,7 @@ describe("JobActions — código fuente de handleComplete/handleCancel (Fase 4 /
     const fnMatch = source.match(/function handleComplete\(\)[\s\S]*?\n  \}/);
     expect(fnMatch).not.toBeNull();
     const fnBody = fnMatch![0];
-    const toastIdx = fnBody.indexOf('toast("Trabajo marcado como completado"');
+    const toastIdx = fnBody.indexOf('toast("Trabajo confirmado como completado"');
     const refreshIdx = fnBody.indexOf("router.refresh()");
     expect(toastIdx).toBeGreaterThan(-1);
     expect(refreshIdx).toBeGreaterThan(-1);

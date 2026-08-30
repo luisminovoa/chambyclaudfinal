@@ -160,6 +160,13 @@ export interface Job {
   hired_at: string | null;
   completed_at: string | null;
   cancelled_at: string | null;
+  // Confirmación bilateral de trabajo terminado (Fase 8, C4-G21) — ambas
+  // nullable, aditivas. `worker_reported_finished_at` lo fija el propio
+  // trabajador asignado (reportJobFinished()); `employer_confirmed_at` lo
+  // fija el empleador en el mismo UPDATE que `completed_at`/status. Ver
+  // docs/FASE8-BILATERAL-COMPLETION.md.
+  worker_reported_finished_at: string | null;
+  employer_confirmed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -256,6 +263,7 @@ export type NotificationType =
   | "new_message"
   | "job_started"
   | "job_completed"
+  | "job_completion_requested"
   | "new_rating"
   | "reminder"
   | "system"

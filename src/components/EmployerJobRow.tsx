@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Users, Trash2, CheckCircle2, XCircle, AlertTriangle, Star } from "lucide-react";
+import { Users, Trash2, CheckCircle2, XCircle, AlertTriangle, Star, Clock } from "lucide-react";
 import { updateJobStatus, completeJob, deleteJob } from "@/lib/actions/jobs";
 import { jobStatusLabel, formatCurrency, payTypeLabel } from "@/lib/utils";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
@@ -49,7 +49,7 @@ export function EmployerJobRow({
         toast(result.error, "error");
         return;
       }
-      toast("Trabajo marcado como completado", "info");
+      toast("Trabajo confirmado como completado", "info");
       router.refresh();
     });
   }
@@ -104,15 +104,23 @@ export function EmployerJobRow({
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={jobStatusTone(job.status)}>{jobStatusLabel(job.status)}</Badge>
 
-          {job.status === "en_progreso" && (
+          {/* Fase 8 (C4-G21): ya no unilateral — sin el reporte del
+              trabajador solo se muestra el estado de espera. */}
+          {job.status === "en_progreso" && job.worker_reported_finished_at && (
             <button
               disabled={isPending}
               onClick={handleComplete}
               className="btn-accent !rounded-xl !px-3 !py-1.5 text-xs"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
-              Completar
+              Confirmar trabajo terminado
             </button>
+          )}
+          {job.status === "en_progreso" && !job.worker_reported_finished_at && (
+            <span className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-medium text-ink-muted">
+              <Clock className="h-3.5 w-3.5" />
+              Esperando al trabajador
+            </span>
           )}
           {(job.status === "abierto" || job.status === "en_progreso") && (
             <button

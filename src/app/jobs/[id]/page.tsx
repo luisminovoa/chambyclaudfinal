@@ -378,9 +378,27 @@ export default async function JobDetailPage({ params }: { params: { id: string }
               />
             )}
 
+            {/* Fase 8 (C4-G21): estado intermedio entre "en progreso" y
+                "completado" — el trabajador ya reportó pero el empleador
+                todavía no confirma. Visible a ambos participantes; no
+                sustituye el badge de status ni toca JobActions/RatingForm. */}
+            {typedJob.status === "en_progreso" &&
+              typedJob.worker_reported_finished_at &&
+              (isOwner || isAssignedWorker) && (
+                <div className="mt-4 rounded-2xl border border-warning-100 bg-warning-50 px-4 py-3">
+                  <p className="text-sm font-semibold text-warning-700">
+                    Terminación reportada — esperando confirmación del empleador
+                  </p>
+                </div>
+              )}
+
             {/* Botones de acción del empleador */}
             {isOwner && (
-              <JobActions jobId={typedJob.id} jobStatus={typedJob.status} />
+              <JobActions
+                jobId={typedJob.id}
+                jobStatus={typedJob.status}
+                workerReportedFinishedAt={typedJob.worker_reported_finished_at}
+              />
             )}
           </div>
         </div>
