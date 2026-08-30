@@ -18,6 +18,7 @@ import { VerificationBadges } from "@/components/profile/VerificationBadges";
 import { ReportButton } from "@/components/reports/ReportButton";
 import { HiringConversations } from "@/components/chat/HiringConversations";
 import { formatCurrency, payTypeLabel, formatMemberSince } from "@/lib/utils";
+import { formatLocation } from "@/lib/location";
 import type { EmployerPublicProfile } from "@/lib/actions/employers";
 import type { HiringConversation } from "@/lib/actions/chat";
 
@@ -40,6 +41,7 @@ export function EmployerPublicProfileView({
   // que la completaron antes de que existiera business_description
   // (0030) o que prefieren solo ese campo general.
   const description = profile.business_description || profile.bio;
+  const location = formatLocation(profile);
 
   return (
     <div className="space-y-6">
@@ -94,10 +96,10 @@ export function EmployerPublicProfileView({
                 {profile.business_sector}
               </span>
             )}
-            {profile.city && (
+            {location && (
               <span className="flex items-center gap-1">
                 <MapPin className="h-3.5 w-3.5 text-primary-500" />
-                {profile.city}
+                {location}
               </span>
             )}
             <span className="flex items-center gap-1">

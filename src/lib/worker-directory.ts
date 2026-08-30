@@ -20,6 +20,9 @@ export function parseWorkerDirectorySearchParams(searchParams: {
   city?: string;
   availability?: string;
   q?: string;
+  department?: string;
+  province?: string;
+  district?: string;
 }): WorkerDirectoryFilters {
   const availability = AVAILABILITY_VALUES.includes(searchParams.availability as AvailabilityStatus)
     ? (searchParams.availability as AvailabilityStatus)
@@ -30,6 +33,9 @@ export function parseWorkerDirectorySearchParams(searchParams: {
     city: searchParams.city?.trim() || undefined,
     availability,
     q: searchParams.q?.trim() || undefined,
+    department: searchParams.department?.trim() || undefined,
+    province: searchParams.province?.trim() || undefined,
+    district: searchParams.district?.trim() || undefined,
   };
 }
 

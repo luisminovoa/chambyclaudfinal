@@ -73,6 +73,9 @@ const sampleWorker: PublicWorkerListing = {
   years_experience: 5,
   hourly_rate: 30,
   daily_rate: null,
+  department: null,
+  province: null,
+  district: null,
   ratingSummary: null,
   jobsCompleted: 0,
 };

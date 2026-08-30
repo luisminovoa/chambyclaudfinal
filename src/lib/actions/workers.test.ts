@@ -21,6 +21,9 @@ const WORKER_ROW: WorkerRow = {
   years_experience: 5,
   hourly_rate: 30,
   daily_rate: null,
+  department: null,
+  province: null,
+  district: null,
 };
 
 function emptyWorker(id: string, createdAt: string): WorkerRow {
@@ -38,6 +41,9 @@ function emptyWorker(id: string, createdAt: string): WorkerRow {
     years_experience: null,
     hourly_rate: null,
     daily_rate: null,
+    department: null,
+    province: null,
+    district: null,
   };
 }
 
@@ -56,6 +62,9 @@ function fullWorker(id: string, createdAt: string): WorkerRow {
     years_experience: 5,
     hourly_rate: 30,
     daily_rate: null,
+    department: null,
+    province: null,
+    district: null,
   };
 }
 
@@ -197,13 +206,71 @@ describe("listPublicWorkers", () => {
     expect(calls.some((c) => c.op === "or")).toBe(true);
   });
 
-  it("11) el resultado nunca contiene phone/whatsapp/birth_date/address/district — el tipo no los admite y el mock tampoco los produce", async () => {
+  it("11) el resultado nunca contiene phone/whatsapp/birth_date/address — el tipo no los admite y el mock tampoco los produce", async () => {
+    // `district` fue explícitamente EXCLUIDO de esta lista en Fase 6
+    // (C4-G18): a partir de 0042_public_workers_hierarchical_location.sql,
+    // PublicWorkerListing SÍ expone `department`/`province`/`district`,
+    // pero como columnas de public.profiles (ubicación jerárquica
+    // validada contra el catálogo Ubigeo) — nunca el district de texto
+    // libre de worker_profile_details, que sigue prohibido (ver el mock
+    // de listPublicWorkers: la fila de public_workers nunca trae ese
+    // campo, solo el `district` de profiles ya incluido en WorkerRow).
     const result = await listPublicWorkers({});
     expect(result[0]).not.toHaveProperty("phone");
     expect(result[0]).not.toHaveProperty("whatsapp");
     expect(result[0]).not.toHaveProperty("birth_date");
     expect(result[0]).not.toHaveProperty("address");
-    expect(result[0]).not.toHaveProperty("district");
+  });
+
+  // ============================================================
+  // Ubicación jerárquica (Fase 6, C4-G18) — .eq() exacto, nunca ilike,
+  // conviven con `city` (ilike, compatibilidad legacy) sin OR heurístico.
+  // ============================================================
+  describe("ubicación jerárquica — department/province/district", () => {
+    it("department aplica exactamente un eq('department', valor)", async () => {
+      await listPublicWorkers({ department: "Lambayeque" });
+      expect(calls).toContainEqual({ op: "eq", args: ["department", "Lambayeque"] });
+      expect(calls.some((c) => c.op === "ilike" && c.args[0] === "department")).toBe(false);
+    });
+
+    it("province aplica exactamente un eq('province', valor)", async () => {
+      await listPublicWorkers({ province: "Chiclayo" });
+      expect(calls).toContainEqual({ op: "eq", args: ["province", "Chiclayo"] });
+    });
+
+    it("district aplica exactamente un eq('district', valor)", async () => {
+      await listPublicWorkers({ district: "Cayaltí" });
+      expect(calls).toContainEqual({ op: "eq", args: ["district", "Cayaltí"] });
+    });
+
+    it("combina department + province + district en una sola llamada, sin interferir entre sí", async () => {
+      await listPublicWorkers({ department: "Lambayeque", province: "Chiclayo", district: "Cayaltí" });
+      expect(calls).toContainEqual({ op: "eq", args: ["department", "Lambayeque"] });
+      expect(calls).toContainEqual({ op: "eq", args: ["province", "Chiclayo"] });
+      expect(calls).toContainEqual({ op: "eq", args: ["district", "Cayaltí"] });
+    });
+
+    it("convive con city: ambos filtros se aplican a la vez, sin ningún OR heurístico entre ellos", async () => {
+      await listPublicWorkers({ department: "Lambayeque", city: "Chiclayo" });
+      expect(calls).toContainEqual({ op: "eq", args: ["department", "Lambayeque"] });
+      expect(calls).toContainEqual({ op: "ilike", args: ["city", "%Chiclayo%"] });
+      expect(calls.some((c) => c.op === "or")).toBe(false);
+    });
+
+    it("sin ningún filtro de ubicación jerárquica, no se agrega ninguna condición implícita de department/province/district", async () => {
+      await listPublicWorkers({ city: "Chiclayo" });
+      expect(calls.some((c) => ["department", "province", "district"].includes(c.args[0] as string))).toBe(
+        false
+      );
+    });
+
+    it("no interfieren con category/availability/q ya existentes", async () => {
+      await listPublicWorkers({ department: "Lambayeque", category: "Electricista", availability: "inmediata", q: "Juan" });
+      expect(calls).toContainEqual({ op: "eq", args: ["department", "Lambayeque"] });
+      expect(calls).toContainEqual({ op: "in", args: ["category", ["Electricista"]] });
+      expect(calls).toContainEqual({ op: "eq", args: ["availability", "inmediata"] });
+      expect(calls.some((c) => c.op === "or")).toBe(true);
+    });
   });
 
   it("adjunta rating_summary por id cuando existe", async () => {
@@ -341,6 +408,9 @@ describe("listPublicWorkers", () => {
       years_experience: null,
       hourly_rate: null,
       daily_rate: null,
+      department: null,
+      province: null,
+      district: null,
     };
     const categoryAndCity: WorkerRow = {
       id: "w-cc",
@@ -356,6 +426,9 @@ describe("listPublicWorkers", () => {
       years_experience: null,
       hourly_rate: null,
       daily_rate: null,
+      department: null,
+      province: null,
+      district: null,
     };
     const full: WorkerRow = {
       id: "w-full",
@@ -371,6 +444,9 @@ describe("listPublicWorkers", () => {
       years_experience: 5,
       hourly_rate: 30,
       daily_rate: null,
+      department: null,
+      province: null,
+      district: null,
     };
 
     it("A-E) ordena perfil completo > category+city > vacío, sin importar created_at", async () => {

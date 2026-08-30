@@ -28,6 +28,9 @@ const baseWorker: PublicWorkerListing = {
   years_experience: 5,
   hourly_rate: 30,
   daily_rate: null,
+  department: null,
+  province: null,
+  district: null,
   ratingSummary: { profile_id: "w-1", average_score: 4.8, total_ratings: 12 },
   jobsCompleted: 0,
 };
@@ -113,6 +116,9 @@ describe("WorkerDirectoryCard — CTA y campos ausentes (Fase C4-G3)", () => {
       years_experience: null,
       hourly_rate: null,
       daily_rate: null,
+      department: null,
+      province: null,
+      district: null,
       ratingSummary: null,
       jobsCompleted: 0,
     };
@@ -121,5 +127,34 @@ describe("WorkerDirectoryCard — CTA y campos ausentes (Fase C4-G3)", () => {
     expect(html).not.toContain("null");
     expect(html).not.toContain("NaN");
     expect(html).toContain("Sin calificaciones aún");
+  });
+});
+
+/**
+ * Fase 6 (C4-G18) — WorkerDirectoryCard debe usar formatLocation(worker),
+ * no worker.city directamente, cuando existen niveles jerárquicos.
+ */
+describe("WorkerDirectoryCard — ubicación jerárquica (Fase 6 / C4-G18)", () => {
+  it("full: Ubigeo completo muestra 'Distrito, Provincia, Departamento'", () => {
+    const worker: PublicWorkerListing = {
+      ...baseWorker,
+      department: "Lambayeque",
+      province: "Chiclayo",
+      district: "Cayaltí",
+    };
+    const html = renderToStaticMarkup(<WorkerDirectoryCard worker={worker} />);
+    expect(html).toContain("Cayaltí, Chiclayo, Lambayeque");
+  });
+
+  it("legacy: sin Ubigeo, cae a city tal cual (baseWorker.city = 'Chiclayo')", () => {
+    const html = renderToStaticMarkup(<WorkerDirectoryCard worker={baseWorker} />);
+    expect(html).toContain("Chiclayo");
+  });
+
+  it("empty: sin Ubigeo ni city, no muestra ninguna fila de ubicación", () => {
+    const worker: PublicWorkerListing = { ...baseWorker, city: null, department: null, province: null, district: null };
+    const html = renderToStaticMarkup(<WorkerDirectoryCard worker={worker} />);
+    expect(html).not.toContain("null");
+    expect(html).not.toContain("undefined");
   });
 });

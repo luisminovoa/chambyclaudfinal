@@ -72,3 +72,51 @@ describe("WorkerSearchFilters — catálogo canónico de ciudad (Fase C4-C)", ()
     expect(html).toContain("Limpiar");
   });
 });
+
+/**
+ * Fase 6 (C4-G18) — ubicación jerárquica en el directorio de
+ * trabajadores. El filtro Ubigeo (LocationSelector) convive con el
+ * <select> de `city` (arriba, sin cambios) — nunca reemplaza `city` ni
+ * usa CITY_NAMES como fuente.
+ */
+describe("WorkerSearchFilters — ubicación jerárquica (Fase 6 / C4-G18)", () => {
+  it("renderiza los tres selects Departamento/Provincia/Distrito, además del select de Ciudad existente", () => {
+    const html = renderToStaticMarkup(<WorkerSearchFilters categories={["Electricista"]} />);
+    expect(html).toContain(">Departamento</label>");
+    expect(html).toContain(">Provincia</label>");
+    expect(html).toContain(">Distrito</label>");
+    // El select de ciudad legacy sigue existiendo, sin tocar.
+    expect(html).toMatch(/<select id="worker-filter-city"/);
+  });
+
+  it("el catálogo de departamento NO viene de CITY_NAMES — incluye departamentos que nunca están en CITY_NAMES", () => {
+    const html = renderToStaticMarkup(<WorkerSearchFilters categories={["Electricista"]} />);
+    for (const dep of ["Cusco", "Puno", "Loreto"]) {
+      expect(CITY_NAMES).not.toContain(dep);
+      expect(html).toContain(`>${dep}</option>`);
+    }
+  });
+
+  it("provincia y distrito están deshabilitados por defecto (sin departamento seleccionado)", () => {
+    const html = renderToStaticMarkup(<WorkerSearchFilters categories={["Electricista"]} />);
+    const provinceSelect = html.match(/<select[^>]*name="province"[^>]*>/)?.[0] ?? "";
+    const districtSelect = html.match(/<select[^>]*name="district"[^>]*>/)?.[0] ?? "";
+    expect(provinceSelect).toContain('disabled=""');
+    expect(districtSelect).toContain('disabled=""');
+  });
+
+  it("/workers?department=Lambayeque&province=Chiclayo&district=Cayaltí queda reflejado como valor inicial de los tres selects", async () => {
+    vi.resetModules();
+    vi.doMock("next/navigation", () => ({
+      useRouter: () => ({ push: vi.fn() }),
+      usePathname: () => "/workers",
+      useSearchParams: () => new URLSearchParams("department=Lambayeque&province=Chiclayo&district=Cayalt%C3%AD"),
+    }));
+    const { WorkerSearchFilters: WorkerSearchFiltersWithLocation } = await import("./WorkerSearchFilters");
+    const html = renderToStaticMarkup(<WorkerSearchFiltersWithLocation categories={["Electricista"]} />);
+    expect(html).toMatch(/<option[^>]*value="Lambayeque"[^>]*selected[^>]*>Lambayeque<\/option>/);
+    expect(html).toMatch(/<option[^>]*value="Chiclayo"[^>]*selected[^>]*>Chiclayo<\/option>/);
+    expect(html).toMatch(/<option[^>]*value="Cayaltí"[^>]*selected[^>]*>Cayaltí<\/option>/);
+    expect(html).toContain("Limpiar");
+  });
+});

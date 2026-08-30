@@ -14,6 +14,7 @@ import { RatingStars } from "@/components/RatingStars";
 import { VerificationBadges } from "@/components/profile/VerificationBadges";
 import { ReportButton } from "@/components/reports/ReportButton";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
+import { formatLocation } from "@/lib/location";
 import { formatMemberSince } from "@/lib/utils";
 import type { WorkerPublicProfile } from "@/lib/actions/workers";
 import { AVAILABILITY_LABELS } from "@/lib/types";
@@ -27,6 +28,7 @@ export function WorkerPublicProfileView({
 }) {
   const { profile, workerDetails, photos, experience, stats, ratingSummary, jobsCompleted } = data;
   const primaryTitle = getWorkerPrimaryTitle(profile, workerDetails);
+  const location = formatLocation(profile);
   const primaryPhoto = photos.find((p) => p.is_primary) ?? photos[0] ?? null;
   const gallery = photos.filter((p) => p.id !== primaryPhoto?.id);
   const earnedBadges = stats?.badges ?? [];
@@ -55,10 +57,10 @@ export function WorkerPublicProfileView({
           <h1 className="text-xl font-extrabold tracking-tight text-ink">{profile.full_name}</h1>
           <p className="text-sm text-ink-muted">{primaryTitle}</p>
           <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-ink-muted sm:justify-start">
-            {profile.city && (
+            {location && (
               <span className="flex items-center gap-1">
                 <MapPin className="h-3.5 w-3.5 text-primary-500" />
-                {profile.city}
+                {location}
               </span>
             )}
             {workerDetails?.availability && (

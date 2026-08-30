@@ -4,6 +4,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { RatingStars } from "@/components/RatingStars";
 import { getWorkerPrimaryTitle } from "@/lib/profile-completion";
+import { formatLocation } from "@/lib/location";
 import { AVAILABILITY_LABELS } from "@/lib/types";
 import type { PublicWorkerListing } from "@/lib/types";
 
@@ -18,6 +19,7 @@ import type { PublicWorkerListing } from "@/lib/types";
  */
 export function WorkerDirectoryCard({ worker }: { worker: PublicWorkerListing }) {
   const primaryTitle = getWorkerPrimaryTitle(worker, worker);
+  const location = formatLocation(worker);
   // Evita duplicar la ocupación: cuando no hay professional_title,
   // primaryTitle YA ES worker.category (ver getWorkerPrimaryTitle) — mostrar
   // el Badge de categoría en ese caso repite exactamente el mismo texto que
@@ -34,10 +36,10 @@ export function WorkerDirectoryCard({ worker }: { worker: PublicWorkerListing })
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-ink">{worker.full_name}</p>
           <p className="truncate text-xs text-ink-muted">{primaryTitle}</p>
-          {worker.city && (
+          {location && (
             <span className="mt-1 flex items-center gap-1 text-xs text-ink-muted">
               <MapPin className="h-3.5 w-3.5 text-primary-500" />
-              {worker.city}
+              {location}
             </span>
           )}
         </div>

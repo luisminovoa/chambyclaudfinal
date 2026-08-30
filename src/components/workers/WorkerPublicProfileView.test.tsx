@@ -23,6 +23,9 @@ const baseData: WorkerPublicProfile = {
     skills: ["Instalaciones", "Mantenimiento"],
     bio: "Electricista con 5 años de experiencia.",
     created_at: "2020-01-01T00:00:00Z",
+    department: null,
+    province: null,
+    district: null,
   },
   workerDetails: null,
   photos: [],
@@ -142,5 +145,68 @@ describe("WorkerPublicProfileView — estado de verificación siempre visible (F
     expect(html).toContain("Juana Pérez");
     expect(html).toContain("Electricista");
     expect(html).toContain("Sin calificaciones aún");
+  });
+});
+
+/**
+ * Fase 6 (C4-G18) — WorkerPublicProfileView debe usar formatLocation()
+ * (src/lib/location.ts), nunca profile.city directamente ni un fallback
+ * duplicado en el propio componente.
+ */
+describe("WorkerPublicProfileView — ubicación jerárquica (Fase 6 / C4-G18)", () => {
+  it("Ubigeo completo muestra 'Distrito, Provincia, Departamento'", () => {
+    const html = renderToStaticMarkup(
+      <WorkerPublicProfileView
+        data={{
+          ...baseData,
+          profile: {
+            ...baseData.profile,
+            city: "Chiclayo",
+            department: "Lambayeque",
+            province: "Chiclayo",
+            district: "Cayaltí",
+          },
+        }}
+      />
+    );
+    expect(html).toContain("Cayaltí, Chiclayo, Lambayeque");
+  });
+
+  it("Ubigeo parcial (solo department) muestra únicamente el departamento, sin inventar niveles", () => {
+    const html = renderToStaticMarkup(
+      <WorkerPublicProfileView
+        data={{
+          ...baseData,
+          profile: { ...baseData.profile, department: "Lambayeque", province: null, district: null },
+        }}
+      />
+    );
+    expect(html).toContain("Lambayeque");
+    expect(html).not.toContain("Chiclayo, Lambayeque");
+  });
+
+  it("legacy: sin ningún nivel de Ubigeo, cae a city", () => {
+    const html = renderToStaticMarkup(
+      <WorkerPublicProfileView
+        data={{
+          ...baseData,
+          profile: { ...baseData.profile, city: "Chiclayo", department: null, province: null, district: null },
+        }}
+      />
+    );
+    expect(html).toContain("Chiclayo");
+  });
+
+  it("sin ubicación (ni Ubigeo ni city) no muestra la sección de ubicación, y nunca renderiza null/undefined", () => {
+    const html = renderToStaticMarkup(
+      <WorkerPublicProfileView
+        data={{
+          ...baseData,
+          profile: { ...baseData.profile, city: null, department: null, province: null, district: null },
+        }}
+      />
+    );
+    expect(html).not.toContain("null");
+    expect(html).not.toContain("undefined");
   });
 });

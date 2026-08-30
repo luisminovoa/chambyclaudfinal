@@ -162,7 +162,7 @@ async function fetchWorkerPublicProfile(
     await Promise.all([
       admin
         .from("profiles")
-        .select("id, full_name, avatar_url, city, category, skills, bio, created_at")
+        .select("id, full_name, avatar_url, city, category, skills, bio, created_at, department, province, district")
         .eq("id", workerId)
         .single(),
       admin
@@ -299,7 +299,7 @@ export async function listPublicWorkers(
     let query = supabase
       .from("public_workers")
       .select(
-        "id, full_name, avatar_url, city, category, skills, bio, created_at, professional_title, availability, years_experience, hourly_rate, daily_rate"
+        "id, full_name, avatar_url, city, category, skills, bio, created_at, professional_title, availability, years_experience, hourly_rate, daily_rate, department, province, district"
       );
 
     // .in() con los alias conocidos de la categoría (p.ej. "Gasfitero" ->
@@ -311,6 +311,15 @@ export async function listPublicWorkers(
     if (filters.category) query = query.in("category", expandCategoryAliases(filters.category));
     if (filters.city) query = query.ilike("city", `%${filters.city}%`);
     if (filters.availability) query = query.eq("availability", filters.availability);
+    // Ubicación jerárquica (Fase 6, C4-G18): .eq() exacto, nunca ilike —
+    // a diferencia de `city` (fallback legacy de texto libre), estos
+    // valores vienen del catálogo cerrado de ubigeo.ts, así que una
+    // coincidencia exacta es la comparación correcta. Convive con `city`
+    // sin ningún OR heurístico entre ambos: son dos filtros independientes
+    // que el caller puede combinar o no.
+    if (filters.department) query = query.eq("department", filters.department);
+    if (filters.province) query = query.eq("province", filters.province);
+    if (filters.district) query = query.eq("district", filters.district);
     if (filters.q) {
       // El valor completo (incl. los comodines % de ILIKE) se escapa y se
       // envuelve entre comillas dobles para que PostgREST lo trate como

@@ -43,3 +43,50 @@ export function deriveRegisterCity(location: NormalizedLocation, historicalCity:
   }
   return historicalCity;
 }
+
+/** Entrada aceptada por formatLocation() — cualquier fila que tenga estas
+ * cuatro columnas (Profile, Job, PublicProfileView, PublicWorkerListing,
+ * WorkerDiscoveryProfile, ...) sirve tal cual, sin adaptar. */
+export interface LocationDisplayInput {
+  department?: string | null;
+  province?: string | null;
+  district?: string | null;
+  city?: string | null;
+}
+
+/**
+ * Fase 6 (C4-G18): única fuente de presentación de ubicación jerárquica
+ * en toda la app — búsqueda de trabajadores/chambas, resultados, perfil
+ * público de trabajador/empleador y detalle de trabajo usan esta misma
+ * función, nunca `worker.city`/`job.city` directamente ni un fallback
+ * duplicado en el propio componente.
+ *
+ * Reglas (más específico primero, en orden fijo distrito → provincia →
+ * departamento, uniendo solo los niveles realmente presentes):
+ *   department + province + district → "Distrito, Provincia, Departamento"
+ *   province + department (sin distrito) → "Provincia, Departamento"
+ *   solo department → "Departamento"
+ *   cualquier combinación parcial → se unen solo los niveles presentes,
+ *     en ese mismo orden fijo, sin inventar el nivel faltante
+ *   ningún nivel de Ubigeo presente + city → city (fallback legacy)
+ *   nada presente → null
+ *
+ * Deliberadamente NUNCA infiere Ubigeo a partir de `city` (p. ej.
+ * "Chiclayo" → "Lambayeque"): si no hay ningún nivel jerárquico, se
+ * devuelve `city` tal cual, sin intentar mapearla a departamento/
+ * provincia. Strings vacíos o solo espacios se tratan como ausentes
+ * (mismo criterio de trim que validateLocationInput en ubigeo.ts).
+ */
+export function formatLocation(location: LocationDisplayInput): string | null {
+  const department = location.department?.trim() || null;
+  const province = location.province?.trim() || null;
+  const district = location.district?.trim() || null;
+  const city = location.city?.trim() || null;
+
+  const hierarchical = [district, province, department].filter(
+    (level): level is string => level !== null
+  );
+  if (hierarchical.length > 0) return hierarchical.join(", ");
+
+  return city;
+}
