@@ -44,6 +44,9 @@ export default async function WorkerProfilePage({ params, searchParams }: Worker
       ) : (
         <div className="space-y-6">
           <Reveal>
+            <WorkerPublicProfileView data={data} viewerId={user.id} />
+          </Reveal>
+          <Reveal delay={0.05}>
             <WorkerProfileActions
               jobId={data.jobId}
               workerId={data.profile.id}
@@ -53,9 +56,6 @@ export default async function WorkerProfilePage({ params, searchParams }: Worker
               canManage={data.viewerIsEmployer}
               hiringConversations={hiringConversations}
             />
-          </Reveal>
-          <Reveal delay={0.05}>
-            <WorkerPublicProfileView data={data} viewerId={user.id} />
           </Reveal>
         </div>
       )}
