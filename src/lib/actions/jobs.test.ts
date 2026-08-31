@@ -597,7 +597,7 @@ describe("updateJobStatus() — comportamiento base (Fase 8, prerequisito)", () 
 /**
  * Fase 8 (C4-G21): reportJobFinished() — primera confirmación, del
  * trabajador. NO cambia `status`, solo fija `worker_reported_finished_at`.
- * La autorización real vive en la RLS de 0042_worker_completion_confirmation.sql
+ * La autorización real vive en la RLS de 0044_worker_completion_confirmation.sql
  * (validada contra Postgres 16 real, ver informe de implementación); estos
  * tests cubren la capa de Server Action: mensajes de error, idempotencia y
  * que la capa TS no duplique la lógica de autorización de forma distinta
