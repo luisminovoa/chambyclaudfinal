@@ -107,6 +107,33 @@
 -- (`if (error) return { error: "No se pudo enviar el mensaje." }`), así
 -- que la nueva excepción de este trigger cae naturalmente en ese mismo
 -- camino sin requerir ningún cambio de código.
+--
+-- CORRECCIÓN (revisión independiente de PR #42, antes del primer merge —
+-- 0046 nunca estuvo aplicada en ningún entorno, se corrige este mismo
+-- archivo en vez de encadenar 0047): ni esta función ni
+-- check_message_rate_limit() (0003/0045) forzaban `created_at` a un valor
+-- del servidor. messages.created_at (0002/0003) solo tiene
+-- `default now()` — sin ningún GRANT/REVOKE de columna sobre
+-- public.messages en todo el esquema — así que un INSERT directo vía
+-- PostgREST/supabase-js podía especificar cualquier `created_at`
+-- explícito. Verificado empíricamente: un sender pudo insertar 40
+-- mensajes consecutivos con `created_at = '2020-01-01'` sin ser
+-- rechazado nunca, porque cada fila backdateada nunca satisface
+-- `created_at > now() - interval '60 seconds'` en los conteos
+-- siguientes — el límite de 30/60s quedaba completamente sin efecto,
+-- tanto con fecha antigua como con fecha futura (por la misma razón:
+-- una fila con created_at en el futuro tampoco es "reciente" respecto
+-- al `now()` real en el momento de cada conteo posterior).
+--
+-- Fix: `new.created_at := now();` como primera línea del cuerpo del
+-- trigger, ANTES de cualquier otra cosa — sobreescribe incondicionalmente
+-- cualquier valor que el cliente haya intentado enviar (o la ausencia de
+-- uno) con la hora real de PostgreSQL en el momento del INSERT. A partir
+-- de ahí, el conteo de "mensajes recientes" ya solo puede reflejar
+-- tiempos generados por el propio servidor — ni backdating ni
+-- future-dating alteran la ventana del rate limit. No cambia el límite
+-- (30/60s), el namespace del advisory lock (947300), la clave
+-- (sender_id + conversation_id), ni ninguna otra columna.
 -- ============================================================
 
 create or replace function public.enforce_message_rate_limit()
@@ -114,6 +141,14 @@ returns trigger as $$
 declare
   v_count int;
 begin
+  -- Fuente de tiempo confiable: PostgreSQL server time, nunca el valor
+  -- que el cliente haya podido incluir en el INSERT (created_at no tiene
+  -- ningún GRANT/REVOKE de columna que se lo impida). Debe ejecutarse
+  -- ANTES del conteo — de lo contrario el conteo seguiría pudiendo ver
+  -- filas backdateadas/future-dated de intentos anteriores del mismo
+  -- sender que ya hubieran sido "corregidas" tarde.
+  new.created_at := now();
+
   -- Validar inputs primero: si sender_id/conversation_id llegaran NULL
   -- (el INSERT de todos modos fallará después por el NOT NULL de la
   -- tabla, 0002_hiring_tracking.sql), no tiene sentido intentar un
