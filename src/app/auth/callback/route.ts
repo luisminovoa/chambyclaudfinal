@@ -1,12 +1,22 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isNewOAuthUser } from "@/lib/auth-new-user";
+import { safeNextPath } from "@/lib/safe-redirect";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const error = searchParams.get("error");
-  const next = searchParams.get("next") ?? "/dashboard";
+  // `next` llega desde un query param controlado por quien construye el
+  // enlace (link de email, o el `redirectTo` que GoogleAuthButton.tsx arma
+  // client-side antes de siquiera autenticar) — nunca confiar en él sin
+  // validar, aunque login()/register() (auth.ts) ya sanean el valor que
+  // ELLOS insertan en el link de confirmación de email: un enlace de OAuth
+  // fabricado a mano (p. ej. /login?next=@evil.com, que en
+  // `${origin}${next}` se parsea como userinfo=chamby.app, host=evil.com)
+  // nunca pasa por esa validación previa. safeNextPath() es el único punto
+  // de verdad — mismo criterio que login()/register().
+  const next = safeNextPath(searchParams.get("next")) ?? "/dashboard";
   const isPasswordRecovery = next === "/reset-password";
   // Fase C4-G10.5: señal explícita de register()/resendConfirmationEmail()
   // (src/lib/actions/auth.ts) — isNewOAuthUser() (sin cambios) es una

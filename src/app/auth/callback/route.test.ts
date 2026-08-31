@@ -112,6 +112,98 @@ describe("GET /auth/callback", () => {
 });
 
 /**
+ * Hallazgo de auditoría (auth hardening): `next` llegaba sin validar hasta
+ * `NextResponse.redirect(\`${origin}${next}\`)` — GoogleAuthButton.tsx
+ * arma el `redirectTo` de signInWithOAuth() client-side, embebiendo el
+ * `next` de la query string de /login SIN pasar por safeNextPath() en
+ * ningún punto anterior. Un enlace como `/login?next=@evil.com` sobrevive
+ * el round-trip de OAuth intacto y produce `${origin}@evil.com`, que el
+ * navegador resuelve como userinfo=origin, host=evil.com — redirect
+ * externo tras un login real. safeNextPath() ahora se aplica en la
+ * primera línea que lee `next`, así que ningún consumidor posterior
+ * (loginWithError, onboardingUrl, el redirect final) puede propagar un
+ * valor no saneado.
+ */
+describe("GET /auth/callback — open redirect en `next` (hardening)", () => {
+  beforeEach(() => {
+    exchangeCodeForSession.mockReset();
+  });
+
+  it("code+next=@evil.com (userinfo@host, el vector real): tras exchange exitoso NO redirige a un host externo", async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: {
+        user: { created_at: "2020-01-01T00:00:00Z", last_sign_in_at: "2026-08-07T00:00:00Z" },
+      },
+      error: null,
+    });
+    const res = await GET(req("/auth/callback?code=ok&next=@evil.example.com"));
+    const url = locationOf(res);
+    expect(url.hostname).toBe("chamby.example.com");
+    expect(url.pathname).toBe("/dashboard");
+  });
+
+  it("code+next=https://evil.com (URL externa absoluta): cae al fallback /dashboard, no al host externo", async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: {
+        user: { created_at: "2020-01-01T00:00:00Z", last_sign_in_at: "2026-08-07T00:00:00Z" },
+      },
+      error: null,
+    });
+    const res = await GET(req("/auth/callback?code=ok&next=" + encodeURIComponent("https://evil.example.com/phish")));
+    const url = locationOf(res);
+    expect(url.hostname).toBe("chamby.example.com");
+    expect(url.pathname).toBe("/dashboard");
+  });
+
+  it("code+next=//evil.com (protocol-relative): cae al fallback /dashboard", async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: {
+        user: { created_at: "2020-01-01T00:00:00Z", last_sign_in_at: "2026-08-07T00:00:00Z" },
+      },
+      error: null,
+    });
+    const res = await GET(req("/auth/callback?code=ok&next=" + encodeURIComponent("//evil.example.com")));
+    const url = locationOf(res);
+    expect(url.hostname).toBe("chamby.example.com");
+    expect(url.pathname).toBe("/dashboard");
+  });
+
+  it("error=access_denied con next inválido: loginWithError tampoco propaga el next no saneado", async () => {
+    const res = await GET(req("/auth/callback?error=access_denied&next=@evil.example.com"));
+    const url = locationOf(res);
+    expect(url.hostname).toBe("chamby.example.com");
+    expect(url.pathname).toBe("/login");
+    expect(url.searchParams.has("next")).toBe(false);
+  });
+
+  it("cuenta nueva con next inválido: onboardingUrl tampoco propaga el next no saneado", async () => {
+    const t = "2026-08-07T12:00:00.000Z";
+    exchangeCodeForSession.mockResolvedValue({
+      data: { user: { created_at: t, last_sign_in_at: t } },
+      error: null,
+    });
+    const res = await GET(req("/auth/callback?code=ok&next=@evil.example.com"));
+    const url = locationOf(res);
+    expect(url.hostname).toBe("chamby.example.com");
+    expect(url.pathname).toBe("/onboarding");
+    expect(url.searchParams.has("next")).toBe(false);
+  });
+
+  it("next válido interno sigue funcionando exactamente igual tras el hardening (sin regresión)", async () => {
+    exchangeCodeForSession.mockResolvedValue({
+      data: {
+        user: { created_at: "2020-01-01T00:00:00Z", last_sign_in_at: "2026-08-07T00:00:00Z" },
+      },
+      error: null,
+    });
+    const res = await GET(req("/auth/callback?code=ok&next=/jobs/42"));
+    const url = locationOf(res);
+    expect(url.hostname).toBe("chamby.example.com");
+    expect(url.pathname).toBe("/jobs/42");
+  });
+});
+
+/**
  * Fase C4-G10.5 — cierre de la brecha detectada en C4-G10.4: la ventana de
  * 10s de isNewOAuthUser() (auth-new-user.ts, sin cambios en esta fase) se
  * demostró insuficiente para confirmaciones de email con datos reales de
