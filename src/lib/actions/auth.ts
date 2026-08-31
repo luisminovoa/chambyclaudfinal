@@ -7,6 +7,7 @@ import { z } from "zod";
 import { CATEGORY_NAMES } from "@/lib/categories";
 import { validateLocationInput } from "@/lib/ubigeo";
 import { deriveRegisterCity } from "@/lib/location";
+import { safeNextPath } from "@/lib/safe-redirect";
 
 const loginSchema = z.object({
   email: z.string().email("Ingresa un correo válido"),
@@ -70,15 +71,6 @@ export type ActionResult = {
   success?: boolean;
   needsEmailConfirmation?: boolean;
 };
-
-/**
- * Devuelve `next` solo si es una ruta interna segura (previene open redirects).
- */
-function safeNextPath(value: FormDataEntryValue | null): string | null {
-  if (typeof value !== "string" || value.length === 0 || value.length > 500) return null;
-  if (!/^\/(?!\/)[^\\]*$/.test(value)) return null;
-  return value;
-}
 
 /**
  * Origen absoluto de la request actual, para construir redirectTo de

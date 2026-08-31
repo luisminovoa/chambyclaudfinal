@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeCity } from "@/lib/cities";
 import { validateLocationInput } from "@/lib/ubigeo";
+import { safeNextPath } from "@/lib/safe-redirect";
 import type { UserRole } from "@/lib/types";
 
 type Ok = { success: true };
@@ -219,8 +220,6 @@ export async function completeGoogleOnboarding(
 
   revalidatePath("/", "layout");
 
-  const nextValue = formData.get("next");
-  const next =
-    typeof nextValue === "string" && /^\/(?!\/)[^\\]*$/.test(nextValue) ? nextValue : "/dashboard";
+  const next = safeNextPath(formData.get("next")) ?? "/dashboard";
   redirect(next);
 }
