@@ -66,6 +66,9 @@ const RICH_PROFILE: WorkerPublicProfile = {
     skills: ["Instalaciones eléctricas", "Mantenimiento"],
     bio: "Electricista con 5 años de experiencia en instalaciones residenciales.",
     created_at: "2020-01-01T00:00:00Z",
+    department: null,
+    province: null,
+    district: null,
   },
   workerDetails: {
     professional_title: "Electricista industrial",

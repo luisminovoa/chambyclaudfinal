@@ -40,6 +40,8 @@ const baseJob: JobWithEmployer = {
   hired_at: null,
   completed_at: null,
   cancelled_at: null,
+  worker_reported_finished_at: null,
+  employer_confirmed_at: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
   employer: { id: "employer-1", full_name: "Jose Ramirez", avatar_url: null, city: "Chiclayo" },
