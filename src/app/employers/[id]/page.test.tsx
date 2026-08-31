@@ -71,6 +71,9 @@ const RICH_EMPLOYER: EmployerPublicProfile = {
     business_name: "Ferretería Don Jose",
     business_sector: "Ferretería",
     business_description: "Vendemos herramientas y materiales de construcción.",
+    department: null,
+    province: null,
+    district: null,
   },
   stats: {
     profile_id: "employer-1",
