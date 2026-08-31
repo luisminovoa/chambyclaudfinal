@@ -143,7 +143,7 @@ export async function updateJobStatus(jobId: string, status: string) {
  * un doble click / dos pestañas del mismo worker solo deja que UNA
  * llamada afecte una fila (`.select().maybeSingle()` devuelve `null` en
  * la segunda) — nunca se confía solo en la lectura previa. La RLS
- * (0042_worker_completion_confirmation.sql) es la barrera real de
+ * (0044_worker_completion_confirmation.sql) es la barrera real de
  * autorización; esta consulta previa solo produce mensajes de error
  * legibles.
  */
