@@ -77,8 +77,31 @@ export async function changeUserRole(userId: string, role: "worker" | "employer"
   return { error: undefined };
 }
 
+/**
+ * Mismo criterio que TERMINAL_JOB_STATUSES (src/lib/actions/jobs.ts) y
+ * la barrera real en jobs_delete_owner_or_admin
+ * (0048_protect_job_deletion.sql, endurecida esta fase): el bypass de
+ * DELETE para admin también queda restringido a estados no terminales.
+ * No hay ningún workflow administrativo que dependa de borrar
+ * físicamente un job `completado`/`cancelado` — adminUpdateJobStatus()
+ * (abajo) sigue siendo la vía libre de moderación para cambiar el
+ * estado de cualquier job, sin restricción, sin cambios en esta fase.
+ */
+const TERMINAL_JOB_STATUSES = ["completado", "cancelado"];
+
 export async function adminDeleteJob(jobId: string) {
   const { supabase } = await assertAdmin();
+
+  const { data: job } = await supabase.from("jobs").select("status").eq("id", jobId).maybeSingle();
+  const typedJob = job as { status: string } | null;
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (TERMINAL_JOB_STATUSES.includes(typedJob.status)) {
+    return {
+      error:
+        "No se puede eliminar un trabajo completado o cancelado. Usa el cambio de estado para moderarlo.",
+    };
+  }
+
   const { error } = await supabase.from("jobs").delete().eq("id", jobId);
   revalidatePath("/admin/jobs");
   return { error: error?.message };

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { updateApplicationStatus, completeJob, cancelJob, updateJobStatus, reportJobFinished } from "./jobs";
+import {
+  updateApplicationStatus,
+  completeJob,
+  cancelJob,
+  updateJobStatus,
+  reportJobFinished,
+  deleteJob,
+} from "./jobs";
 
 /**
  * Cobertura de `updateApplicationStatus()` — la Server Action que
@@ -59,6 +66,10 @@ interface State {
   history: JobHistoryRow[];
   /** Fuerza un error en el UPDATE de `jobs` (completeJob/cancelJob/updateJobStatus). */
   jobUpdateError: string | null;
+  /** ids realmente borrados de `jobs` por deleteJob(). */
+  jobDeletes: string[];
+  /** Fuerza un error en el DELETE de `jobs` (deleteJob). */
+  jobDeleteError: string | null;
 }
 
 const state: State = {
@@ -70,6 +81,8 @@ const state: State = {
   jobColumnsRequested: [],
   history: [],
   jobUpdateError: null,
+  jobDeletes: [],
+  jobDeleteError: null,
 };
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
@@ -195,6 +208,29 @@ vi.mock("@/lib/supabase/server", () => ({
             };
             return builder;
           },
+          // deleteJob(): `await supabase.from("jobs").delete().eq("id", jobId)`.
+          delete: () => {
+            const filters: Record<string, unknown> = {};
+            const builder = {
+              eq(col: string, val: unknown) {
+                filters[col] = val;
+                return builder;
+              },
+              then(resolve: (v: { error: unknown }) => void) {
+                if (state.jobDeleteError) {
+                  resolve({ error: { message: state.jobDeleteError } });
+                  return;
+                }
+                const row = state.jobs.find((j) => j.id === filters.id);
+                if (row) {
+                  state.jobDeletes.push(row.id);
+                  state.jobs = state.jobs.filter((j) => j.id !== row.id);
+                }
+                resolve({ error: null });
+              },
+            };
+            return builder;
+          },
         };
       }
       if (table === "job_state_history") {
@@ -228,6 +264,8 @@ beforeEach(() => {
   state.jobColumnsRequested = [];
   state.history = [];
   state.jobUpdateError = null;
+  state.jobDeletes = [];
+  state.jobDeleteError = null;
 });
 
 describe("updateApplicationStatus — autorización", () => {
@@ -701,5 +739,90 @@ describe("reportJobFinished() — Fase 8", () => {
     const result = await reportJobFinished(JOB_A);
     expect(result.error).toBe("No se pudo reportar el trabajo como terminado.");
     expect(state.history).toHaveLength(0);
+  });
+});
+
+/**
+ * P1 (auditoría post-V6): deleteJob() no tenía autenticación, ownership
+ * ni chequeo de status — dependía 100% de RLS (jobs_delete_owner_or_admin,
+ * endurecida en 0048_protect_job_deletion.sql para rechazar DELETE sobre
+ * estados terminales). Estos tests fijan la segunda capa (Server Action)
+ * añadida en esta fase: NO sustituye a RLS (eso se prueba empíricamente
+ * contra Postgres real, ver supabase/tests/0048_protect_job_deletion.test.sql),
+ * solo da un mensaje de error legible antes de siquiera intentar el DELETE.
+ */
+describe("deleteJob() — P1: protege jobs terminales contra borrado", () => {
+  beforeEach(() => {
+    state.jobs = [{ id: JOB_A, employer_id: EMPLOYER_A, positions_needed: 1, status: "abierto" }];
+  });
+
+  it("el empleador dueño puede eliminar un job abierto", async () => {
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBeUndefined();
+    expect(state.jobDeletes).toEqual([JOB_A]);
+    expect(state.jobs).toHaveLength(0);
+  });
+
+  it("el empleador dueño puede eliminar un job en_progreso", async () => {
+    state.jobs[0].status = "en_progreso";
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBeUndefined();
+    expect(state.jobDeletes).toEqual([JOB_A]);
+  });
+
+  it("el empleador dueño NO puede eliminar un job completado", async () => {
+    state.jobs[0].status = "completado";
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBe("No puedes eliminar un trabajo completado o cancelado.");
+    expect(state.jobDeletes).toEqual([]);
+    expect(state.jobs).toHaveLength(1);
+  });
+
+  it("el empleador dueño NO puede eliminar un job cancelado", async () => {
+    state.jobs[0].status = "cancelado";
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBe("No puedes eliminar un trabajo completado o cancelado.");
+    expect(state.jobDeletes).toEqual([]);
+  });
+
+  it("un empleador que no es el dueño no puede eliminar el job (aunque sea abierto)", async () => {
+    state.user = { id: EMPLOYER_B };
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBe("Sin permiso.");
+    expect(state.jobDeletes).toEqual([]);
+  });
+
+  it("un worker no puede eliminar el job de otro", async () => {
+    state.user = { id: WORKER };
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBe("Sin permiso.");
+    expect(state.jobDeletes).toEqual([]);
+  });
+
+  it("sin sesión no se puede eliminar ningún job", async () => {
+    state.user = null;
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBe("Debes iniciar sesión.");
+    expect(state.jobDeletes).toEqual([]);
+  });
+
+  it("un job inexistente devuelve error sin tocar la base de datos", async () => {
+    const result = await deleteJob("no-existe");
+    expect(result.error).toBe("Trabajo no encontrado.");
+    expect(state.jobDeletes).toEqual([]);
+  });
+
+  it("el chequeo de status se hace ANTES del DELETE — un DELETE forzado a fallar nunca se alcanza para un job completado", async () => {
+    state.jobs[0].status = "completado";
+    state.jobDeleteError = "no debería llegar aquí";
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBe("No puedes eliminar un trabajo completado o cancelado.");
+  });
+
+  it("un error real de DELETE (p. ej. RLS rechazando por una razón no cubierta por este guard) se propaga sin enmascararse", async () => {
+    state.jobDeleteError = "db down";
+    const result = await deleteJob(JOB_A);
+    expect(result.error).toBe("db down");
+    expect(state.jobs).toHaveLength(1);
   });
 });

@@ -207,3 +207,48 @@ describe("EmployerJobRow — Completar usa completeJob() (Cambio C, Fase 4 / C4-
     expect(fnBody).toMatch(/if \(result\.error\) \{\s*toast\(result\.error, "error"\);\s*return;\s*\}/);
   });
 });
+
+/**
+ * P1 (auditoría post-V6): deleteJob() ahora rechaza jobs
+ * completado/cancelado (0048_protect_job_deletion.sql +
+ * src/lib/actions/jobs.ts). El botón "Eliminar" ya no debe ofrecerse
+ * para esos dos estados — antes se mostraba sin ninguna condición de
+ * status, ofreciendo una acción que el servidor iba a rechazar.
+ */
+describe("EmployerJobRow — botón Eliminar respeta jobs terminales (P1)", () => {
+  it("abierto: el botón Eliminar aparece", () => {
+    const html = renderToStaticMarkup(
+      <EmployerJobRow job={baseJob({ status: "abierto" })} applicantsCount={0} alreadyRated={false} />
+    );
+    expect(html).toContain("Eliminar");
+  });
+
+  it("en_progreso: el botón Eliminar aparece", () => {
+    const html = renderToStaticMarkup(
+      <EmployerJobRow
+        job={baseJob({ status: "en_progreso", assigned_worker_id: "worker-1" })}
+        applicantsCount={0}
+        alreadyRated={false}
+      />
+    );
+    expect(html).toContain("Eliminar");
+  });
+
+  it("completado: el botón Eliminar NO aparece", () => {
+    const html = renderToStaticMarkup(
+      <EmployerJobRow
+        job={baseJob({ status: "completado", assigned_worker_id: "worker-1" })}
+        applicantsCount={0}
+        alreadyRated={true}
+      />
+    );
+    expect(html).not.toContain("Eliminar");
+  });
+
+  it("cancelado: el botón Eliminar NO aparece", () => {
+    const html = renderToStaticMarkup(
+      <EmployerJobRow job={baseJob({ status: "cancelado" })} applicantsCount={0} alreadyRated={false} />
+    );
+    expect(html).not.toContain("Eliminar");
+  });
+});

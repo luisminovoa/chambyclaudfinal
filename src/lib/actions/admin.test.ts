@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { reviewVerificationDocument, changeUserRole } from "./admin";
+import { reviewVerificationDocument, changeUserRole, adminDeleteJob } from "./admin";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
@@ -21,6 +21,9 @@ interface State {
   profileUpdates: { userId: string; role: string }[];
   targetUserRoles: AdminUserRoleRow[];
   adminUserRolesWrites: { op: "update" | "insert"; payload: unknown; match?: Record<string, unknown> }[];
+  jobs: { id: string; status: string }[];
+  jobDeletes: string[];
+  jobDeleteError: string | null;
 }
 
 const state: State = {
@@ -30,6 +33,9 @@ const state: State = {
   profileUpdates: [],
   targetUserRoles: [],
   adminUserRolesWrites: [],
+  jobs: [],
+  jobDeletes: [],
+  jobDeleteError: null,
 };
 
 function makeUpdateChain() {
@@ -69,6 +75,32 @@ vi.mock("@/lib/supabase/server", () => ({
       }
       if (table === "verification_documents") {
         return makeUpdateChain();
+      }
+      if (table === "jobs") {
+        return {
+          select: () => ({
+            eq: (_col: string, jobId: string) => ({
+              maybeSingle: async () => {
+                const job = state.jobs.find((j) => j.id === jobId);
+                return { data: job ? { status: job.status } : null };
+              },
+            }),
+          }),
+          delete: () => ({
+            eq: (_col: string, jobId: string) => ({
+              then: (resolve: (v: { error: unknown }) => void) => {
+                if (state.jobDeleteError) {
+                  resolve({ error: { message: state.jobDeleteError } });
+                  return;
+                }
+                const before = state.jobs.length;
+                state.jobs = state.jobs.filter((j) => j.id !== jobId);
+                if (state.jobs.length < before) state.jobDeletes.push(jobId);
+                resolve({ error: null });
+              },
+            }),
+          }),
+        };
       }
       throw new Error(`Tabla no mockeada: ${table}`);
     },
@@ -243,5 +275,66 @@ describe("changeUserRole — corrige el bug 'no puedo volver a Administrador'", 
     const result = await changeUserRole(TARGET_USER_ID, "employer");
     expect(result.error).toBeUndefined();
     expect(state.profileUpdates).toEqual([{ userId: TARGET_USER_ID, role: "employer" }]);
+  });
+});
+
+const JOB_ID = "job-terminal-1";
+
+/**
+ * P1 (auditoría post-V6): adminDeleteJob() no tenía ningún chequeo de
+ * status — dependía 100% del bypass admin de jobs_delete_owner_or_admin,
+ * que esta fase también restringe (0048_protect_job_deletion.sql) para
+ * jobs completado/cancelado. adminUpdateJobStatus() sigue sin cambios.
+ */
+describe("adminDeleteJob() — P1: el bypass admin tampoco alcanza jobs terminales", () => {
+  beforeEach(() => {
+    state.user = { id: "admin-1" };
+    state.profileRole = "admin";
+    state.jobs = [{ id: JOB_ID, status: "abierto" }];
+    state.jobDeletes = [];
+    state.jobDeleteError = null;
+  });
+
+  it("un admin puede eliminar un job abierto", async () => {
+    const result = await adminDeleteJob(JOB_ID);
+    expect(result.error).toBeUndefined();
+    expect(state.jobDeletes).toEqual([JOB_ID]);
+  });
+
+  it("un admin puede eliminar un job en_progreso", async () => {
+    state.jobs[0].status = "en_progreso";
+    const result = await adminDeleteJob(JOB_ID);
+    expect(result.error).toBeUndefined();
+    expect(state.jobDeletes).toEqual([JOB_ID]);
+  });
+
+  it("un admin NO puede eliminar un job completado", async () => {
+    state.jobs[0].status = "completado";
+    const result = await adminDeleteJob(JOB_ID);
+    expect(result.error).toBe(
+      "No se puede eliminar un trabajo completado o cancelado. Usa el cambio de estado para moderarlo."
+    );
+    expect(state.jobDeletes).toEqual([]);
+  });
+
+  it("un admin NO puede eliminar un job cancelado", async () => {
+    state.jobs[0].status = "cancelado";
+    const result = await adminDeleteJob(JOB_ID);
+    expect(result.error).toBe(
+      "No se puede eliminar un trabajo completado o cancelado. Usa el cambio de estado para moderarlo."
+    );
+    expect(state.jobDeletes).toEqual([]);
+  });
+
+  it("un no-admin no puede llamar adminDeleteJob (assertAdmin lo rechaza, sin ningún DELETE)", async () => {
+    state.profileRole = "worker";
+    await expect(adminDeleteJob(JOB_ID)).rejects.toThrow("No autorizado");
+    expect(state.jobDeletes).toEqual([]);
+  });
+
+  it("un job inexistente devuelve error sin tocar la base de datos", async () => {
+    const result = await adminDeleteJob("no-existe");
+    expect(result.error).toBe("Trabajo no encontrado.");
+    expect(state.jobDeletes).toEqual([]);
   });
 });
