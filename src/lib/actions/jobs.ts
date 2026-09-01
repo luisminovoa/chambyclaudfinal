@@ -102,6 +102,20 @@ const ALLOWED_JOB_TRANSITIONS: Record<string, string[]> = {
   en_progreso: ["cancelado", "completado"],
 };
 
+/**
+ * `completado`/`cancelado` son estados terminales (sin transiciones de
+ * salida en ALLOWED_JOB_TRANSITIONS) que además ya acumulan historial de
+ * valor real: rating, postulaciones, chat, job_state_history. Borrar el
+ * job en ese punto los destruye en cascada (job_applications.job_id,
+ * ratings.job_id, job_state_history.job_id y conversations.job_id →
+ * messages.conversation_id usan `on delete cascade` desde 0001/0002).
+ * Este guard replica en TypeScript, para un mensaje de error legible, la
+ * misma restricción que la barrera real impone en RLS
+ * (jobs_delete_owner_or_admin, endurecida en
+ * 0048_protect_job_deletion.sql) — no la sustituye.
+ */
+const TERMINAL_JOB_STATUSES = ["completado", "cancelado"];
+
 export async function updateJobStatus(jobId: string, status: string) {
   const parsedStatus = jobStatusSchema.safeParse(status);
   if (!parsedStatus.success) return { error: "Estado inválido." };
@@ -328,6 +342,24 @@ export async function withdrawApplication(applicationId: string): Promise<Action
 
 export async function deleteJob(jobId: string) {
   const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Debes iniciar sesión." };
+
+  const { data: job } = await supabase
+    .from("jobs")
+    .select("employer_id, status")
+    .eq("id", jobId)
+    .single();
+
+  const typedJob = job as { employer_id: string; status: string } | null;
+  if (!typedJob) return { error: "Trabajo no encontrado." };
+  if (typedJob.employer_id !== user.id) return { error: "Sin permiso." };
+  if (TERMINAL_JOB_STATUSES.includes(typedJob.status)) {
+    return { error: "No puedes eliminar un trabajo completado o cancelado." };
+  }
+
   const { error } = await supabase.from("jobs").delete().eq("id", jobId);
   revalidatePath("/dashboard/employer");
   revalidatePath("/jobs");

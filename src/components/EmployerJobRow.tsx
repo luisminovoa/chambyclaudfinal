@@ -73,6 +73,13 @@ export function EmployerJobRow({
   // segunda implementación del flujo de calificación.
   const showRatingCta = job.status === "completado" && !!job.assigned_worker_id && !alreadyRated;
 
+  // Mismo criterio que TERMINAL_JOB_STATUSES (src/lib/actions/jobs.ts) y
+  // jobs_delete_owner_or_admin (0048_protect_job_deletion.sql): un job
+  // completado/cancelado ya no admite DELETE — deleteJob() lo rechazaría.
+  // Este control es solo UX (evita ofrecer una acción que el servidor va
+  // a rechazar); la barrera real sigue siendo la Server Action + RLS.
+  const canDelete = job.status !== "completado" && job.status !== "cancelado";
+
   function handleDelete() {
     setConfirmingDelete(false);
     startTransition(async () => {
@@ -141,20 +148,22 @@ export function EmployerJobRow({
               Calificar trabajador
             </Link>
           )}
-          <button
-            disabled={isPending}
-            onClick={() => setConfirmingDelete(true)}
-            className="btn-danger !rounded-xl !px-3 !py-1.5 text-xs"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Eliminar
-          </button>
+          {canDelete && (
+            <button
+              disabled={isPending}
+              onClick={() => setConfirmingDelete(true)}
+              className="btn-danger !rounded-xl !px-3 !py-1.5 text-xs"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Eliminar
+            </button>
+          )}
         </div>
       </div>
 
       {/* Confirmación elegante en línea */}
       <AnimatePresence>
-        {confirmingDelete && (
+        {canDelete && confirmingDelete && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}

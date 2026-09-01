@@ -15,6 +15,13 @@ export function AdminJobRow({ job }: { job: Job }) {
   const router = useRouter();
   const toast = useToast();
 
+  // Mismo criterio que TERMINAL_JOB_STATUSES (src/lib/actions/admin.ts) y
+  // jobs_delete_owner_or_admin (0048_protect_job_deletion.sql): el bypass
+  // admin de DELETE también queda restringido a estados no terminales —
+  // adminDeleteJob() lo rechazaría. adminUpdateJobStatus() (el <select> de
+  // abajo) sigue siendo la vía libre de moderación, sin restricción.
+  const canDelete = job.status !== "completado" && job.status !== "cancelado";
+
   function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
     startTransition(async () => {
       await adminUpdateJobStatus(job.id, e.target.value);
@@ -61,7 +68,11 @@ export function AdminJobRow({ job }: { job: Job }) {
       </td>
       <td className="py-3.5 pr-4 text-xs text-ink-muted">{formatDate(job.created_at)}</td>
       <td className="py-3.5 text-right">
-        {confirming ? (
+        {!canDelete ? (
+          <span className="text-xs text-ink-muted" title="Los trabajos completados o cancelados no pueden eliminarse. Usa el cambio de estado para moderarlos.">
+            No eliminable
+          </span>
+        ) : confirming ? (
           <span className="inline-flex items-center gap-1.5">
             <button
               onClick={() => setConfirming(false)}
