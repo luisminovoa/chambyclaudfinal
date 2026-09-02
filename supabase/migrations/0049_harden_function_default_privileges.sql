@@ -1,0 +1,96 @@
+-- ============================================================
+-- CHAMBY — SEC-001 (continuación): el REVOKE FROM PUBLIC de 0045 no bastó.
+--
+-- Hallazgo (auditoría post-despliegue de 0045, verificada en vivo contra
+-- Supabase Production — chambyclaudFINAL / vbjrbijzvqstiqtrgbse): después
+-- de aplicar 0045_harden_check_message_rate_limit.sql, `anon` seguía
+-- teniendo EXECUTE sobre check_message_rate_limit(), pese al
+-- `revoke execute ... from public` incluido en esa misma migración.
+--
+-- Causa raíz real, confirmada leyendo pg_default_acl en vivo Y el historial
+-- de Git (no supuesta, y corregida tras una primera hipótesis incorrecta —
+-- ver nota al final): este proyecto tiene una regla de "default privileges"
+-- — `defaclrole = postgres`, `defaclnamespace = public`,
+-- `defaclobjtype = 'f'` (funciones) — que otorga EXECUTE automáticamente a
+-- `anon`, `authenticated`, `service_role` y `postgres` sobre cualquier
+-- función que el rol `postgres` CREE por primera vez en el schema `public`.
+-- Es la convención de plataforma de Supabase para `public`, no algo
+-- introducido por este repositorio (grep exhaustivo: nunca existió una
+-- sentencia ALTER DEFAULT PRIVILEGES en ninguna migración anterior).
+--
+-- check_message_rate_limit() se creó por primera vez en 0003_chat_
+-- extensions.sql (único CREATE genuino en todo el historial — 0045 es la
+-- única otra migración que la toca, y 0046 solo la menciona en comentarios).
+-- En ese CREATE original de 0003 se disparó la regla de arriba una única
+-- vez, otorgando EXECUTE a `anon` (junto con el default nativo de Postgres
+-- que además otorgaba EXECUTE a PUBLIC). Ese privilegio de `anon` quedó
+-- grabado en el ACL de la función desde entonces.
+--
+-- `CREATE OR REPLACE FUNCTION` sobre una función YA EXISTENTE — como hace
+-- 0045 — NO dispara esta regla ni ningún otro mecanismo de privilegios por
+-- defecto: la documentación de PostgreSQL es explícita en que reemplazar una
+-- función conserva su ownership y sus permisos tal cual estaban. Por eso
+-- 0045 conservó, sin tocarlo, el EXECUTE de `anon` heredado de 0003 — no
+-- porque 0045 lo hubiera vuelto a generar. Lo que 0045 sí modificó
+-- correctamente, por ser una acción explícita sobre la fila ya existente,
+-- fue revocar PUBLIC (`revoke execute ... from public`); nunca mencionó a
+-- `anon`, así que su entrada, previa a 0045, sobrevivió intacta.
+--
+-- Verificado en vivo (barrido de las 16 funciones SECURITY DEFINER de
+-- public): el patrón es sistémico — 12 de 16 muestran `anon` con EXECUTE por
+-- esta misma regla, heredado de su propio CREATE original respectivo. De
+-- ellas, check_message_rate_limit es la única invocable de forma
+-- significativa como RPC directo por un cliente (único `.rpc()` real en
+-- src/, con parámetros controlados por quien llama); el resto son funciones
+-- de trigger (notify_*, handle_application_accepted,
+-- enforce_report_evidence_limit) sin sentido de invocación directa fuera de
+-- su trigger — quedan deliberadamente FUERA de alcance de esta migración,
+-- como su propio hallazgo separado si se decide corregirlas.
+--
+-- FIX, dos sentencias, cada una necesaria por una razón distinta:
+--
+--   1. ALTER DEFAULT PRIVILEGES — corrige la causa raíz hacia adelante:
+--      la próxima función que `postgres` CREE por primera vez (nunca un
+--      simple CREATE OR REPLACE sobre una ya existente) en `public` ya no
+--      recibirá EXECUTE para `anon` automáticamente. Esto NO es retroactivo
+--      (Postgres lo documenta explícitamente: solo afecta objetos creados
+--      después de ejecutarse), así que por sí sola no cierra el estado
+--      actual de check_message_rate_limit — ese privilegio ya existente no
+--      desaparece solo porque la regla que lo originó cambie.
+--
+--   2. REVOKE EXECUTE explícito sobre check_message_rate_limit(uuid, uuid,
+--      integer, integer) — cierra el estado actual (el privilegio heredado
+--      de 0003), independientemente de la migración de origen que lo causó.
+--
+-- Ambas sentencias son toda la migración. No se toca:
+--   - authenticated / service_role / postgres (conservan EXECUTE, sin cambios)
+--   - PUBLIC (0045 ya lo revocó; sin cambios aquí)
+--   - ninguna otra función (las notify_*/trigger quedan fuera de alcance,
+--     ver comentario arriba — no se les aplica ningún REVOKE en esta migración)
+--   - ninguna tabla, policy RLS, trigger ni dato existente
+--   - 0045_harden_check_message_rate_limit.sql (ya desplegada en Production,
+--     no se edita retroactivamente — esta es una migración forward-only)
+--
+-- Idempotencia: ambas sentencias son seguras de reaplicar sin efecto adverso
+-- si ya se ejecutaron antes (REVOKE sobre un privilegio ya ausente no falla
+-- en Postgres, simplemente no tiene efecto — mismo comportamiento que
+-- `drop policy if exists` en el resto de este repositorio, sin necesidad de
+-- ningún `IF EXISTS` artificial que pudiera ocultar un error real).
+--
+-- Nota de corrección: una primera versión de este comentario atribuía el
+-- EXECUTE de `anon` a que `CREATE OR REPLACE FUNCTION` "reaplicaría" los
+-- default privileges en cada reemplazo de 0045. Verificado contra la
+-- documentación de PostgreSQL y el historial real de Git (sección de
+-- arriba), eso es incorrecto como mecanismo: el privilegio se originó una
+-- sola vez, en el CREATE genuino de 0003, y `CREATE OR REPLACE` nunca lo
+-- reaplica. El SQL de esta migración no cambia por esta corrección — ambas
+-- sentencias eran, y siguen siendo, necesarias y correctas bajo la
+-- explicación real.
+-- ============================================================
+
+alter default privileges for role postgres in schema public
+  revoke execute on functions from anon;
+
+revoke execute on function
+  public.check_message_rate_limit(uuid, uuid, integer, integer)
+  from anon;
