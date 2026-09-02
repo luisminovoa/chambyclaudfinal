@@ -1,0 +1,57 @@
+-- ============================================================
+-- CHAMBY — SEC-003 (continuación): PUBLIC EXECUTE sobre la función del
+-- trigger de rate limit.
+--
+-- Hallazgo (verificado en vivo contra Supabase Production —
+-- chambyclaudFINAL / vbjrbijzvqstiqtrgbse, inmediatamente después de
+-- desplegar 0046_enforce_message_rate_limit_trigger.sql):
+--
+--   1. 0046 crea public.enforce_message_rate_limit() — la primera vez
+--      que esta función llega a existir (un CREATE genuino, no un
+--      reemplazo de algo previo).
+--   2. Al crearse por primera vez, PostgreSQL le otorgó EXECUTE a PUBLIC
+--      automáticamente — este es el comportamiento nativo por defecto de
+--      PostgreSQL para toda función nueva, salvo que la propia sentencia
+--      de creación (o una migración posterior) lo revoque explícitamente.
+--   3. 0049_harden_function_default_privileges.sql corrigió, hacia
+--      adelante, el default privilege PERSONALIZADO que este proyecto
+--      tiene configurado para otorgar EXECUTE a `anon` sobre funciones
+--      nuevas de `postgres` en `public` — pero esa corrección actúa sobre
+--      una regla distinta (`pg_default_acl`, rol `anon` específicamente).
+--      No tiene ningún efecto sobre el default NATIVO de PostgreSQL que
+--      otorga EXECUTE a PUBLIC en cada creación — son dos mecanismos
+--      independientes, y 0049 nunca tocó el segundo.
+--   4. Por eso 0046 terminó con EXECUTE para PUBLIC sobre su propia
+--      función — confirmado en vivo leyendo el ACL real
+--      (`{=X/postgres, postgres=X/postgres, authenticated=X/postgres,
+--      service_role=X/postgres}`; la entrada con grantee vacío antes del
+--      `=` es exactamente la representación de un grant a PUBLIC).
+--
+-- 0050 revoca EXECUTE de PUBLIC específicamente sobre
+-- enforce_message_rate_limit() — nada más. Al quedar PUBLIC sin EXECUTE,
+-- `anon` deja de tener EXECUTE efectivo sobre esta función por herencia
+-- (anon nunca tuvo, ni tiene tras esta migración, un grant explícito
+-- propio aquí — su acceso era enteramente vía PUBLIC).
+--
+-- No se toca ningún otro rol: `authenticated`, `service_role` y
+-- `postgres` conservan su EXECUTE explícito sobre esta función, sin
+-- cambios — necesario porque el propio trigger `trg_enforce_message_
+-- rate_limit` (0046) sigue ejecutándose con los privilegios normales de
+-- disparo de trigger, y ninguna Server Action ni ruta de la aplicación
+-- invoca esta función directamente como RPC.
+--
+-- No se modifica ninguna otra función (check_message_rate_limit ya quedó
+-- correcta en 0045/0049, sin cambios aquí), ningún trigger, ninguna
+-- policy RLS, ninguna tabla ni ningún dato existente. No se agrega
+-- ALTER DEFAULT PRIVILEGES en esta migración: 0049 ya cubre, hacia
+-- adelante, el mecanismo personalizado de `anon`; el gap que cierra 0050
+-- es específico de esta única función ya creada por 0046, no una regla
+-- general nueva.
+--
+-- Idempotencia: `revoke execute` sobre un privilegio ya ausente no falla
+-- en PostgreSQL, simplemente no tiene efecto — segura de reaplicar.
+-- ============================================================
+
+revoke execute on function
+  public.enforce_message_rate_limit()
+  from public;
