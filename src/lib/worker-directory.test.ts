@@ -283,6 +283,183 @@ describe("computeWorkerQualityScore (Fase C3)", () => {
   });
 });
 
+describe("computeWorkerQualityScore (Fase C5) — rating y jobsCompleted", () => {
+  const empty = {
+    category: null,
+    city: null,
+    availability: null,
+    professional_title: null,
+    years_experience: null,
+    hourly_rate: null,
+    daily_rate: null,
+    bio: null,
+    skills: [] as string[],
+  };
+
+  // TEST 1 — mejor rating, resto idéntico, gana quien tiene mejor rating.
+  it("1) a igualdad de todo lo demás, mejor rating produce mayor score", () => {
+    const a = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: 5, total_ratings: 10 },
+    });
+    const b = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: 2, total_ratings: 10 },
+    });
+    expect(a).toBeGreaterThan(b);
+  });
+
+  // TEST 2 — mismo rating, más jobsCompleted gana.
+  it("2) a igualdad de rating, más jobsCompleted produce mayor score", () => {
+    const sameRating = { average_score: 4, total_ratings: 10 };
+    const a = computeWorkerQualityScore({ ...empty, ratingSummary: sameRating, jobsCompleted: 8 });
+    const b = computeWorkerQualityScore({ ...empty, ratingSummary: sameRating, jobsCompleted: 1 });
+    expect(a).toBeGreaterThan(b);
+  });
+
+  // TEST 3 — cold start: sin ratingSummary y sin jobsCompleted, nunca NaN/Infinity/error, nunca penalizado por debajo de 0.
+  it("3) cold start — sin ratingSummary (undefined) y jobsCompleted=0 no genera NaN/Infinity y no penaliza por debajo del score base", () => {
+    const score = computeWorkerQualityScore({ ...empty, category: "Electricista" });
+    expect(Number.isNaN(score)).toBe(false);
+    expect(Number.isFinite(score)).toBe(true);
+    expect(score).toBe(30); // exactamente el score base de category, sin bonus ni penalización
+  });
+
+  it("3b) cold start explícito con ratingSummary=null también resuelve a 0 puntos de rating, sin error", () => {
+    const score = computeWorkerQualityScore({ ...empty, ratingSummary: null, jobsCompleted: 0 });
+    expect(Number.isNaN(score)).toBe(false);
+    expect(score).toBe(0);
+  });
+
+  // TEST 4 — rating válido + 0 jobs completados se calcula correctamente (sin error, con el bonus de rating aplicado).
+  it("4) rating válido con 0 jobs completados calcula correctamente solo el bonus de rating", () => {
+    const score = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: 5, total_ratings: 3 },
+      jobsCompleted: 0,
+    });
+    expect(score).toBe(30); // 5/5 * RATING_MAX_POINTS(30) + 0 de jobsCompleted
+  });
+
+  // TEST 5 — jobsCompleted muy alto queda acotado (saturación), no domina el ranking.
+  it("5) jobsCompleted muy por encima de la saturación no sigue sumando puntos indefinidamente", () => {
+    const at10 = computeWorkerQualityScore({ ...empty, jobsCompleted: 10 });
+    const at1000 = computeWorkerQualityScore({ ...empty, jobsCompleted: 1000 });
+    expect(at1000).toBe(at10);
+    expect(at1000).toBe(20); // JOBS_COMPLETED_MAX_POINTS
+  });
+
+  // TEST 6 — monotonicidad de rating: mejor rating nunca da un score menor.
+  it("6) monotonicidad — rating máximo (5) produce score mayor o igual que rating mínimo (0), a igualdad de lo demás", () => {
+    const max = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: 5, total_ratings: 5 },
+    });
+    const min = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: 0, total_ratings: 5 },
+    });
+    expect(max).toBeGreaterThanOrEqual(min);
+  });
+
+  // TEST 7 — monotonicidad de jobsCompleted: más jobs nunca da un score menor.
+  it("7) monotonicidad — más jobsCompleted nunca reduce el score, a igualdad de lo demás", () => {
+    const scores = [0, 1, 3, 5, 10, 20].map((n) =>
+      computeWorkerQualityScore({ ...empty, jobsCompleted: n })
+    );
+    for (let i = 1; i < scores.length; i++) {
+      expect(scores[i]).toBeGreaterThanOrEqual(scores[i - 1]);
+    }
+  });
+
+  it("un rating fuera de rango (corrupto) se clampea a [0,5], nunca produce un bonus negativo ni mayor al máximo", () => {
+    const tooHigh = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: 999, total_ratings: 1 },
+    });
+    const negative = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: -5, total_ratings: 1 },
+    });
+    expect(tooHigh).toBe(30); // clampeado a 5/5
+    expect(negative).toBe(0); // clampeado a 0/5
+  });
+
+  it("jobsCompleted negativo (valor imposible en la práctica — es un conteo — pero defendido igual) no genera bono negativo, el score no baja del score base", () => {
+    const score = computeWorkerQualityScore({ ...empty, category: "Electricista", jobsCompleted: -5 });
+    expect(score).toBe(30); // solo el score base de category (30); bono de jobsCompleted = 0, nunca negativo
+  });
+
+  it("average_score = Infinity se clampea a 5 (bono máximo de rating), igual que un valor válido de 5", () => {
+    const withInfinity = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: Infinity, total_ratings: 1 },
+    });
+    const withFive = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: 5, total_ratings: 1 },
+    });
+    expect(withInfinity).toBe(30);
+    expect(withInfinity).toBe(withFive);
+  });
+
+  it("average_score = -Infinity se clampea a 0 (sin bono de rating), nunca negativo", () => {
+    const score = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: -Infinity, total_ratings: 1 },
+    });
+    expect(score).toBe(0);
+  });
+
+  it("average_score = NaN (nunca producido por AVG() de Postgres, pero representable en el tipo `number`) se trata como 0 puntos de rating, nunca NaN propagado al score final", () => {
+    const score = computeWorkerQualityScore({
+      ...empty,
+      category: "Electricista",
+      ratingSummary: { average_score: NaN, total_ratings: 1 },
+    });
+    expect(Number.isNaN(score)).toBe(false);
+    expect(score).toBe(30); // solo el score base de category; bono de rating = 0, no NaN
+  });
+
+  it("rating y jobsCompleted se suman ENCIMA del score base de 100, sin reemplazarlo", () => {
+    const full = computeWorkerQualityScore({
+      category: "Electricista",
+      city: "Lima",
+      availability: "inmediata",
+      professional_title: "Electricista industrial",
+      years_experience: 5,
+      hourly_rate: 30,
+      daily_rate: null,
+      bio: "Electricista con experiencia",
+      skills: ["Soldadura"],
+      ratingSummary: { average_score: 5, total_ratings: 20 },
+      jobsCompleted: 15,
+    });
+    expect(full).toBe(150); // 100 base + 30 rating + 20 jobsCompleted (saturado)
+  });
+
+  it("rating no domina por sí solo al score base completo: un perfil vacío con rating perfecto no supera a un perfil completo sin rating", () => {
+    const emptyButRated = computeWorkerQualityScore({
+      ...empty,
+      ratingSummary: { average_score: 5, total_ratings: 50 },
+      jobsCompleted: 100,
+    });
+    const fullProfileNoRating = computeWorkerQualityScore({
+      category: "Electricista",
+      city: "Lima",
+      availability: "inmediata",
+      professional_title: "Electricista industrial",
+      years_experience: 5,
+      hourly_rate: 30,
+      daily_rate: null,
+      bio: "Electricista con experiencia",
+      skills: ["Soldadura"],
+    });
+    // 0 (perfil) + 30 (rating) + 20 (jobs) = 50, vs. 100 de perfil completo.
+    expect(emptyButRated).toBeLessThan(fullProfileNoRating);
+  });
+});
+
 describe("expandCategoryAliases — Catálogo V2 (C1: Logística y almacén / Almacenero)", () => {
   it("F) 'Logística y almacén' expande a ['Logística y almacén', 'Almacenero']", () => {
     expect(expandCategoryAliases("Logística y almacén")).toEqual([

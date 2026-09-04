@@ -1,5 +1,10 @@
 import { AVAILABILITY_VALUES } from "@/lib/types";
-import type { AvailabilityStatus, WorkerDirectoryFilters, PublicWorkerListing } from "@/lib/types";
+import type {
+  AvailabilityStatus,
+  WorkerDirectoryFilters,
+  PublicWorkerListing,
+  RatingSummary,
+} from "@/lib/types";
 
 /**
  * Normaliza los searchParams crudos de /workers (strings arbitrarias de
@@ -106,30 +111,54 @@ export function expandCategoryAliases(category: string): string[] {
   return CATEGORY_ALIASES[category] ?? [category];
 }
 
+/** Tope de puntos que puede aportar el rating promedio (worker sin ratings → 0, nunca negativo). */
+const RATING_MAX_POINTS = 30;
+/** Tope de puntos que puede aportar jobsCompleted — crece por job, pero se satura para que no domine el ranking. */
+const JOBS_COMPLETED_MAX_POINTS = 20;
+/** A partir de este número de trabajos completados ya no se suman más puntos (saturación). */
+const JOBS_COMPLETED_SATURATION = 10;
+
 /**
  * Puntuación de "preparación del perfil" para ordenar /workers (Fase C3,
- * auditoría C2) — determinística, calculada en memoria sobre las filas ya
- * obtenidas de public_workers, sin ninguna consulta adicional. Objetivo
- * acotado a propósito: "entre los que coinciden con mi búsqueda, ¿cuál
- * tiene el perfil más preparado?", NO un ranking general de "mejor
- * trabajador" (eso implicaría rating/jobsCompleted/badges — fuera de
- * alcance, ver nota abajo).
+ * auditoría C2; extendida en Fase C5 con rating/jobsCompleted — ver
+ * auditoría funcional "siguiente prioridad" que documentó ambos como
+ * deuda diferida) — determinística, calculada en memoria sobre las filas
+ * ya obtenidas de public_workers + rating_summary + conteo de jobs
+ * completados, sin ninguna consulta adicional propia de esta función.
  *
- * Pesos (suman 100), ocupación/ciudad deliberadamente por encima de
- * experiencia/tarifa:
+ * Pesos base (suman 100), ocupación/ciudad deliberadamente por encima de
+ * experiencia/tarifa — SIN CAMBIOS respecto a la Fase C3:
  *   category (30) > city (25) > availability (15) > professional_title (10)
  *   > years_experience (5) = hourly/daily_rate (5) = bio (5) = skills (5)
+ *
+ * Señales nuevas (Fase C5), sumadas ENCIMA de los 100 puntos base — se
+ * amplía la escala en vez de redistribuir los pesos existentes, para no
+ * alterar el significado de ningún test/valor ya vigente sobre los 8
+ * factores originales:
+ *   - rating promedio: hasta RATING_MAX_POINTS (30), proporcional a
+ *     average_score/5 (escala real de Rating.score, 1-5). Un worker sin
+ *     ratingSummary (nunca calificado todavía) aporta 0 — cold start
+ *     explícito, nunca NaN, nunca penalización por debajo de 0.
+ *   - jobsCompleted: hasta JOBS_COMPLETED_MAX_POINTS (20), a razón de 2
+ *     puntos por job completado, saturado en JOBS_COMPLETED_SATURATION
+ *     (10) jobs — así un trabajador con muchísimos jobs no termina
+ *     dominando el ranking solo por antigüedad/volumen, y 0 jobs
+ *     completados (worker nuevo) aporta 0, el mismo tratamiento neutro
+ *     que ya reciben bio/skills ausentes en el esquema original.
+ *
+ * Máximo teórico actual: 100 + 30 + 20 = 150. average_score se clampea a
+ * [0, 5] antes de usarse — un valor corrupto/fuera de rango en
+ * rating_summary nunca puede producir un score negativo ni disparado por
+ * encima de RATING_MAX_POINTS.
  *
  * NO incluye avatar_url — auditado: handle_new_user() (0006_auth_hardening.sql)
  * copia avatar_url automáticamente desde los metadatos de Google OAuth para
  * cualquier usuario que se registre así, con o sin esfuerzo en su perfil
  * profesional. Usarlo como señal de "perfil preparado" sería engañoso.
  *
- * NO incluye rating/jobsCompleted/profile_photos(is_primary)/badges —
- * requieren una consulta adicional (rating_summary/profile_photos ya
- * separadas del fetch principal) o no están disponibles en absoluto en
- * las columnas que expone public_workers; incorporarlos queda documentado
- * como candidato a una fase posterior (C4/C5), no como parte de este MVP.
+ * NO incluye profile_photos(is_primary)/badges — siguen sin estar
+ * disponibles en las columnas que expone public_workers; quedan, igual
+ * que antes, como candidato a una fase posterior.
  */
 export function computeWorkerQualityScore(
   worker: Pick<
@@ -143,7 +172,12 @@ export function computeWorkerQualityScore(
     | "daily_rate"
     | "bio"
     | "skills"
-  >
+  > & {
+    /** null/ausente = worker sin ninguna calificación todavía (cold start). */
+    ratingSummary?: Pick<RatingSummary, "average_score" | "total_ratings"> | null;
+    /** Siempre numérico — 0 si el worker no tiene ningún job completado. */
+    jobsCompleted?: number;
+  }
 ): number {
   let score = 0;
   if (worker.category) score += 30;
@@ -154,5 +188,23 @@ export function computeWorkerQualityScore(
   if (worker.hourly_rate != null || worker.daily_rate != null) score += 5;
   if (worker.bio) score += 5;
   if (worker.skills.length > 0) score += 5;
+
+  if (worker.ratingSummary) {
+    const rawAverage = worker.ratingSummary.average_score;
+    // Number.isNaN() aparte del clamp: Math.min/Math.max ya clampean
+    // correctamente +Infinity->5 y -Infinity->0, pero NaN se propaga a
+    // través de ambos (Math.min(5, NaN) es NaN) — un average_score
+    // literalmente NaN (nunca producido por AVG() de Postgres, que
+    // devuelve NULL o un numeric válido, pero technically representable
+    // en el tipo `number` de TypeScript) debe tratarse como "sin bono",
+    // igual que ratingSummary ausente.
+    const clampedAverage = Number.isNaN(rawAverage) ? 0 : Math.max(0, Math.min(5, rawAverage));
+    score += (clampedAverage / 5) * RATING_MAX_POINTS;
+  }
+
+  const jobsCompleted = worker.jobsCompleted ?? 0;
+  const cappedJobs = Math.max(0, Math.min(jobsCompleted, JOBS_COMPLETED_SATURATION));
+  score += (cappedJobs / JOBS_COMPLETED_SATURATION) * JOBS_COMPLETED_MAX_POINTS;
+
   return score;
 }

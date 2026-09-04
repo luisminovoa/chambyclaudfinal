@@ -336,44 +336,41 @@ export async function listPublicWorkers(
     const { data: workers } = await query
       .order("created_at", { ascending: false })
       .limit(CANDIDATE_POOL_LIMIT);
-    const rows = (workers as unknown as Omit<PublicWorkerListing, "ratingSummary">[]) ?? [];
+    const rows = (workers as unknown as Omit<PublicWorkerListing, "ratingSummary" | "jobsCompleted">[]) ?? [];
     if (rows.length === 0) return [];
 
-    // Ranking de "preparación del perfil" (Fase C3) — se aplica DESPUÉS de
-    // los filtros de arriba (category/city/availability/q ya redujeron el
-    // conjunto), reordenando en memoria las filas ya obtenidas. Nunca
-    // excluye a nadie dentro del pool de candidatos, solo cambia el orden.
-    // Empate → created_at DESC (mismo criterio que ya usaba la consulta,
-    // ahora como desempate explícito en vez de único criterio de orden).
-    const ranked = [...rows].sort((a, b) => {
-      const scoreDiff = computeWorkerQualityScore(b) - computeWorkerQualityScore(a);
-      if (scoreDiff !== 0) return scoreDiff;
-      return b.created_at.localeCompare(a.created_at);
-    });
+    // Fase C5 (incorporar rating/jobsCompleted al ranking): ambas señales
+    // deben conocerse ANTES de ordenar/recortar, porque de lo contrario un
+    // worker con excelente historial pero perfil menos "completo" nunca
+    // llegaría a competir por los DISPLAY_LIMIT puestos visibles — el
+    // ranking solo podría reordenar entre quienes ya habían sido elegidos
+    // sin esa señal. Por eso ambas consultas (ya existentes, ya batched en
+    // una sola llamada `.in()` cada una — nunca N+1) se ejecutan aquí,
+    // sobre el pool COMPLETO de candidatos (hasta CANDIDATE_POOL_LIMIT
+    // ids), y no solo sobre los DISPLAY_LIMIT finales como en la Fase
+    // C3/C4-G3 original. Sigue siendo una sola llamada por tabla; el
+    // tamaño de la lista de ids crece, pero eso no es N+1.
+    const allIds = rows.map((r) => r.id);
 
-    // El corte a lo que realmente se devuelve ocurre AQUÍ, después de
-    // rankear todo el pool de candidatos — no en la consulta SQL (Fase
-    // C4-G1). rating_summary se consulta solo para estos DISPLAY_LIMIT
-    // ids, nunca para el pool completo de CANDIDATE_POOL_LIMIT.
-    const visibleWorkers = ranked.slice(0, DISPLAY_LIMIT);
-
-    const ids = visibleWorkers.map((r) => r.id);
-    const { data: ratings } = await supabase.from("rating_summary").select("*").in("profile_id", ids);
+    const { data: ratings } = await supabase
+      .from("rating_summary")
+      .select("*")
+      .in("profile_id", allIds);
     const ratingById = new Map(
       ((ratings as unknown as RatingSummary[]) ?? []).map((r) => [r.profile_id, r])
     );
 
-    // jobsCompleted (Fase C4-G3, auditoría C4-G2): UNA sola consulta batched
-    // sobre `visibleWorkers` (nunca sobre los CANDIDATE_POOL_LIMIT
-    // candidatos), agregada en memoria — no hay `GROUP BY` per-worker vía
-    // PostgREST sin una vista/RPC nueva, así que se trae una fila por job
-    // completado y se cuenta por `assigned_worker_id`. Cliente de sesión,
-    // sin RLS especial (mismo patrón ya usado por getWorkerPublicProfile()
-    // para un solo worker, aquí extendido a un lote).
+    // jobsCompleted (Fase C4-G3, ahora también insumo del ranking en Fase
+    // C5): UNA sola consulta batched sobre TODO el pool de candidatos,
+    // agregada en memoria — no hay `GROUP BY` per-worker vía PostgREST sin
+    // una vista/RPC nueva, así que se trae una fila por job completado y
+    // se cuenta por `assigned_worker_id`. Cliente de sesión, sin RLS
+    // especial (mismo patrón ya usado por getWorkerPublicProfile() para un
+    // solo worker, aquí extendido a un lote).
     const { data: completedJobs } = await supabase
       .from("jobs")
       .select("assigned_worker_id")
-      .in("assigned_worker_id", ids)
+      .in("assigned_worker_id", allIds)
       .eq("status", "completado");
     const jobsCompletedById = new Map<string, number>();
     for (const job of (completedJobs as { assigned_worker_id: string }[] | null) ?? []) {
@@ -382,6 +379,36 @@ export async function listPublicWorkers(
         (jobsCompletedById.get(job.assigned_worker_id) ?? 0) + 1
       );
     }
+
+    // Ranking de "preparación del perfil + calidad demostrada" (Fase C3 +
+    // C5) — se aplica DESPUÉS de los filtros de arriba (category/city/
+    // availability/q ya redujeron el conjunto), reordenando en memoria las
+    // filas ya obtenidas. Nunca excluye a nadie dentro del pool de
+    // candidatos, solo cambia el orden. Empate → created_at DESC (mismo
+    // criterio que ya usaba la consulta, ahora como desempate explícito en
+    // vez de único criterio de orden).
+    const ranked = [...rows].sort((a, b) => {
+      const scoreA = computeWorkerQualityScore({
+        ...a,
+        ratingSummary: ratingById.get(a.id) ?? null,
+        jobsCompleted: jobsCompletedById.get(a.id) ?? 0,
+      });
+      const scoreB = computeWorkerQualityScore({
+        ...b,
+        ratingSummary: ratingById.get(b.id) ?? null,
+        jobsCompleted: jobsCompletedById.get(b.id) ?? 0,
+      });
+      const scoreDiff = scoreB - scoreA;
+      if (scoreDiff !== 0) return scoreDiff;
+      return b.created_at.localeCompare(a.created_at);
+    });
+
+    // El corte a lo que realmente se devuelve sigue ocurriendo AQUÍ,
+    // después de rankear todo el pool de candidatos — no en la consulta
+    // SQL (Fase C4-G1, sin cambios). rating_summary/jobs ya se consultaron
+    // arriba para todo el pool; aquí solo se reutilizan los mismos Map, sin
+    // ninguna consulta adicional.
+    const visibleWorkers = ranked.slice(0, DISPLAY_LIMIT);
 
     return visibleWorkers.map((r) => ({
       ...r,

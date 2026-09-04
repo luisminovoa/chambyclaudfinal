@@ -551,7 +551,7 @@ describe("listPublicWorkers", () => {
       expect(limitCalls).toEqual([500]);
     });
 
-    it("Test 5 — rating_summary se consulta únicamente para los workers finales visibles (máx. 60 ids), nunca para el pool completo de candidatos", async () => {
+    it("Test 5 (Fase C5) — rating_summary se consulta UNA sola vez, acotada al pool completo de candidatos (nunca N+1, nunca solo los 60 finales) — necesario para que el rating pueda influir en quién queda entre esos 60", async () => {
       mockRows = Array.from({ length: 100 }, (_, i) =>
         emptyWorker(`w-${i}`, `2026-01-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`)
       );
@@ -560,8 +560,10 @@ describe("listPublicWorkers", () => {
 
       expect(ratingQueryCalls).toHaveLength(1);
       expect(ratingQueryCalls[0].col).toBe("profile_id");
-      expect(ratingQueryCalls[0].ids.length).toBeLessThanOrEqual(60);
-      expect(ratingQueryCalls[0].ids.sort()).toEqual(result.map((w) => w.id).sort());
+      // Los 100 candidatos del mock, no solo los <=60 visibles — la consulta
+      // ahora se ejecuta ANTES del recorte a DISPLAY_LIMIT (ver Fase C5).
+      expect(ratingQueryCalls[0].ids).toHaveLength(100);
+      expect(result.length).toBeLessThanOrEqual(60);
     });
 
     it("Test 6 — los filtros (category con alias, city, availability, q) siguen aplicándose exactamente igual tras separar los límites", async () => {
@@ -638,21 +640,22 @@ describe("listPublicWorkers", () => {
       expect(jobsQueryCalls).toHaveLength(1);
     });
 
-    it("F) la consulta a jobs recibe exactamente los ids de visibleWorkers, no todos los candidatos", async () => {
+    it("F) (Fase C5) la consulta a jobs recibe los ids del pool completo de candidatos, no solo los visibleWorkers finales — necesario para que jobsCompleted pueda influir en quién queda entre los 60 visibles", async () => {
       mockRows = Array.from({ length: 70 }, (_, i) => emptyWorker(`w-${i}`, "2026-01-01T00:00:00Z"));
 
-      const result = await listPublicWorkers({});
+      await listPublicWorkers({});
 
-      expect(jobsQueryCalls[0].ids.sort()).toEqual(result.map((w) => w.id).sort());
+      expect(jobsQueryCalls[0].ids).toHaveLength(70);
+      expect(jobsQueryCalls[0].ids.sort()).toEqual(mockRows.map((w) => w.id).sort());
     });
 
-    it("G) nunca consulta jobs para el pool completo de candidatos (con 501 candidatos, sigue acotada a ≤60 ids)", async () => {
+    it("G) (Fase C5) con 501 candidatos, la consulta a jobs se ejecuta UNA sola vez, acotada al pool completo (501), nunca N+1", async () => {
       mockRows = Array.from({ length: 501 }, (_, i) => emptyWorker(`w-${i}`, "2026-01-01T00:00:00Z"));
 
       await listPublicWorkers({});
 
       expect(jobsQueryCalls).toHaveLength(1);
-      expect(jobsQueryCalls[0].ids.length).toBeLessThanOrEqual(60);
+      expect(jobsQueryCalls[0].ids).toHaveLength(501);
     });
 
     it("H) el ranking global de C4-G1 sigue intacto: un worker excelente y antiguo sigue ganando aunque ahora también se calcule jobsCompleted", async () => {
@@ -667,13 +670,14 @@ describe("listPublicWorkers", () => {
       expect(result[0].id).toBe("w-old-excellent");
     });
 
-    it("I) rating_summary sigue recibiendo únicamente los visibleWorkers, junto a la nueva consulta de jobs, sin duplicarse", async () => {
+    it("I) (Fase C5) rating_summary y jobs se consultan cada una UNA sola vez, ambas sobre el mismo pool completo de candidatos, sin duplicarse entre sí", async () => {
       mockRows = Array.from({ length: 70 }, (_, i) => emptyWorker(`w-${i}`, "2026-01-01T00:00:00Z"));
 
-      const result = await listPublicWorkers({});
+      await listPublicWorkers({});
 
       expect(ratingQueryCalls).toHaveLength(1);
-      expect(ratingQueryCalls[0].ids.sort()).toEqual(result.map((w) => w.id).sort());
+      expect(jobsQueryCalls).toHaveLength(1);
+      expect(ratingQueryCalls[0].ids.sort()).toEqual(jobsQueryCalls[0].ids.sort());
     });
 
     it("N) Home (listPublicWorkers({}) sin filtros) devuelve jobsCompleted numérico en cada worker, listo tal cual lo consume page.tsx vía PublicWorkerListing", async () => {
@@ -686,6 +690,127 @@ describe("listPublicWorkers", () => {
         expect(typeof worker.jobsCompleted).toBe("number");
         expect(Number.isNaN(worker.jobsCompleted)).toBe(false);
       }
+    });
+  });
+
+  // ============================================================
+  // Fase C5 — rating/jobsCompleted ahora SÍ influyen en el ranking de
+  // listPublicWorkers() (antes solo se adjuntaban como datos, después del
+  // corte). Ver worker-directory.test.ts para los tests puros de
+  // computeWorkerQualityScore(); aquí se prueba la integración end-to-end
+  // con las consultas reales de rating_summary/jobs.
+  // ============================================================
+  describe("ranking considera rating y jobsCompleted (Fase C5)", () => {
+    it("Test A — un worker con menos perfil pero excelente rating supera a uno con más perfil y sin ninguna calificación", async () => {
+      // w-menos-perfil: solo category (30 pts base) + rating perfecto (30 pts) = 60
+      // w-mas-perfil: category + city (55 pts base) + sin rating (0) = 55
+      const menosPerfil = { ...emptyWorker("w-menos-perfil", "2026-01-01T00:00:00Z"), category: "Electricista" };
+      const masPerfil = { ...emptyWorker("w-mas-perfil", "2026-01-01T00:00:00Z"), category: "Electricista", city: "Lima" };
+      mockRows = [masPerfil, menosPerfil];
+      ratingRows = [{ profile_id: "w-menos-perfil", average_score: 5, total_ratings: 20 }];
+
+      const result = await listPublicWorkers({});
+
+      expect(result[0].id).toBe("w-menos-perfil");
+      expect(result[1].id).toBe("w-mas-perfil");
+    });
+
+    it("Test B — jobsCompleted también puede inclinar el orden entre dos perfiles con el mismo score base", async () => {
+      const workerA = { ...emptyWorker("w-a", "2026-01-01T00:00:00Z"), category: "Electricista" };
+      const workerB = { ...emptyWorker("w-b", "2026-01-01T00:00:00Z"), category: "Electricista" };
+      mockRows = [workerB, workerA];
+      completedJobRows = Array.from({ length: 10 }, () => ({ assigned_worker_id: "w-a" }));
+
+      const result = await listPublicWorkers({});
+
+      expect(result[0].id).toBe("w-a");
+      expect(result[1].id).toBe("w-b");
+    });
+
+    it("Test 8 — los filtros existentes (category/city/availability/q) siguen aplicándose exactamente igual cuando además hay datos de rating/jobsCompleted", async () => {
+      mockRows = [WORKER_ROW];
+      ratingRows = [{ profile_id: "w-1", average_score: 4, total_ratings: 5 }];
+      completedJobRows = [{ assigned_worker_id: "w-1" }];
+
+      await listPublicWorkers({
+        category: "Electricista",
+        city: "Lima",
+        availability: "inmediata",
+        q: "residencial",
+      });
+
+      expect(calls).toContainEqual({ op: "in", args: ["category", ["Electricista"]] });
+      expect(calls).toContainEqual({ op: "ilike", args: ["city", "%Lima%"] });
+      expect(calls).toContainEqual({ op: "eq", args: ["availability", "inmediata"] });
+      expect(calls.some((c) => c.op === "or")).toBe(true);
+    });
+
+    it("Test 9 — el ranking es determinista: mismos datos de entrada producen siempre el mismo orden de salida", async () => {
+      const workerA = fullWorker("w-a", "2026-01-01T00:00:00Z");
+      const workerB = { ...emptyWorker("w-b", "2026-01-02T00:00:00Z"), category: "Electricista" };
+      mockRows = [workerA, workerB];
+      ratingRows = [{ profile_id: "w-b", average_score: 3, total_ratings: 2 }];
+      completedJobRows = [{ assigned_worker_id: "w-a" }, { assigned_worker_id: "w-a" }];
+
+      const first = await listPublicWorkers({});
+      const second = await listPublicWorkers({});
+
+      expect(first.map((w) => w.id)).toEqual(second.map((w) => w.id));
+    });
+
+    it("Test C — rating puede hacer que un candidato ENTRE al top 60 desplazando a otro que quedaría fuera solo por score base (prueba real del corte, no solo reordenamiento)", async () => {
+      // 60 "fillers" con score base 25 (solo city) — cada uno con un
+      // created_at distinto para poder predecir cuál pierde el desempate.
+      // Sin ningún bono, w-weak (score base 0) quedaría en el puesto 61 y
+      // sería EXCLUIDO del resultado — los 60 fillers ya llenarían el cupo.
+      // Fechas ÚNICAS por cada uno de los 60 fillers (mes avanza cada 28
+      // días para no repetir ninguna combinación mes/día) — necesario para
+      // que el desempate por created_at DESC sea 100% determinista y no
+      // dependa de la estabilidad del sort ante empates de fecha.
+      const fillers = Array.from({ length: 60 }, (_, i) => ({
+        ...emptyWorker(
+          `w-filler-${i}`,
+          `2020-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`
+        ),
+        city: "Lima", // score base = 25
+      }));
+      // w-filler-0 es el más antiguo (2020-01-01) -> pierde el desempate
+      // entre los 60 fillers (todos con score 25) en cuanto se agrega un
+      // 61vo competidor que los supere.
+      const weak = emptyWorker("w-weak", "2026-01-01T00:00:00Z"); // score base = 0
+
+      mockRows = [...fillers, weak];
+      // w-weak recibe rating perfecto: 0 (base) + 30 (rating) = 30 > 25 (fillers).
+      ratingRows = [{ profile_id: "w-weak", average_score: 5, total_ratings: 10 }];
+
+      const result = await listPublicWorkers({});
+      const ids = result.map((w) => w.id);
+
+      expect(result).toHaveLength(60); // DISPLAY_LIMIT respetado, sin modificarlo
+      // w-weak ENTRA al top 60 gracias al bono de rating — sin el bono
+      // habría quedado en el puesto 61 (score 0 vs 25 de cada filler).
+      expect(ids).toContain("w-weak");
+      // El filler más antiguo (el que pierde el desempate de score=25) es
+      // el que queda DESPLAZADO fuera del top 60 por la entrada de w-weak.
+      expect(ids).not.toContain("w-filler-0");
+      // Los otros 59 fillers sí siguen presentes — solo se desplazó uno.
+      for (let i = 1; i < 60; i++) {
+        expect(ids).toContain(`w-filler-${i}`);
+      }
+    });
+
+    it("un worker sin ninguna calificación ni jobs no queda penalizado por debajo de su score base — solo no recibe bonus", async () => {
+      const rated = { ...emptyWorker("w-rated", "2026-01-01T00:00:00Z") };
+      const coldStart = { ...emptyWorker("w-cold-start", "2026-01-01T00:00:00Z") };
+      mockRows = [rated, coldStart];
+      ratingRows = [{ profile_id: "w-rated", average_score: 1, total_ratings: 1 }];
+
+      const result = await listPublicWorkers({});
+
+      // Ambos parten de score base 0; w-rated suma un pequeño bonus (1/5*30=6),
+      // w-cold-start se queda en 0 — ninguno queda en negativo ni en NaN.
+      expect(result.some((w) => w.id === "w-cold-start")).toBe(true);
+      expect(result[0].id).toBe("w-rated");
     });
   });
 });
