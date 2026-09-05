@@ -58,6 +58,8 @@ interface State {
   applications: ApplicationRow[];
   jobs: JobRow[];
   updateError: string | null;
+  /** Fase 3F: código SQLSTATE a adjuntar al error forzado por updateError (p. ej. "23P01"). */
+  updateErrorCode: string | null;
   /** Registro de cada UPDATE emitido, para verificar que no hay efectos extra. */
   updates: { id: string; payload: Record<string, unknown> }[];
   /** Columnas realmente pedidas a la tabla `jobs`. */
@@ -77,6 +79,7 @@ const state: State = {
   applications: [],
   jobs: [],
   updateError: null,
+  updateErrorCode: null,
   updates: [],
   jobColumnsRequested: [],
   history: [],
@@ -118,7 +121,10 @@ vi.mock("@/lib/supabase/server", () => ({
               select: () => ({
                 single: async () => {
                   if (state.updateError) {
-                    return { data: null, error: { message: state.updateError } };
+                    return {
+                      data: null,
+                      error: { message: state.updateError, code: state.updateErrorCode ?? undefined },
+                    };
                   }
                   const row = state.applications.find((a) => a.id === filters.id);
                   if (!row) return { data: null, error: { message: "not found" } };
@@ -260,6 +266,7 @@ beforeEach(() => {
     { id: APP_A, status: "pendiente", worker_id: WORKER, job_id: JOB_A },
   ];
   state.updateError = null;
+  state.updateErrorCode = null;
   state.updates = [];
   state.jobColumnsRequested = [];
   state.history = [];
@@ -365,6 +372,31 @@ describe("updateApplicationStatus — la cascada sigue siendo de la base de dato
     state.updateError = "Este trabajo ya no acepta postulantes";
     const result = await updateApplicationStatus(APP_A, "aceptado");
     expect(result.error).toBe("Este trabajo ya no acepta postulantes");
+  });
+
+  /**
+   * Fase 3F (calendario): handle_application_accepted() (0055) puede
+   * intentar copiar un horario propuesto/confirmado que se solapa con
+   * otro trabajo del mismo worker — Postgres rechaza con SQLSTATE 23P01
+   * (EXCLUDE jobs_no_overlapping_worker_bookings, 0053) y aborta toda la
+   * transacción. updateApplicationStatus() debe traducir ese código a un
+   * mensaje comprensible, nunca ocultarlo ni convertirlo en éxito.
+   */
+  it("un conflicto de agenda (23P01) se traduce a un mensaje controlado, sin ocultar el conflicto ni fingir éxito", async () => {
+    state.updateError = "duplicate key value violates exclusion constraint";
+    state.updateErrorCode = "23P01";
+    const result = await updateApplicationStatus(APP_A, "aceptado");
+    expect(result.error).toBe(
+      "El horario propuesto se solapa con otro trabajo ya asignado a este trabajador. Ajusta el horario antes de aceptar."
+    );
+    expect(result).not.toEqual({ success: true });
+  });
+
+  it("un error de UPDATE sin código reconocido sigue devolviendo el mensaje crudo (comportamiento previo intacto)", async () => {
+    state.updateError = "db down";
+    state.updateErrorCode = null;
+    const result = await updateApplicationStatus(APP_A, "aceptado");
+    expect(result.error).toBe("db down");
   });
 });
 

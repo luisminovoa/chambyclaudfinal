@@ -6,6 +6,7 @@ import WorkerProfilePage from "./page";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { getWorkerPublicProfile } from "@/lib/actions/workers";
 import { getHiringConversations } from "@/lib/actions/chat";
+import { getProfileAvailability } from "@/lib/actions/calendar";
 import type { WorkerPublicProfile } from "@/lib/actions/workers";
 import type { HiringConversation } from "@/lib/actions/chat";
 
@@ -54,6 +55,14 @@ vi.mock("@/lib/actions/workers", () => ({
 
 vi.mock("@/lib/actions/chat", () => ({
   getHiringConversations: vi.fn(),
+}));
+
+// FASE 3G (calendario): la página ahora también consulta la
+// disponibilidad pública del trabajador — mismo patrón de mock que las
+// otras dos Server Actions de esta página, nunca el cliente real de
+// Supabase (que fallaría fuera de un request scope real de Next.js).
+vi.mock("@/lib/actions/calendar", () => ({
+  getProfileAvailability: vi.fn(),
 }));
 
 const RICH_PROFILE: WorkerPublicProfile = {
@@ -135,6 +144,14 @@ async function renderPage(searchParams: { job?: string } = {}) {
   const jsx = await WorkerProfilePage({ params: { workerId: "worker-1" }, searchParams });
   return reactRoot(jsx);
 }
+
+// FASE 3G: default global para las tres describe blocks de abajo — sin
+// disponibilidad configurada por defecto, PublicAvailabilityCard no
+// renderiza nada (ver su propio test suite), así que no interfiere con
+// las aserciones de orden de esta suite (Fase 7).
+beforeEach(() => {
+  vi.mocked(getProfileAvailability).mockResolvedValue({ slots: [], exceptions: [] });
+});
 
 describe("/workers/[workerId] — orden perfil antes de conversaciones (Fase 7 / C4-G20)", () => {
   beforeEach(() => {

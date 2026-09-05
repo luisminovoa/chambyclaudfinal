@@ -455,5 +455,22 @@ export async function updateApplicationStatus(applicationId: string, status: str
     revalidatePath("/dashboard/employer/applicants");
     revalidatePath("/dashboard/worker");
   }
-  return { error: error?.message };
+
+  if (error) {
+    // 23P01 = violación del EXCLUDE jobs_no_overlapping_worker_bookings
+    // (0053): handle_application_accepted() (0055) intentó copiar un
+    // horario propuesto/confirmado que se solapa con otro trabajo ya
+    // asignado a este mismo trabajador. Postgres abortó toda la
+    // transacción — la postulación sigue 'pendiente' — así que nunca se
+    // debe convertir esto en éxito ni en el mensaje genérico de abajo,
+    // que ocultaría al usuario que su horario en realidad chocó.
+    if (error.code === "23P01") {
+      return {
+        error:
+          "El horario propuesto se solapa con otro trabajo ya asignado a este trabajador. Ajusta el horario antes de aceptar.",
+      };
+    }
+    return { error: error.message };
+  }
+  return {};
 }

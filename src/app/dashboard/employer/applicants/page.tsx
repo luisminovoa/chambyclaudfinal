@@ -195,6 +195,9 @@ export default async function EmployerApplicantsPage({
                   // Mismo criterio que /jobs/[id]: solo una publicación
                   // abierta admite aceptar/rechazar.
                   canManage={a.jobStatus === "abierto"}
+                  proposedStartAt={a.proposedStartAt}
+                  proposedEndAt={a.proposedEndAt}
+                  workerScheduleConfirmedAt={a.workerScheduleConfirmedAt}
                 />
               ))}
             </div>

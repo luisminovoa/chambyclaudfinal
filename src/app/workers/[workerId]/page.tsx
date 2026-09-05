@@ -3,8 +3,10 @@ import type { Metadata } from "next";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
 import { getWorkerPublicProfile } from "@/lib/actions/workers";
 import { getHiringConversations } from "@/lib/actions/chat";
+import { getProfileAvailability } from "@/lib/actions/calendar";
 import { WorkerPublicProfileView } from "@/components/workers/WorkerPublicProfileView";
 import { WorkerProfileActions } from "@/components/workers/WorkerProfileActions";
+import { PublicAvailabilityCard } from "@/components/calendar/PublicAvailabilityCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Reveal } from "@/components/ui/Reveal";
 
@@ -24,9 +26,10 @@ export default async function WorkerProfilePage({ params, searchParams }: Worker
   // Fase C4-G6: se pide en paralelo, independientemente de si data.jobId
   // termina siendo null — WorkerProfileActions decide cuál de los dos usar
   // según llegue o no un jobId explícito en la URL.
-  const [data, hiringConversations] = await Promise.all([
+  const [data, hiringConversations, availability] = await Promise.all([
     getWorkerPublicProfile(params.workerId, searchParams.job),
     getHiringConversations(params.workerId),
+    getProfileAvailability(params.workerId),
   ]);
 
   return (
@@ -56,6 +59,9 @@ export default async function WorkerProfilePage({ params, searchParams }: Worker
               canManage={data.viewerIsEmployer}
               hiringConversations={hiringConversations}
             />
+          </Reveal>
+          <Reveal delay={0.1}>
+            <PublicAvailabilityCard slots={availability.slots} />
           </Reveal>
         </div>
       )}

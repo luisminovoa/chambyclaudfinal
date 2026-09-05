@@ -16,6 +16,7 @@ import { JobStatusTimeline } from "@/components/JobStatusTimeline";
 import { AssignedWorkerCard } from "@/components/AssignedWorkerCard";
 import { JobActions } from "@/components/JobActions";
 import { WithdrawButton } from "@/components/WithdrawButton";
+import { ScheduleProposalCard } from "@/components/calendar/ScheduleProposalCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { Reveal } from "@/components/ui/Reveal";
@@ -144,7 +145,9 @@ export default async function JobDetailPage({ params }: { params: { id: string }
   if (isOwner) {
     const { data } = await supabase
       .from("job_applications")
-      .select("id, job_id, worker_id, status, message, created_at, updated_at")
+      .select(
+        "id, job_id, worker_id, status, message, created_at, updated_at, proposed_start_at, proposed_end_at, worker_schedule_confirmed_at"
+      )
       .eq("job_id", typedJob.id)
       .order("created_at", { ascending: false });
     const applicationRows =
@@ -431,6 +434,14 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                     <WithdrawButton applicationId={myApplication.id} />
                   </div>
                 )}
+                <ScheduleProposalCard
+                  applicationId={myApplication.id}
+                  status={myApplication.status}
+                  proposedStartAt={myApplication.proposed_start_at}
+                  proposedEndAt={myApplication.proposed_end_at}
+                  workerScheduleConfirmedAt={myApplication.worker_schedule_confirmed_at}
+                  viewerRole="worker"
+                />
               </div>
             ) : (
               <div className="mt-4">
@@ -485,6 +496,9 @@ export default async function JobDetailPage({ params }: { params: { id: string }
                     occupation={applicantOccupations.get(app.worker_id)}
                     ratingSummary={applicantRatings.get(app.worker_id) ?? null}
                     canManage={typedJob.status === "abierto"}
+                    proposedStartAt={app.proposed_start_at}
+                    proposedEndAt={app.proposed_end_at}
+                    workerScheduleConfirmedAt={app.worker_schedule_confirmed_at}
                   />
                 ))}
               </div>

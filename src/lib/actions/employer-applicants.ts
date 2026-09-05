@@ -47,6 +47,10 @@ export interface EmployerApplicantItem {
   worker: PublicWorkerSummary;
   occupation: string | null;
   ratingSummary: RatingSummary | null;
+  /** FASE 3G (calendario) — horario propuesto/confirmado (0054). */
+  proposedStartAt: string | null;
+  proposedEndAt: string | null;
+  workerScheduleConfirmedAt: string | null;
 }
 
 export interface EmployerApplicantCounts {
@@ -148,7 +152,9 @@ export async function listEmployerApplicants(
   const supabase = createClient();
   let query = supabase
     .from("job_applications")
-    .select("id, job_id, status, created_at, worker_id")
+    .select(
+      "id, job_id, status, created_at, worker_id, proposed_start_at, proposed_end_at, worker_schedule_confirmed_at"
+    )
     .in("job_id", jobIds)
     .order("created_at", { ascending: false })
     .limit(MAX_APPLICANTS);
@@ -165,6 +171,9 @@ export async function listEmployerApplicants(
       status: string;
       created_at: string;
       worker_id: string;
+      proposed_start_at: string | null;
+      proposed_end_at: string | null;
+      worker_schedule_confirmed_at: string | null;
     }[]) ?? [];
 
   if (applications.length === 0) return [];
@@ -211,5 +220,8 @@ export async function listEmployerApplicants(
         detailsByWorker.get(a.worker_id) ?? null
       ),
       ratingSummary: ratingByWorker.get(a.worker_id) ?? null,
+      proposedStartAt: a.proposed_start_at,
+      proposedEndAt: a.proposed_end_at,
+      workerScheduleConfirmedAt: a.worker_schedule_confirmed_at,
     }));
 }

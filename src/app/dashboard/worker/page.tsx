@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   MapPin,
   Award,
+  CalendarDays,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserAndProfile } from "@/lib/get-current-profile";
@@ -145,10 +146,16 @@ export default async function WorkerDashboardPage() {
             </h1>
             <p className="mt-1 text-ink-muted">Este es tu panel de trabajador.</p>
           </div>
-          <Link href="/jobs" className="btn-primary">
-            <Search className="h-4 w-4" />
-            Buscar trabajos
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard/worker/agenda" className="btn-secondary">
+              <CalendarDays className="h-4 w-4" />
+              Mi agenda
+            </Link>
+            <Link href="/jobs" className="btn-primary">
+              <Search className="h-4 w-4" />
+              Buscar trabajos
+            </Link>
+          </div>
         </div>
       </Reveal>
 

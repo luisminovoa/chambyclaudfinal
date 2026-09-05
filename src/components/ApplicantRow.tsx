@@ -8,6 +8,7 @@ import { applicationStatusLabel, formatDate } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge, jobStatusTone } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toaster";
+import { ScheduleProposalCard } from "@/components/calendar/ScheduleProposalCard";
 import type { PublicWorkerSummary, RatingSummary } from "@/lib/types";
 
 interface ApplicantRowProps {
@@ -27,6 +28,10 @@ interface ApplicantRowProps {
   jobTitle?: string;
   /** Fecha de postulación (created_at). Se omite donde no aporta. */
   appliedAt?: string;
+  /** FASE 3G (calendario) — horario propuesto/confirmado (0054). Opcionales: los callers que aún no los seleccionan simplemente no muestran la tarjeta de horario. */
+  proposedStartAt?: string | null;
+  proposedEndAt?: string | null;
+  workerScheduleConfirmedAt?: string | null;
 }
 
 export function ApplicantRow({
@@ -39,6 +44,9 @@ export function ApplicantRow({
   canManage,
   jobTitle,
   appliedAt,
+  proposedStartAt = null,
+  proposedEndAt = null,
+  workerScheduleConfirmedAt = null,
 }: ApplicantRowProps) {
   const [isPending, startTransition] = useTransition();
   const [confirmingAccept, setConfirmingAccept] = useState(false);
@@ -164,6 +172,19 @@ export function ApplicantRow({
             </div>
           </div>
         </div>
+      )}
+
+      {/* FASE 3G — el empleador propone/edita el horario mientras la
+          postulación siga pendiente; oculto para quien no puede gestionarla. */}
+      {canManage && (
+        <ScheduleProposalCard
+          applicationId={applicationId}
+          status={status}
+          proposedStartAt={proposedStartAt}
+          proposedEndAt={proposedEndAt}
+          workerScheduleConfirmedAt={workerScheduleConfirmedAt}
+          viewerRole="employer"
+        />
       )}
     </div>
   );

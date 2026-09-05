@@ -198,6 +198,12 @@ export interface Job {
   // docs/FASE8-BILATERAL-COMPLETION.md.
   worker_reported_finished_at: string | null;
   employer_confirmed_at: string | null;
+  // Horario confirmado del trabajo (Fase 3C/3E, calendario) — nullable:
+  // se llenan recién cuando handle_application_accepted() (0055) copia una
+  // propuesta completa y confirmada al aceptar la postulación, o quedan
+  // NULL indefinidamente si la aceptación nunca tuvo una propuesta así.
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -266,6 +272,50 @@ export interface JobApplication {
   worker_id: string;
   status: ApplicationStatus;
   message: string | null;
+  // Doble consentimiento de horario (Fase 3D, 0054_job_application_schedule_consent.sql)
+  // — protegidos por el trigger protect_application_schedule_consent()
+  // (BEFORE UPDATE): el empleador nunca puede escribir
+  // worker_schedule_confirmed_at, el worker nunca puede escribir
+  // proposed_start_at/proposed_end_at. Cambiar la propuesta invalida
+  // cualquier confirmación previa (worker_schedule_confirmed_at vuelve a NULL).
+  proposed_start_at: string | null;
+  proposed_end_at: string | null;
+  worker_schedule_confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Disponibilidad recurrente semanal de un perfil (worker o employer) —
+ * profile_availability_slots (0051). `profile_id` referencia profiles(id):
+ * la misma tabla sirve a ambos roles sin duplicar el modelo. Lectura
+ * pública (RLS `using(true)`); escritura solo del dueño.
+ */
+export interface ProfileAvailabilitySlot {
+  id: string;
+  profile_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Excepción puntual de disponibilidad para una fecha concreta —
+ * profile_availability_exceptions (0052). Único por (profile_id,
+ * exception_date) — ver constraint `profile_availability_exceptions_unique_date`.
+ * `start_time`/`end_time` solo pueden ser no nulos cuando `is_available=true`
+ * (CHECK `profile_availability_exceptions_coherence_check`).
+ */
+export interface ProfileAvailabilityException {
+  id: string;
+  profile_id: string;
+  exception_date: string;
+  is_available: boolean;
+  start_time: string | null;
+  end_time: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -795,6 +845,27 @@ export type Database = {
           action_type: ModerationActionType;
         };
         Update: Partial<ModerationAction>;
+        Relationships: [];
+      };
+      profile_availability_slots: {
+        Row: ProfileAvailabilitySlot;
+        Insert: Partial<ProfileAvailabilitySlot> & {
+          profile_id: string;
+          day_of_week: number;
+          start_time: string;
+          end_time: string;
+        };
+        Update: Partial<ProfileAvailabilitySlot>;
+        Relationships: [];
+      };
+      profile_availability_exceptions: {
+        Row: ProfileAvailabilityException;
+        Insert: Partial<ProfileAvailabilityException> & {
+          profile_id: string;
+          exception_date: string;
+          is_available: boolean;
+        };
+        Update: Partial<ProfileAvailabilityException>;
         Relationships: [];
       };
     };
