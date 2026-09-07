@@ -1,0 +1,57 @@
+-- ============================================================
+-- CHAMBY — P1-B2.5 (Web Push): marcador de idempotencia para el
+-- despacho de push.
+-- ============================================================
+-- Alcance exclusivo de esta migración: una columna nueva en
+-- `notifications` + su REVOKE de columna. NO instala pg_net, NO crea
+-- ningún trigger, NO modifica 0056 (job_reminders/send_job_reminders()/
+-- el cron), NO modifica push_subscriptions (0057), NO toca ninguna
+-- policy existente de `notifications`. La integración real (trigger +
+-- pg_net llamando a la Edge Function `send-push`) es una fase posterior
+-- (P1-B2.6), deliberadamente fuera de este archivo — ver diseño P1-A/
+-- P1-B2.1.
+--
+-- Por qué hace falta: P1-B2.1 identificó como riesgo MEDIUM que `pg_net`
+-- reintenta a nivel de transporte (fallos de red/timeout) sin que el
+-- trigger que lo dispare tenga control sobre eso — un reintento podría
+-- invocar la Edge Function `send-push` dos veces para el MISMO
+-- `notification_id`, causando un push duplicado. `send-push` (P1-B2.2)
+-- ya quedó escrita para usar exactamente esta columna en cuanto exista
+-- (ver el TODO explícito en supabase/functions/send-push/index.ts):
+--
+--   UPDATE notifications SET push_dispatched_at = now()
+--   WHERE id = $1 AND push_dispatched_at IS NULL
+--   RETURNING id
+--
+-- Si esa actualización no afecta ninguna fila, la función corta ahí
+-- con éxito no-op — la segunda invocación (o cualquier posterior) nunca
+-- vuelve a enviar el push.
+--
+-- Column-level REVOKE (mismo patrón que 0013/0014 — profile_photos,
+-- profile_stats, user_roles): `push_dispatched_at` es un valor que solo
+-- debe originarse en el propio proceso de despacho (la Edge Function,
+-- con service_role), nunca en el cliente — sin este REVOKE, un usuario
+-- podría manipular el marcador de sus PROPIAS notifications (p.ej.
+-- resetearlo a NULL, o fijarlo para bloquear un despacho legítimo)
+-- llamando a PostgREST directamente en vez de pasar por notifications.ts.
+--
+-- CORRECCIÓN (P1-B2.5.1) a una nota de auditoría anterior de este mismo
+-- archivo: se había afirmado que la ausencia de `WITH CHECK` explícito en
+-- `notifications_update_own` (0004) permitiría a `authenticated`
+-- reescribir `user_id` hacia otra cuenta. Verificado contra la semántica
+-- documentada de PostgreSQL RLS: cuando una policy de `UPDATE` no define
+-- `WITH CHECK`, Postgres reutiliza la propia cláusula `USING` como el
+-- check sobre la fila resultante — por lo tanto `user_id = auth.uid()`
+-- SÍ se aplica a la fila nueva, y un intento de cambiar `user_id` a otra
+-- cuenta es rechazado por Postgres. No existe ese IDOR. Esta migración
+-- nunca dependió de esa afirmación (el REVOKE de abajo protege la
+-- columna nueva independientemente de cualquier otra policy), pero la
+-- nota original quedaba incorrecta y se corrige aquí explícitamente en
+-- vez de dejarla como documentación desactualizada. No se modifica 0004
+-- ni ninguna policy existente.
+-- ============================================================
+
+alter table public.notifications
+  add column push_dispatched_at timestamptz;
+
+revoke update (push_dispatched_at) on public.notifications from authenticated;
