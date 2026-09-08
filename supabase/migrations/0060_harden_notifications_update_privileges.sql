@@ -1,0 +1,73 @@
+-- ============================================================
+-- CHAMBY — P1-B2.8.1: corrección de privilegios de UPDATE sobre
+-- `notifications`.
+-- ============================================================
+-- Alcance exclusivo de esta migración: privilegios de columna sobre
+-- `public.notifications` para `authenticated`/`anon`. NO modifica 0004,
+-- 0057, 0058, 0059, ninguna policy RLS existente, ni la estructura de
+-- ninguna tabla. Es independiente de 0059 (que solo agrega `pg_net` +
+-- un trigger, sin tocar privilegios de `notifications`) — segura de
+-- aplicar antes o después de esa migración, en cualquier orden.
+--
+-- HALLAZGO QUE CORRIGE (encontrado en P1-B2.8, verificado empíricamente
+-- contra Production, no supuesto): `public.notifications` tiene, desde
+-- el aprovisionamiento original del proyecto (anterior a cualquier
+-- migración de este historial), un GRANT DE TABLA COMPLETA para
+-- `authenticated` y `anon`:
+--
+--   relacl: {postgres=arwdDxtm/postgres, anon=arwdDxtm/postgres,
+--            authenticated=arwdDxtm/postgres, service_role=arwdDxtm/postgres}
+--
+-- (arwdDxtm = INSERT/SELECT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER/
+-- MAINTAIN). Por eso el `REVOKE UPDATE (push_dispatched_at) ... FROM
+-- authenticated` de 0058 no tuvo ningún efecto real: en PostgreSQL, un
+-- REVOKE de columna solo elimina un GRANT DE COLUMNA previamente
+-- otorgado — nunca restringe un GRANT DE TABLA COMPLETA ya existente,
+-- porque el chequeo de privilegio de UPDATE sobre una columna es
+-- "permitido si hay grant de tabla completa O grant específico de esa
+-- columna". Como `authenticated` ya tenía el grant de tabla completa,
+-- la columna seguía siendo escribible exactamente igual que si 0058
+-- nunca hubiera ejecutado ese REVOKE.
+--
+-- Impacto real del hallazgo (acotado, nunca fue un IDOR cross-user):
+-- RLS (`notifications_update_own`, `USING/WITH CHECK user_id =
+-- auth.uid() OR admin`) ya impedía — y sigue impidiendo, sin cambios —
+-- que un usuario toque la fila de otro. El problema era que, dentro de
+-- SU PROPIA fila, un usuario autenticado podía escribir CUALQUIER
+-- columna (incluida `push_dispatched_at`) llamando a PostgREST
+-- directamente en vez de pasar por notifications.ts, pudiendo resetear
+-- su propio marcador de despacho de push a NULL o fijarlo para bloquear
+-- un despacho legítimo.
+--
+-- COLUMNAS LEGÍTIMAS CONFIRMADAS (por lectura completa del repositorio,
+-- no supuestas): un `grep` de todo `src/` por `.from("notifications")`
+-- encuentra exactamente dos UPDATE reales, ambos en
+-- src/lib/actions/notifications.ts, ambos exclusivamente sobre
+-- `is_read`/`read_at`:
+--   - markNotificationRead():      .update({ is_read, read_at }).eq("id",...).eq("user_id",...)
+--   - markAllNotificationsRead():  .update({ is_read, read_at }).eq("user_id",...).eq("is_read", false)
+-- Ningún flujo de admin actualiza `notifications` directamente (los
+-- únicos INSERT los hacen triggers SECURITY DEFINER desde 0004/0016/
+-- 0023/0044/0056, que corren como `postgres`, no como `authenticated` —
+-- no dependen de este grant en absoluto). `anon` no tiene ningún flujo
+-- legítimo que actualice `notifications` — RLS ya lo bloqueaba, pero el
+-- grant de tabla completa era, de por sí, un privilegio innecesario
+-- para ese rol.
+--
+-- CORRECCIÓN: convertir el grant de tabla completa de `authenticated` en
+-- un grant explícito de columnas (patrón ya establecido en 0013/0014 —
+-- profile_photos, profile_stats, user_roles), y revocar UPDATE por
+-- completo a `anon` (sin volver a concederle ninguna columna — no tiene
+-- ningún caso de uso legítimo).
+-- ============================================================
+
+revoke update on public.notifications from authenticated;
+revoke update on public.notifications from anon;
+
+grant update (is_read, read_at) on public.notifications to authenticated;
+
+-- Sin cambios a SELECT/INSERT/DELETE, sin cambios a ninguna policy RLS,
+-- sin cambios a privilegios de `service_role` (conserva UPDATE de tabla
+-- completa, necesario para el claim/liberación de `push_dispatched_at`
+-- en supabase/functions/send-push/dispatch.ts, y para cualquier otro
+-- flujo de backend con service_role).
