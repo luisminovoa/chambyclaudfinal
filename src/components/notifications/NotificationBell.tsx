@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Bell, CheckCheck, X } from "lucide-react";
 import { useNotifications } from "@/lib/realtime/useNotifications";
 import { NotificationItem } from "./NotificationItem";
+import { PushNotificationsToggle } from "./PushNotificationsToggle";
 import {
   getNotifications,
   markNotificationRead,
@@ -183,6 +184,8 @@ export function NotificationBell({
               </button>
             </div>
           </div>
+
+          <PushNotificationsToggle />
 
           {/* Filter tabs */}
           <div className="flex border-b border-slate-100 overflow-x-auto">
