@@ -110,7 +110,7 @@ reset role;
 -- suite, es el comportamiento que EXPAND garantiza por diseño.
 -- ============================================================
 set role anon;
-\echo '--- D1. ANON sigue pudiendo leer profiles.phone de un tercero directamente (ESPERADO EN EXPAND — P0 abierto a propósito) ---'
+\echo '--- D1. ANON sigue pudiendo leer profiles.phone de un tercero directamente (ESPERADO EN EXPAND — P0 abierto a propósito; tras 0063 anon ya no ejecuta current_user_role(): error 42501 en vez de datos) ---'
 select id, phone, business_ruc from public.profiles where id = 'a0000000-0000-4000-8000-000000000002';
 reset role;
 

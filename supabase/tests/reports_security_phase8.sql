@@ -174,6 +174,7 @@ reset role;
 
 -- ------------------------------------------------------------
 -- N-REP-6 (ANON): un usuario no autenticado no puede leer ningún reporte.
+-- (0 filas; tras 0063 falla con 42501 permission denied for function current_user_role)
 -- ------------------------------------------------------------
 set role anon;
 select id from public.reports where id = 'f2000000-0000-4000-8000-000000000001';
@@ -361,6 +362,7 @@ reset role;
 
 -- ------------------------------------------------------------
 -- N-EVID-4 (ANON): tampoco puede leer evidencia sin sesión.
+-- (0 filas; tras 0063 falla con 42501 permission denied for function current_user_role)
 -- ------------------------------------------------------------
 set role anon;
 select id from public.report_evidence where report_id = 'f2000000-0000-4000-8000-000000000010';

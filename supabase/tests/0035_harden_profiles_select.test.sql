@@ -95,9 +95,9 @@ reset role;
 -- B. TERCERO — acceso denegado tras CONTRACT (5-8)
 -- ============================================================
 set role anon;
-\echo '--- B5. ANON ya NO puede leer profiles de nadie directamente (esperado: 0 filas) ---'
+\echo '--- B5. ANON ya NO puede leer profiles de nadie directamente (esperado: 0 filas; tras 0063: error 42501 permission denied for function current_user_role) ---'
 select id, phone, business_ruc from public.profiles where id = 'b0000000-0000-4000-8000-000000000002';
-\echo '--- B6. ANON: SELECT * sobre toda la tabla (esperado: 0 filas) ---'
+\echo '--- B6. ANON: SELECT * sobre toda la tabla (esperado: 0 filas; tras 0063: error 42501 permission denied for function current_user_role) ---'
 select count(*) as debe_ser_cero from public.profiles;
 reset role;
 
