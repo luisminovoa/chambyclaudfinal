@@ -151,3 +151,70 @@ describe("createJob — category validada contra CATEGORY_NAMES (Fase 2.1, cierr
     expect(state.inserted[0].payload.category).toBe("Gasfitero");
   });
 });
+
+/**
+ * 0062_harden_jobs_insert.sql: `authenticated` solo tiene INSERT sobre
+ * estas 12 columnas de public.jobs, y la policy jobs_insert_employer exige
+ * el estado inicial legítimo. Si createJob() enviara cualquier otra
+ * columna (p. ej. status, assigned_worker_id, hired_at), el INSERT real
+ * fallaría con 42501 en producción — este test lo detecta antes. Si se
+ * agrega una columna nueva al formulario, hay que concederla también en
+ * una migración y sumarla aquí.
+ */
+const JOBS_INSERT_GRANTED_COLUMNS = [
+  "employer_id",
+  "title",
+  "description",
+  "category",
+  "city",
+  "address",
+  "pay_amount",
+  "pay_type",
+  "positions_needed",
+  "department",
+  "province",
+  "district",
+];
+
+const JOBS_COLUMNS_SET_ONLY_BY_DATABASE = [
+  "id",
+  "status",
+  "assigned_worker_id",
+  "starts_at",
+  "hired_at",
+  "completed_at",
+  "cancelled_at",
+  "worker_reported_finished_at",
+  "employer_confirmed_at",
+  "scheduled_start_at",
+  "scheduled_end_at",
+  "created_at",
+  "updated_at",
+];
+
+describe("createJob — payload compatible con 0062 (INSERT por columnas)", () => {
+  it("H) el INSERT solo contiene columnas con INSERT concedido, con y sin address", async () => {
+    await createJob({}, buildFormData({ address: "Av. Prueba 123", pay_amount: "80" }));
+    await createJob({}, buildFormData());
+    expect(state.inserted).toHaveLength(2);
+
+    for (const { payload } of state.inserted) {
+      const sent = Object.keys(payload).filter((k) => payload[k] !== undefined);
+      const notGranted = sent.filter((k) => !JOBS_INSERT_GRANTED_COLUMNS.includes(k));
+      expect(notGranted).toEqual([]);
+    }
+  });
+
+  it("I) el INSERT nunca incluye columnas que fija la base de datos (status, asignación, contratación, horario, finalización, ids y fechas)", async () => {
+    await createJob({}, buildFormData({ address: "Av. Prueba 123", pay_amount: "80" }));
+    const payload = state.inserted[0].payload;
+    for (const column of JOBS_COLUMNS_SET_ONLY_BY_DATABASE) {
+      expect(Object.keys(payload)).not.toContain(column);
+    }
+  });
+
+  it("J) con todos los campos opcionales, el payload usa exactamente las 12 columnas concedidas", async () => {
+    await createJob({}, buildFormData({ address: "Av. Prueba 123", pay_amount: "80" }));
+    expect(Object.keys(state.inserted[0].payload).sort()).toEqual([...JOBS_INSERT_GRANTED_COLUMNS].sort());
+  });
+});
