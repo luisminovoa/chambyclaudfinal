@@ -76,14 +76,20 @@ export default async function JobDetailPage({ params }: { params: { id: string }
     canShowApplyButton({ viewerRole: profile?.role ?? null, isOwner }) && jobBase.status === "abierto";
   const jobCompleted = jobBase.status === "completado";
 
+  // Solo el dueño del trabajo y el trabajador asignado (con sesión) pueden
+  // ver los datos del trabajador asignado. El `Boolean(user)` evita que un
+  // visitante coincida por casualidad con un `assigned_worker_id` ausente
+  // (undefined === undefined).
+  const isParticipant = Boolean(user) && (isOwner || isAssignedWorker);
+
   // Fetch en paralelo: perfil público del empleador, su calificación,
-  // historial de estados, perfil público del trabajador asignado. El
-  // empleador y el trabajador asignado son terceros (no auth.uid() ni
-  // admin necesariamente) — se leen de public.public_profiles, no de
-  // profiles directamente, para no depender de un embed `profiles!fkey`
-  // que la RLS de 0034_harden_profiles_public_access.sql ya no permite
-  // resolver para un tercero. Ver esa migración: la vista nunca expone
-  // phone/business_ruc.
+  // historial de estados, datos del trabajador asignado. El empleador es
+  // un tercero (no auth.uid() ni admin necesariamente) — se lee de
+  // public.public_profiles, no de profiles directamente, para no depender
+  // de un embed `profiles!fkey` que la RLS de
+  // 0034_harden_profiles_public_access.sql ya no permite resolver para un
+  // tercero. Desde 0061 esa vista contiene SOLO empleadores, así que el
+  // trabajador asignado ya no puede leerse de ahí.
   const [employerRes, employerRatingRes, stateHistoryRes, assignedWorkerRes, assignedWorkerConversationId] =
     await Promise.all([
     supabase
@@ -103,9 +109,17 @@ export default async function JobDetailPage({ params }: { params: { id: string }
           .eq("job_id", jobBase.id)
           .order("created_at", { ascending: true })
       : Promise.resolve({ data: [] }),
-    jobBase.assigned_worker_id
-      ? supabase
-          .from("public_profiles")
+    // Trabajador asignado: cliente admin + lista blanca de 5 columnas,
+    // únicamente cuando el viewer ya fue confirmado arriba como dueño o
+    // trabajador asignado (relación legítima, no RLS de profiles) — mismo
+    // patrón que la lista de postulantes más abajo. No usa public_workers
+    // (filtra por profiles.role='worker', el MODO activo) porque hay
+    // trabajadores asignados que hoy no lo cumplen; ni public_profiles
+    // (solo empleadores desde 0061). Un visitante o un usuario sin
+    // relación nunca ejecuta esta consulta.
+    jobBase.assigned_worker_id && isParticipant
+      ? createAdminClient()
+          .from("profiles")
           .select("id, full_name, avatar_url, category, city")
           .eq("id", jobBase.assigned_worker_id)
           .maybeSingle()
