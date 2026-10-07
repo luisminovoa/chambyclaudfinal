@@ -1,0 +1,42 @@
+-- ============================================================
+-- CHAMBY — SEC: eliminar los privilegios de `anon` sobre public.ratings
+--
+-- Hallazgo (auditoría de solo lectura, ACL verificada en producción):
+--   Tras 0064 (que solo le quitó SELECT), `anon` conservaba sobre
+--   public.ratings los privilegios explícitos INSERT, UPDATE, DELETE,
+--   TRUNCATE, REFERENCES y TRIGGER (grants de los default privileges de la
+--   plataforma al crearse la tabla; ninguna migración los concedió).
+--
+--   · INSERT/UPDATE/DELETE estaban frenados únicamente por RLS
+--     (ratings_insert_participant exige auth.uid() = rater_id; no existe
+--     ninguna policy de UPDATE ni de DELETE). Un solo cambio de policy los
+--     habría abierto.
+--   · TRUNCATE (y REFERENCES/TRIGGER) NO están sujetos a RLS: en una base
+--     desechable que replicaba el estado de producción, `anon` pudo vaciar
+--     la tabla con TRUNCATE. PostgREST no expone TRUNCATE, así que no era
+--     explotable por la API pública, pero es un privilegio sin ninguna
+--     justificación.
+--
+-- La aplicación NO necesita ninguno de esos privilegios para `anon`:
+--   · La única escritura sobre ratings es submitRating (INSERT con sesión,
+--     rol authenticated). No existe ninguna edición ni borrado de
+--     calificaciones; ninguna ruta anónima lee o escribe ratings.
+--   · Lo público (reputación del empleador) sale de la vista rating_summary,
+--     que es definer (owner postgres) y no depende de los privilegios de
+--     `anon` sobre la tabla.
+--
+-- Efecto: `anon` recibe 42501 "permission denied for table ratings" en
+-- cualquier operación (antes: error de RLS en INSERT, o "0 filas" en
+-- UPDATE/DELETE sin WHERE).
+--
+-- NO cambia:
+--   · authenticated ni service_role (conservan todos sus privilegios).
+--   · Policies, RLS, rating_summary, funciones, triggers ni columnas.
+--   · Ningún otro objeto ni código de aplicación.
+--
+-- Idempotente: REVOKE sobre un privilegio ya ausente no falla; se puede
+-- aplicar más de una vez. (REVOKE ALL se usa a propósito en lugar de una
+-- lista: MAINTAIN solo existe desde PostgreSQL 17.)
+-- ============================================================
+
+REVOKE ALL ON public.ratings FROM anon;
