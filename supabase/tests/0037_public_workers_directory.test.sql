@@ -110,7 +110,7 @@ select pg_get_viewdef('public.public_workers'::regclass, true) ilike '%is_active
 -- D. DATOS
 -- ============================================================
 set role authenticated;
-select set_config('request.jwt.claim.sub', 'd0000000-0000-4000-8000-000000000001', false);
+select set_config('request.jwt.claim.sub', 'd0000000-0000-4000-8000-000000000003', false);  -- 0066: llamador = Carla (employer); Ana es worker puro y ya no ve el directorio
 
 \echo '--- D1. Worker activo (Ana) aparece, con datos combinados de profiles + worker_profile_details (esperado: 1 fila completa) ---'
 select id, full_name, city, category, professional_title, availability, years_experience, hourly_rate, daily_rate
