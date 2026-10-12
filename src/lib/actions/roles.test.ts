@@ -73,22 +73,47 @@ function userRolesSelectChain(predicate: (r: RoleRow) => boolean) {
 
 /**
  * Simula la policy `profiles_update_own` TAL COMO QUEDA tras
- * 0018_fix_admin_role_switch_rls.sql — no un mock optimista que siempre
- * aprueba. La rama `currentRoleIsAdmin` deliberadamente lee
- * `state.profileRole` ANTES de aplicar el update, igual que
- * `current_user_role()` ve el valor previo dentro de un WITH CHECK (la
- * causa raíz del bug: una subconsulta separada no ve su propio cambio a
- * mitad de sentencia). Esto es lo que permite que estos tests detecten
- * de verdad una regresión de la policy, no solo de switchRoleAction().
+ * 0047_harden_profiles_is_active.sql + 0067_harden_profiles_role_switch.sql
+ * — no un mock optimista que siempre aprueba. `newRole` es el `role` NUEVO
+ * de la fila (si el UPDATE no toca `role`, es el modo actual).
+ *
+ * WITH CHECK, rama por rama (0067):
+ *   1. `current_user_role() = 'admin'` — el modo ACTUAL (previo al UPDATE)
+ *      es admin: puede escribir cualquier valor. Es la vía de
+ *      changeUserRole() y de un admin que cambia su propio modo.
+ *   2. auto-servicio worker/employer: el rol destino debe ser worker o
+ *      employer Y (el rol NO cambia O existe user_roles(role = destino,
+ *      active = true)). Antes de 0067 bastaba con el primer requisito, por
+ *      lo que un cliente podía saltarse switchRoleAction() y ponerse un
+ *      modo cuyo rol no poseía.
+ *   3. auto-promoción a admin: exige user_roles(role='admin', active=true).
+ *
+ * `previousRole` y `current_user_role()` leen deliberadamente
+ * `state.profileRole` ANTES de aplicar el update, igual que una
+ * subconsulta separada dentro de un WITH CHECK ve el valor previo de la
+ * fila (la causa raíz documentada en 0018). Eso permite que estos tests
+ * detecten de verdad una regresión de la policy, no solo de
+ * switchRoleAction().
+ *
+ * `is_active`: ningún UPDATE de este archivo lo escribe (su valor
+ * almacenado no cambia), por lo que la igualdad que exige 0047 en las
+ * ramas 2 y 3 siempre se cumple aquí. Su cobertura propia vive en
+ * profile-is-active-rls.test.ts.
+ *
+ * `profiles_insert_own` (0067: role in ('worker','employer')) no se
+ * simula: ningún código de la aplicación inserta en `profiles` (lo hace el
+ * trigger handle_new_user(), SECURITY DEFINER). Su cobertura es el test SQL
+ * supabase/tests/0067_harden_profiles_role_switch.test.sql.
  */
-function evaluateProfilesUpdateCheck(targetRole: string): { allowed: boolean; error?: PgError } {
-  const currentRoleIsAdmin = state.profileRole === "admin";
-  const hasActiveAdminRole = state.roles.some((r) => r.role === "admin" && r.active);
+function evaluateProfilesUpdateCheck(newRole: string): { allowed: boolean; error?: PgError } {
+  const previousRole = state.profileRole;
+  const currentRoleIsAdmin = previousRole === "admin";
+  const hasActiveRole = (role: string) => state.roles.some((r) => r.role === role && r.active);
   const allowed =
     currentRoleIsAdmin ||
-    targetRole === "worker" ||
-    targetRole === "employer" ||
-    (targetRole === "admin" && hasActiveAdminRole);
+    ((newRole === "worker" || newRole === "employer") &&
+      (newRole === previousRole || hasActiveRole(newRole))) ||
+    (newRole === "admin" && hasActiveRole("admin"));
   return allowed ? { allowed: true } : { allowed: false, error: RLS_VIOLATION };
 }
 
@@ -101,10 +126,27 @@ vi.mock("@/lib/supabase/server", () => ({
           select: () => userRolesSelectChain(() => true),
           update: (payload: unknown) => {
             state.userRolesWrites.push({ op: "update", payload });
-            return { eq: async () => ({ error: null }) };
+            return {
+              eq: async (col: string, val: unknown) => {
+                // Efecto real del UPDATE sobre la fila (los mocks de fila
+                // usan id `${role}-row`): necesario para que el orden
+                // "reactivar el rol y LUEGO cambiar de modo" sea observable
+                // por la policy simulada de profiles.
+                const active = (payload as { active?: boolean }).active;
+                if (col === "id" && typeof active === "boolean") {
+                  const row = state.roles.find((r) => `${r.role}-row` === val);
+                  if (row) row.active = active;
+                }
+                return { error: null };
+              },
+            };
           },
           insert: (payload: unknown) => {
             state.userRolesWrites.push({ op: "insert", payload });
+            // Efecto real del INSERT (user_roles.active default true): la
+            // fila nueva existe para los pasos siguientes, igual que en BD.
+            const role = (payload as { role?: string }).role;
+            if (role && !state.roles.some((r) => r.role === role)) state.roles.push({ role, active: true });
             return { then: (resolve: (v: { error: null }) => void) => resolve({ error: null }) };
           },
         };
@@ -129,6 +171,11 @@ vi.mock("@/lib/supabase/server", () => ({
               if (state.forceLocationUpdateError) {
                 return { error: { code: "XXOOO", message: "simulated db error" } };
               }
+              // Un UPDATE que no toca `role` también pasa por el WITH CHECK
+              // (0067): el rol no cambia, así que una cuenta cuyo modo no
+              // tiene fila activa NO queda bloqueada para editar su perfil.
+              const check = evaluateProfilesUpdateCheck(state.profileRole);
+              if (!check.allowed) return { error: check.error };
               state.cityUpdates.push(payload);
               return { error: null };
             },
@@ -156,7 +203,7 @@ function makeFormData(fields: Record<string, string>): FormData {
   return fd;
 }
 
-describe("switchRoleAction — reglas de negocio de roles (contra una simulación fiel de profiles_update_own, 0018)", () => {
+describe("switchRoleAction — reglas de negocio de roles (contra una simulación fiel de profiles_update_own, 0047 + 0067)", () => {
   beforeEach(reset);
 
   it("1. worker -> employer (cuenta con ambos activos)", async () => {
@@ -254,7 +301,8 @@ describe("switchRoleAction — reglas de negocio de roles (contra una simulació
 
   it("G. usuario normal intentando modificar profiles.role a 'admin' DIRECTAMENTE (saltándose switchRoleAction) = DENEGADO por la policy", async () => {
     // No pasa por switchRoleAction() en absoluto — es exactamente el ataque
-    // que 0009 (V1) y ahora 0018 deben seguir bloqueando: un UPDATE crudo
+    // que 0009 (V1), 0018 (históricas) y la policy vigente (0047, más 0067
+    // si está aplicada) deben seguir bloqueando: un UPDATE crudo
     // contra profiles, como lo haría un cliente que se salta la Server
     // Action y llama a Supabase directamente con su propia sesión.
     state.profileRole = "worker";
@@ -266,6 +314,97 @@ describe("switchRoleAction — reglas de negocio de roles (contra una simulació
     expect(error).toEqual(RLS_VIOLATION);
     expect(state.profileRole).toBe("worker");
     expect(state.profileUpdates).toEqual([]);
+  });
+
+  // ── 0067: el cambio de modo exige poseer el rol destino ACTIVO también por
+  // la vía directa (PATCH /rest/v1/profiles), sin pasar por switchRoleAction().
+  // Casos A3/A4/A5 de supabase/tests/0067_harden_profiles_role_switch.test.sql;
+  // el comportamiento real contra Postgres lo prueba ese test SQL.
+
+  it("G.2 (A3) worker PURO pone profiles.role='employer' DIRECTAMENTE sin fila employer = DENEGADO por la policy (0067)", async () => {
+    state.profileRole = "worker";
+    state.roles = [{ role: "worker", active: true }];
+
+    const supabase = createClient();
+    const { error } = await supabase.from("profiles").update({ role: "employer" }).eq("id", "user-1");
+
+    expect(error).toEqual(RLS_VIOLATION);
+    expect(state.profileRole).toBe("worker");
+    expect(state.profileUpdates).toEqual([]);
+  });
+
+  it("G.3 (A4) employer PURO pone profiles.role='worker' DIRECTAMENTE sin fila worker = DENEGADO por la policy (0067)", async () => {
+    state.profileRole = "employer";
+    state.roles = [{ role: "employer", active: true }];
+
+    const supabase = createClient();
+    const { error } = await supabase.from("profiles").update({ role: "worker" }).eq("id", "user-1");
+
+    expect(error).toEqual(RLS_VIOLATION);
+    expect(state.profileRole).toBe("employer");
+    expect(state.profileUpdates).toEqual([]);
+  });
+
+  it("G.4 (A5) worker con employer INACTIVO pone profiles.role='employer' DIRECTAMENTE = DENEGADO por la policy (0067)", async () => {
+    state.profileRole = "worker";
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "employer", active: false },
+    ];
+
+    const supabase = createClient();
+    const { error } = await supabase.from("profiles").update({ role: "employer" }).eq("id", "user-1");
+
+    expect(error).toEqual(RLS_VIOLATION);
+    expect(state.profileRole).toBe("worker");
+    expect(state.profileUpdates).toEqual([]);
+  });
+
+  it("G.5 cuenta con ambos roles activos cambia de modo DIRECTAMENTE = permitido (el cambio legítimo no se rompe)", async () => {
+    state.profileRole = "worker";
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "employer", active: true },
+    ];
+
+    const supabase = createClient();
+    const { error } = await supabase.from("profiles").update({ role: "employer" }).eq("id", "user-1");
+
+    expect(error).toBeNull();
+    expect(state.profileRole).toBe("employer");
+  });
+
+  it("G.6 modo cuyo rol está inactivo: re-escribir el MISMO rol o editar el perfil NO se bloquea (rol sin cambio, estado preexistente)", async () => {
+    state.profileRole = "worker";
+    state.roles = [
+      { role: "worker", active: false },
+      { role: "employer", active: true },
+    ];
+
+    const supabase = createClient();
+    const sameRole = await supabase.from("profiles").update({ role: "worker" }).eq("id", "user-1");
+    const otherField = await supabase.from("profiles").update({ city: "Lima" }).eq("id", "user-1");
+
+    expect(sameRole.error).toBeNull();
+    expect(otherField.error).toBeNull();
+    expect(state.cityUpdates).toEqual([{ city: "Lima" }]);
+    expect(state.profileRole).toBe("worker");
+  });
+
+  it("G.7 un rol INACTIVO no sirve de destino aunque haya sido el modo anterior: employer -> worker (inactivo) = DENEGADO", async () => {
+    state.profileRole = "worker";
+    state.roles = [
+      { role: "worker", active: false },
+      { role: "employer", active: true },
+    ];
+    // el destino 'employer' SÍ lo posee (activo); el origen 'worker' está inactivo
+    const supabase = createClient();
+    const allowed = await supabase.from("profiles").update({ role: "employer" }).eq("id", "user-1");
+    expect(allowed.error).toBeNull();
+    // ya en employer, volver a 'worker' (inactivo) se rechaza
+    const denied = await supabase.from("profiles").update({ role: "worker" }).eq("id", "user-1");
+    expect(denied.error).toEqual(RLS_VIOLATION);
+    expect(state.profileRole).toBe("employer");
   });
 
   it("H. admin -> worker -> admin = permitido", async () => {
@@ -433,6 +572,26 @@ describe("completeGoogleOnboarding — normalización de ciudad (Fase C4-F)", ()
     await completeGoogleOnboarding({}, makeFormData({ intent: "employer", city: "CHICLAYO" }));
     expect(state.profileUpdates).toEqual([{ role: "employer" }]);
     expect(state.cityUpdates).toEqual([{ city: "Chiclayo" }]);
+  });
+
+  it("0067 onboarding (worker puro, intent=employer): enableEmployerRole() agrega el rol ANTES de cambiar el modo — el orden que exige la policy", async () => {
+    state.roles = [{ role: "worker", active: true }];
+    await completeGoogleOnboarding({}, makeFormData({ intent: "employer", city: "Chiclayo" }));
+    expect(state.userRolesWrites).toEqual([{ op: "insert", payload: { user_id: "user-1", role: "employer" } }]);
+    expect(state.profileUpdates).toEqual([{ role: "employer" }]);
+    expect(state.profileRole).toBe("employer");
+    expect(state.cityUpdates).toEqual([{ city: "Chiclayo" }]);
+  });
+
+  it("0067 onboarding (rol employer INACTIVO, intent=employer): lo reactiva y LUEGO cambia el modo", async () => {
+    state.roles = [
+      { role: "worker", active: true },
+      { role: "employer", active: false },
+    ];
+    await completeGoogleOnboarding({}, makeFormData({ intent: "employer" }));
+    expect(state.userRolesWrites).toEqual([{ op: "update", payload: { active: true } }]);
+    expect(state.profileUpdates).toEqual([{ role: "employer" }]);
+    expect(state.profileRole).toBe("employer");
   });
 
   it("intent inválido/ausente se rechaza antes de tocar city", async () => {

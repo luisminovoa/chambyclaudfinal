@@ -102,15 +102,29 @@ export async function enableEmployerRole(): Promise<ActionResult> {
 }
 
 /**
- * Cambia el modo activo del usuario (profiles.role). Requiere que el
- * usuario ya posea el rol destino en user_roles — nunca crea un rol nuevo
- * (eso es responsabilidad exclusiva de enableEmployerRole()).
+ * Cambia el modo activo del usuario (profiles.role). Para CUALQUIER rol
+ * destino (worker, employer o admin) comprueba primero que el usuario
+ * posea ese rol ACTIVO en user_roles (role = destino, active = true); si
+ * no, responde "No tienes acceso a ese rol." sin tocar profiles. Nunca crea
+ * un rol nuevo (eso es responsabilidad exclusiva de enableEmployerRole(),
+ * que debe haber insertado o reactivado la fila ANTES de este cambio).
  *
- * La policy RLS `profiles_update_own` (0018_fix_admin_role_switch_rls.sql)
- * es la que realmente autoriza — o rechaza — el UPDATE hacia 'admin' según
- * si el usuario posee una fila user_roles(role='admin', active=true); esta
- * función no necesita replicar esa condición, solo dar el mensaje genérico
- * si Postgres la rechaza.
+ * La autorización real la aplica PostgreSQL mediante RLS, no esta función:
+ * la policy `profiles_update_own` vigente es la de
+ * 0047_harden_profiles_is_active.sql (que reemplazó a las de 0001, 0009 y
+ * 0018). Esa policy autoriza o rechaza el UPDATE de profiles.role así:
+ *   - hacia 'admin': solo con una fila user_roles(role='admin',
+ *     active=true) (la auto-promoción) o si quien ejecuta ya es admin;
+ *   - entre 'worker' y 'employer': el cambio legítimo depende de que
+ *     existan las filas de rol correspondientes. En 0047 la propia policy
+ *     NO lo comprobaba y la única barrera era la comprobación de esta
+ *     función; la migración 0067_harden_profiles_role_switch.sql (propuesta,
+ *     aún no aplicada) hace que la policy exija además que el rol no cambie
+ *     o que exista user_roles(role = destino, active = true), de modo que
+ *     un cliente que se salte esta Server Action no pueda ponerse un modo
+ *     cuyo rol no posee.
+ * Esta función no replica esas condiciones: solo da el mensaje genérico
+ * "No se pudo cambiar el modo activo." si Postgres rechaza el UPDATE.
  */
 export async function switchRoleAction(newRole: UserRole): Promise<ActionResult> {
   const { supabase, user } = await getAuth();
