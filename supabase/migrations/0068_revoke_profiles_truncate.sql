@@ -1,0 +1,61 @@
+-- ============================================================
+-- CHAMBY — SEC: retirar TRUNCATE de `anon` y `authenticated` sobre
+-- public.profiles
+--
+-- Hallazgo (auditoría de solo lectura, ACL verificada en producción):
+--   public.profiles concede TRUNCATE a `anon` y a `authenticated`; lo
+--   comprobado en producción es que esos grants los concedió `postgres`.
+--   El origen histórico de esas concesiones NO está demostrado (ninguna
+--   migración del repositorio contiene un GRANT de TRUNCATE, según búsqueda
+--   en los archivos, pero eso no prueba de dónde provienen en producción).
+--   `service_role` también lo tiene. RLS está habilitado en la tabla.
+--
+--   TRUNCATE NO está sujeto a RLS: ninguna policy de profiles lo evalúa, así
+--   que el único freno es el privilegio de tabla. PostgREST no expone
+--   TRUNCATE, por lo que no era explotable por la API pública, pero es un
+--   privilegio destructivo sin ninguna justificación para estos dos roles
+--   (mismo hallazgo y mismo criterio que 0065 para public.ratings).
+--
+--   Resultado de una base de datos LOCAL DESECHABLE (no de una prueba en
+--   producción) que replicaba el estado previo (migraciones 0001-0067):
+--   `authenticated` pudo ejecutar TRUNCATE ... CASCADE sobre profiles y se
+--   propagó a las 25 tablas que referencian a profiles por clave foránea
+--   en esa réplica (jobs, messages, user_roles, ratings...). `anon` solo fallaba
+--   por un efecto colateral: 0065 le quitó los privilegios sobre ratings, y el
+--   CASCADE exige TRUNCATE sobre todas las tablas alcanzadas. Un TRUNCATE
+--   simple de profiles falla con 0A000 por esas claves foráneas, pero el
+--   CASCADE no.
+--
+-- La aplicación NO necesita TRUNCATE sobre profiles para ningún rol de
+-- sesión: ninguna migración, función ni código de la aplicación vacía esa
+-- tabla (la única mención de TRUNCATE en las migraciones son comentarios).
+--
+-- Qué hace: SOLO retira TRUNCATE de anon y authenticated sobre
+-- public.profiles. PUBLIC no tiene TRUNCATE por defecto, así que el REVOKE
+-- sobre estos dos roles basta; la prueba lo comprueba por privilegio
+-- EFECTIVO (has_table_privilege) y no solo por la ACL.
+--
+-- La migración emite una única sentencia y ningún otro REVOKE/GRANT. La
+-- COMPARACIÓN EXACTA de la ACL (que lo único que cambia es TRUNCATE de anon
+-- y authenticated) requiere la instantánea previa descrita en
+-- supabase/tests/0068_revoke_profiles_truncate.test.sql; sin ella, el test
+-- solo verifica los privilegios y condiciones que comprueban expresamente
+-- sus aserciones, y no afirma que todos los demás permanezcan idénticos.
+--
+-- NO cambia (la migración no los toca):
+--   · SELECT, INSERT, UPDATE, DELETE, REFERENCES ni TRIGGER (ni MAINTAIN en
+--     PostgreSQL 17) de anon o authenticated.
+--   · service_role: conserva TRUNCATE y todos sus privilegios.
+--   · RLS, FORCE RLS ni ninguna policy de profiles.
+--   · Ninguna otra tabla, función, vista ni código de la aplicación.
+--
+-- Efecto: un intento de TRUNCATE de anon o authenticated recibe 42501
+-- "permission denied for table profiles".
+--
+-- Rollback: GRANT TRUNCATE ON TABLE public.profiles TO anon, authenticated;
+--
+-- Idempotente: REVOKE sobre un privilegio ya ausente no falla; se puede
+-- aplicar más de una vez.
+-- ============================================================
+
+REVOKE TRUNCATE ON TABLE public.profiles FROM anon, authenticated;
