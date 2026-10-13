@@ -281,6 +281,8 @@ select tap.rs_case('E', 'E2  usuario inserta un perfil con el id de OTRO usuario
   $q$insert into public.profiles (id, role, full_name) values ('fe000000-0000-4000-8000-000000000009', 'worker', 'Suplantacion')$q$);
 select tap.rs_case('E', 'E3  usuario inserta SU perfil con role=worker (flujo normal de alta)', 'PERMITIDA', 'authenticated', 'fe000000-0000-4000-8000-00000000000a',
   $q$insert into public.profiles (id, role, full_name) values (auth.uid(), 'worker', 'Alta manual')$q$);
+select tap.rs_case('E', 'E3b usuario inserta SU perfil con role=employer (flujo legitimo de alta; la policy no exige fila en user_roles)', 'PERMITIDA', 'authenticated', 'fe000000-0000-4000-8000-00000000000a',
+  $q$insert into public.profiles (id, role, full_name) values (auth.uid(), 'employer', 'Alta manual employer')$q$);
 
 -- E4/E5. el alta por signup (trigger handle_new_user, SECURITY DEFINER) NO pasa por profiles_insert_own y sigue
 --        sin poder producir un admin aunque el metadata (controlado por el usuario) lo pida
@@ -354,7 +356,7 @@ declare v_fallan int; v_lista text; v_total int;
 begin
   select count(*), string_agg(split_part(caso, ' ', 1), ', ' order by n) into v_fallan, v_lista from tap.rs_results where not ok;
   select count(*) into v_total from tap.rs_results;
-  assert v_total = 38, 'se esperaban 38 casos y se ejecutaron ' || v_total;
+  assert v_total = 39, 'se esperaban 39 casos y se ejecutaron ' || v_total;
   assert v_fallan = 0, 'FALLAN ' || v_fallan || ' caso(s): ' || coalesce(v_lista, '');
 end $$;
 
